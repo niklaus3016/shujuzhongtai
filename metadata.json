@@ -1,0 +1,7 @@
+{
+  "name": "AdMaster Data Hub",
+  "description": "A high-end mobile advertising data middle platform for monitoring performance, user behavior, rankings, and anomalies in real-time.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
