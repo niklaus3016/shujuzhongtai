@@ -1,6 +1,7 @@
 import React from 'react';
-import { AppTab } from '../types';
+import { AppTab, UserRole } from '../types';
 import { Home, ShieldAlert, UserPlus, Users2, User, Settings } from 'lucide-react';
+import { authService } from '../services/authService';
 
 interface BottomNavProps {
   activeTab: AppTab;
@@ -8,14 +9,44 @@ interface BottomNavProps {
 }
 
 const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab }) => {
-  const tabs = [
-    { id: AppTab.DASHBOARD, icon: Home, label: '首页' },
-    { id: AppTab.NEW_USERS, icon: UserPlus, label: '新人' },
-    { id: AppTab.TEAM, icon: Users2, label: '团队' },
-    { id: AppTab.MANAGEMENT, icon: Settings, label: '管理' },
-    { id: AppTab.ALERTS, icon: ShieldAlert, label: '预警' },
-    { id: AppTab.PROFILE, icon: User, label: '我的' },
-  ];
+  const currentUser = authService.getCurrentUser();
+  const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
+  const isSuperAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
+
+  // 根据角色定义不同的菜单项
+  const getTabs = () => {
+    if (isSuperAdmin) {
+      // 超级管理员：显示所有菜单
+      return [
+        { id: AppTab.DASHBOARD, icon: Home, label: '首页' },
+        { id: AppTab.NEW_USERS, icon: UserPlus, label: '新人' },
+        { id: AppTab.TEAM, icon: Users2, label: '团队' },
+        { id: AppTab.MANAGEMENT, icon: Settings, label: '管理' },
+        { id: AppTab.ALERTS, icon: ShieldAlert, label: '预警' },
+        { id: AppTab.PROFILE, icon: User, label: '我的' },
+      ];
+    } else if (isTeamLeader) {
+      // 团队长：隐藏管理模块
+      return [
+        { id: AppTab.DASHBOARD, icon: Home, label: '首页' },
+        { id: AppTab.NEW_USERS, icon: UserPlus, label: '新人' },
+        { id: AppTab.TEAM, icon: Users2, label: '团队' },
+        { id: AppTab.ALERTS, icon: ShieldAlert, label: '预警' },
+        { id: AppTab.PROFILE, icon: User, label: '我的' },
+      ];
+    }
+    // 默认显示所有菜单
+    return [
+      { id: AppTab.DASHBOARD, icon: Home, label: '首页' },
+      { id: AppTab.NEW_USERS, icon: UserPlus, label: '新人' },
+      { id: AppTab.TEAM, icon: Users2, label: '团队' },
+      { id: AppTab.MANAGEMENT, icon: Settings, label: '管理' },
+      { id: AppTab.ALERTS, icon: ShieldAlert, label: '预警' },
+      { id: AppTab.PROFILE, icon: User, label: '我的' },
+    ];
+  };
+
+  const tabs = getTabs();
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-gray-100 px-2 pt-2 pb-5 flex justify-around items-center z-50 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">

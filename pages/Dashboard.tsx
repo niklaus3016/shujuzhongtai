@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { TimeRange, KPIStats, User } from '../types';
+import { TimeRange, KPIStats, User, UserRole } from '../types';
 import { 
   TrendingUp, TrendingDown, Eye, MousePointer2, Coins, 
   Wallet, BarChart3, Percent, ChevronRight, Globe, Smartphone, Zap, Users,
   Trophy, Medal, Crown, RefreshCw
 } from 'lucide-react';
 import { request } from '../services/api';
+import { authService } from '../services/authService';
 
 interface DashboardUser {
   id: string;
@@ -42,6 +43,12 @@ const mockDashboardUsers: DashboardUser[] = [
 ];
 
 const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) => {
+  const currentUser = authService.getCurrentUser();
+  const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
+  const isSuperAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
+  // 只要不是团队长，就显示数据看板（包括超级管理员和普通管理员）
+  const showKPIDashboard = !isTeamLeader;
+  
   const [timeRange, setTimeRange] = useState<TimeRange>(TimeRange.TODAY);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -64,40 +71,46 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       };
       const rangeParam = timeRangeMap[timeRange];
 
-      // Fetch KPI data
-      const kpiResponse = await request<any>(`/dashboard/kpi?range=${rangeParam}`, {
-        method: 'GET',
-        headers: new Headers({
-          'Content-Type': 'application/json'
-        })
-      });
+      // 只要不是团队长，就获取KPI数据
+      if (showKPIDashboard) {
+        const kpiResponse = await request<any>(`/dashboard/kpi?range=${rangeParam}`, {
+          method: 'GET',
+          headers: new Headers({
+            'Content-Type': 'application/json'
+          })
+        });
 
-      // Time prefix for dynamic titles
-      const timePrefixMap: Record<string, string> = {
-        [TimeRange.TODAY]: '今日',
-        [TimeRange.YESTERDAY]: '昨日',
-        [TimeRange.THIS_WEEK]: '本周',
-        [TimeRange.THIS_MONTH]: '本月'
-      };
-      const timePrefix = timePrefixMap[timeRange];
-      const showGrowth = timeRange === TimeRange.TODAY || timeRange === TimeRange.THIS_MONTH;
+        // Time prefix for dynamic titles
+        const timePrefixMap: Record<string, string> = {
+          [TimeRange.TODAY]: '今日',
+          [TimeRange.YESTERDAY]: '昨日',
+          [TimeRange.THIS_WEEK]: '本周',
+          [TimeRange.THIS_MONTH]: '本月'
+        };
+        const timePrefix = timePrefixMap[timeRange];
+        const showGrowth = timeRange === TimeRange.TODAY || timeRange === TimeRange.THIS_MONTH;
 
-      // Transform KPI data to match frontend format
-      const transformedKpis = [
-        { title: `${timePrefix}利润`, value: `¥${(Number(kpiResponse.revenue || 0) - Number(kpiResponse.coins || 0) / 1000).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: BarChart3, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-        { title: `${timePrefix}利润率`, value: `${kpiResponse.revenue > 0 ? ((Number(kpiResponse.revenue || 0) - Number(kpiResponse.coins || 0) / 1000) / Number(kpiResponse.revenue) * 100).toFixed(2) : '0.00'}%`, growth: showGrowth ? `${kpiResponse.profitMarginGrowth > 0 ? '+' : ''}${kpiResponse.profitMarginGrowth || 0}%` : '', isUp: kpiResponse.profitMarginGrowth > 0, icon: Percent, color: 'text-pink-600', bg: 'bg-pink-50' },
-        { title: '业务总收入', value: `¥${Number(kpiResponse.revenue || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: Wallet, color: 'text-green-600', bg: 'bg-green-50' },
+        // Transform KPI data to match frontend format
+        const transformedKpis = [
+          { title: `${timePrefix}利润`, value: `¥${(Number(kpiResponse.revenue || 0) - Number(kpiResponse.coins || 0) / 1000).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: BarChart3, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+          { title: `${timePrefix}利润率`, value: `${kpiResponse.revenue > 0 ? ((Number(kpiResponse.revenue || 0) - Number(kpiResponse.coins || 0) / 1000) / Number(kpiResponse.revenue) * 100).toFixed(2) : '0.00'}%`, growth: showGrowth ? `${kpiResponse.profitMarginGrowth > 0 ? '+' : ''}${kpiResponse.profitMarginGrowth || 0}%` : '', isUp: kpiResponse.profitMarginGrowth > 0, icon: Percent, color: 'text-pink-600', bg: 'bg-pink-50' },
+          { title: '业务总收入', value: `¥${Number(kpiResponse.revenue || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: Wallet, color: 'text-green-600', bg: 'bg-green-50' },
           { title: '用户分成金额', value: `¥${(Number(kpiResponse.coins || 0) / 1000).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, subValue: `${kpiResponse.revenue > 0 ? ((Number(kpiResponse.coins || 0) / 1000 / Number(kpiResponse.revenue)) * 100).toFixed(2) : '0.00'}%`, growth: showGrowth ? `${kpiResponse.coinsGrowth > 0 ? '+' : ''}${kpiResponse.coinsGrowth || 0}%` : '', isUp: kpiResponse.coinsGrowth > 0, icon: Coins, color: 'text-orange-600', bg: 'bg-orange-50' },
-        { title: '广告总曝光', value: kpiResponse.impressions?.toLocaleString() || '0', growth: showGrowth ? `${kpiResponse.impressionsGrowth > 0 ? '+' : ''}${kpiResponse.impressionsGrowth || 0}%` : '', isUp: kpiResponse.impressionsGrowth > 0, icon: Eye, color: 'text-blue-600', bg: 'bg-blue-50' },
-        { title: '广告总点击', value: kpiResponse.clicks?.toLocaleString() || '0', subValue: kpiResponse.impressions > 0 ? `${((kpiResponse.clicks || 0) / kpiResponse.impressions * 100).toFixed(2)}%` : '0.00%', growth: showGrowth ? `${kpiResponse.clicksGrowth > 0 ? '+' : ''}${kpiResponse.clicksGrowth || 0}%` : '', isUp: kpiResponse.clicksGrowth > 0, icon: MousePointer2, color: 'text-purple-600', bg: 'bg-purple-50' },
-        { title: `${timePrefix}平均 eCPM`, value: `${kpiResponse.ecpm || 0}`, growth: showGrowth ? `${kpiResponse.ecpmGrowth > 0 ? '+' : ''}${kpiResponse.ecpmGrowth || 0}%` : '', isUp: kpiResponse.ecpmGrowth > 0, icon: Zap, color: 'text-yellow-600', bg: 'bg-yellow-50' },
-        { title: `${timePrefix}活跃用户`, value: kpiResponse.activeUsers?.toLocaleString() || '0', growth: showGrowth ? `${kpiResponse.activeUsersGrowth > 0 ? '+' : ''}${kpiResponse.activeUsersGrowth || 0}%` : '', isUp: kpiResponse.activeUsersGrowth > 0, icon: Users, color: 'text-cyan-600', bg: 'bg-cyan-50' },
-      ];
+          { title: '广告总曝光', value: kpiResponse.impressions?.toLocaleString() || '0', growth: showGrowth ? `${kpiResponse.impressionsGrowth > 0 ? '+' : ''}${kpiResponse.impressionsGrowth || 0}%` : '', isUp: kpiResponse.impressionsGrowth > 0, icon: Eye, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { title: '广告总点击', value: kpiResponse.clicks?.toLocaleString() || '0', subValue: kpiResponse.impressions > 0 ? `${((kpiResponse.clicks || 0) / kpiResponse.impressions * 100).toFixed(2)}%` : '0.00%', growth: showGrowth ? `${kpiResponse.clicksGrowth > 0 ? '+' : ''}${kpiResponse.clicksGrowth || 0}%` : '', isUp: kpiResponse.clicksGrowth > 0, icon: MousePointer2, color: 'text-purple-600', bg: 'bg-purple-50' },
+          { title: `${timePrefix}平均 eCPM`, value: `${kpiResponse.ecpm || 0}`, growth: showGrowth ? `${kpiResponse.ecpmGrowth > 0 ? '+' : ''}${kpiResponse.ecpmGrowth || 0}%` : '', isUp: kpiResponse.ecpmGrowth > 0, icon: Zap, color: 'text-yellow-600', bg: 'bg-yellow-50' },
+          { title: `${timePrefix}活跃用户`, value: kpiResponse.activeUsers?.toLocaleString() || '0', growth: showGrowth ? `${kpiResponse.activeUsersGrowth > 0 ? '+' : ''}${kpiResponse.activeUsersGrowth || 0}%` : '', isUp: kpiResponse.activeUsersGrowth > 0, icon: Users, color: 'text-cyan-600', bg: 'bg-cyan-50' },
+        ];
 
-      setKpiData(transformedKpis);
+        setKpiData(transformedKpis);
+      }
 
-      // Fetch user data
-      const userResponse = await request<any[]>(`/dashboard/users?range=${rangeParam}`, {
+      // Fetch user data - 团队长只获取自己团队的用户
+      const userUrl = isTeamLeader && currentUser?.teamName 
+        ? `/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(currentUser.teamName)}`
+        : `/dashboard/users?range=${rangeParam}`;
+      
+      const userResponse = await request<any[]>(userUrl, {
         method: 'GET',
         headers: new Headers({
           'Content-Type': 'application/json'
@@ -167,31 +180,34 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
 
   return (
     <div className="pb-6">
-      <header className="sticky top-0 bg-white z-40 px-4 py-3 border-b border-gray-100">
+      <header className="sticky top-0 bg-white z-40 px-4 py-3 border-b border-gray-100 shadow-sm animate-in fade-in duration-300">
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center">
-            <h1 className="text-xl font-bold text-gray-900">数据总览</h1>
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 bg-gradient-to-br from-[#1E40AF] to-indigo-600 rounded-xl flex items-center justify-center shadow-md">
+              <TrendingUp size={18} className="text-white" />
+            </div>
+            <h1 className="text-xl font-bold text-gray-900">{isTeamLeader ? '团队数据' : '数据总览'}</h1>
             <button 
               onClick={handleRefresh}
               disabled={refreshing}
-              className="ml-2 p-1.5 bg-blue-50 rounded-lg text-[#1E40AF] hover:bg-blue-100 transition-colors disabled:opacity-50"
+              className="p-1.5 bg-blue-50 rounded-lg text-[#1E40AF] hover:bg-blue-100 transition-all disabled:opacity-50 animate-in hover:scale-105"
               title="刷新数据"
             >
               <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
             </button>
           </div>
-          <div className="p-1 bg-green-50 rounded-full flex items-center px-2 text-green-600 text-[10px] font-bold">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-1"></div>
+          <div className="p-1.5 bg-green-50 rounded-full flex items-center px-3 text-green-600 text-[10px] font-bold shadow-sm">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-1.5"></div>
             实时更新中
           </div>
         </div>
-        <div className="flex bg-gray-100 p-1 rounded-xl">
+        <div className="flex bg-gray-100 p-1 rounded-xl shadow-inner">
           {Object.values(TimeRange).map((range) => (
             <button
               key={range}
               onClick={() => setTimeRange(range)}
-              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                timeRange === range ? 'bg-white text-[#1E40AF] shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
+                timeRange === range ? 'bg-white text-[#1E40AF] shadow-md' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
               }`}
             >
               {range}
@@ -201,118 +217,125 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       </header>
 
       <div className="px-4 mt-4 space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          {kpis.map((kpi: any, idx) => {
-            const Icon = kpi.icon;
-            const rawValue = kpi.title.includes('eCPM') ? parseFloat(kpi.value) : 0;
-            
-            return (
-              <div key={idx} className="bg-white p-4 rounded-xl border border-gray-50 shadow-sm">
-                <div className="flex items-center justify-between mb-2">
-                  <div className={`p-2 rounded-lg ${kpi.bg}`}>
-                    <Icon size={18} className={kpi.color} />
-                  </div>
-                  {kpi.growth && (
-                    <div className={`text-[9px] font-bold flex items-center ${kpi.isUp ? 'text-[#10B981]' : 'text-[#EF4444]'}`}>
-                      {kpi.isUp ? <TrendingUp size={10} className="mr-0.5" /> : <TrendingDown size={10} className="mr-0.5" />}
-                      {kpi.growth}
+        {/* 只要不是团队长，就显示KPI数据看板 */}
+        {showKPIDashboard && (
+          <div className="grid grid-cols-2 gap-3">
+            {kpis.map((kpi: any, idx) => {
+              const Icon = kpi.icon;
+              const rawValue = kpi.title.includes('eCPM') ? parseFloat(kpi.value) : 0;
+              
+              return (
+                <div key={idx} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-md hover:shadow-lg transition-all duration-300 animate-in fade-in duration-500">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={`p-2.5 rounded-xl ${kpi.bg} shadow-sm`}>
+                      <Icon size={20} className={kpi.color} />
                     </div>
-                  )}
-                </div>
-                <div className="text-gray-500 text-[10px] font-medium mb-1 uppercase tracking-wider">{kpi.title}</div>
-                <div className={`text-base font-bold leading-none ${
-                    kpi.title.includes('eCPM') 
-                        ? (rawValue >= 150 ? 'text-[#10B981]' : 'text-[#EF4444]') 
-                        : 'text-gray-900'
-                }`}>
-                    {kpi.value}
-                    {kpi.subValue && (
-                      <span className={`ml-1.5 text-[10px] font-bold ${
-                        kpi.title === '广告总点击' 
-                          ? (parseFloat(kpi.subValue) >= 70 ? 'text-[#10B981]' : 'text-[#EF4444]')
-                          : (parseFloat(kpi.subValue) > 50 ? 'text-[#EF4444]' : 'text-[#10B981]')
-                      }`}>
-                        ({kpi.subValue})
-                      </span>
+                    {kpi.growth && (
+                      <div className={`text-[9px] font-bold flex items-center ${kpi.isUp ? 'text-[#10B981]' : 'text-[#EF4444]'} bg-opacity-10 px-2 py-0.5 rounded-full`}>
+                        {kpi.isUp ? <TrendingUp size={10} className="mr-0.5" /> : <TrendingDown size={10} className="mr-0.5" />}
+                        {kpi.growth}
+                      </div>
                     )}
+                  </div>
+                  <div className="text-gray-500 text-[10px] font-medium mb-1 uppercase tracking-wider">{kpi.title}</div>
+                  <div className={`text-lg font-bold leading-none ${
+                      kpi.title.includes('eCPM') 
+                          ? (rawValue >= 150 ? 'text-[#10B981]' : 'text-[#EF4444]') 
+                          : 'text-gray-900'
+                  }`}>
+                      {kpi.value}
+                      {kpi.subValue && (
+                        <span className={`ml-1.5 text-[10px] font-bold ${
+                          kpi.title === '广告总点击' 
+                            ? (parseFloat(kpi.subValue) >= 70 ? 'text-[#10B981]' : 'text-[#EF4444]')
+                            : (parseFloat(kpi.subValue) > 50 ? 'text-[#EF4444]' : 'text-[#10B981]')
+                        }`}>
+                          ({kpi.subValue})
+                        </span>
+                      )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-gray-50 flex items-center justify-between">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-md overflow-hidden animate-in fade-in duration-500">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50">
                 <h3 className="text-sm font-bold text-gray-900 flex items-center">
-                    用户实时表现 
-                    <span className="ml-2 px-1.5 py-0.5 bg-blue-50 text-[#1E40AF] text-[9px] rounded-full">Top 10</span>
+                    <Users size={16} className="mr-2 text-[#1E40AF]" />
+                    {isTeamLeader ? '成员实时表现' : '用户实时表现'}
+                    <span className="ml-2 px-2 py-0.5 bg-[#1E40AF] text-white text-[9px] rounded-full shadow-sm">Top 10</span>
                 </h3>
-                <div className="flex bg-gray-50 p-1 rounded-lg">
+                <div className="flex bg-white p-1 rounded-lg shadow-sm">
                     <button 
                         onClick={() => setSortBy('ecpm')}
-                        className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${sortBy === 'ecpm' ? 'bg-[#1E40AF] text-white' : 'text-gray-400'}`}
+                        className={`px-3 py-1.5 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'ecpm' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
                     >
                         按eCPM
                     </button>
                     <button 
                         onClick={() => setSortBy('watched')}
-                        className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${sortBy === 'watched' ? 'bg-[#1E40AF] text-white' : 'text-gray-400'}`}
+                        className={`px-3 py-1.5 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'watched' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
                     >
                         按次数
                     </button>
                     <button 
                         onClick={() => setSortBy('earnings')}
-                        className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${sortBy === 'earnings' ? 'bg-[#1E40AF] text-white' : 'text-gray-400'}`}
+                        className={`px-3 py-1.5 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'earnings' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
                     >
                         按收益
                     </button>
                 </div>
             </div>
             
-            <div className="divide-y divide-gray-50">
+            <div className="divide-y divide-gray-100">
                 {sortedUsers.map((user, idx) => (
                     <div 
                       key={user.id} 
-                      className="p-4 space-y-3 active:bg-gray-50 transition-colors cursor-pointer"
+                      className="p-4 space-y-3 active:bg-gray-50 transition-all duration-200 cursor-pointer hover:bg-gray-50/50 animate-in fade-in duration-300"
                       onClick={() => onSelectUser?.(user)}
                     >
                         <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-3">
                                 <div className="relative flex-shrink-0">
-                                    <div className="w-10 h-10 flex items-center justify-center text-gray-900 text-xs font-bold">
+                                    <div className="w-12 h-12 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl flex items-center justify-center text-gray-900 text-xs font-bold shadow-sm border border-gray-100">
                                         {user.id}
                                     </div>
                                     
                                     {idx === 0 && (
-                                        <div className="absolute -top-3 -left-2.5 text-yellow-500 z-10 drop-shadow-[0_2px_3px_rgba(0,0,0,0.2)] transform -rotate-12">
-                                            <Crown size={16} fill="currentColor" strokeWidth={1.5} />
+                                        <div className="absolute -top-3 -left-2.5 text-yellow-500 z-10 drop-shadow-[0_2px_3px_rgba(0,0,0,0.2)] transform -rotate-12 animate-pulse">
+                                            <Crown size={18} fill="currentColor" strokeWidth={1.5} />
                                         </div>
                                     )}
                                     {idx === 1 && (
                                         <div className="absolute -top-3 -left-2.5 text-slate-400 z-10 drop-shadow-[0_2px_3px_rgba(0,0,0,0.15)] transform -rotate-12">
-                                            <Crown size={16} fill="currentColor" strokeWidth={1.5} />
+                                            <Crown size={18} fill="currentColor" strokeWidth={1.5} />
                                         </div>
                                     )}
                                     {idx === 2 && (
                                         <div className="absolute -top-3 -left-2.5 text-amber-700 z-10 drop-shadow-[0_2px_3px_rgba(0,0,0,0.15)] transform -rotate-12">
-                                            <Crown size={16} fill="currentColor" strokeWidth={1.5} />
+                                            <Crown size={18} fill="currentColor" strokeWidth={1.5} />
                                         </div>
                                     )}
 
-                                    <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white flex items-center justify-center text-[7px] font-black text-white ${
-                                        idx === 0 ? 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.4)]' : idx === 1 ? 'bg-slate-400' : idx === 2 ? 'bg-amber-700' : 'bg-gray-200'
+                                    <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center text-[7px] font-black text-white ${
+                                        idx === 0 ? 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.4)]' : idx === 1 ? 'bg-slate-400' : idx === 2 ? 'bg-amber-700' : 'bg-gray-400'
                                     }`}>
                                         {idx + 1}
                                     </div>
                                 </div>
                                 <div className="min-w-0 flex-1">
                                     <div className="flex items-center space-x-2">
+                                        <h4 className="text-sm font-bold text-gray-900 truncate">{user.name}</h4>
                                         {user.regDays <= 15 && (
-                                            <span className="bg-emerald-50 text-emerald-600 text-[8px] font-black px-1 rounded border border-emerald-100 uppercase leading-tight flex-shrink-0">新人</span>
+                                            <span className="bg-emerald-100 text-emerald-600 text-[8px] font-black px-2 py-0.5 rounded-full border border-emerald-200 uppercase leading-tight flex-shrink-0 shadow-sm">新人</span>
                                         )}
                                     </div>
-                                    <div className="text-[10px] text-gray-400 font-medium tracking-tight flex items-center space-x-1.5 overflow-hidden">
+                                    <div className="text-[10px] text-gray-400 font-medium tracking-tight flex items-center space-x-1.5 overflow-hidden mt-1">
                                         <span className="text-[#1E40AF] font-bold truncate">团队: {user.superior || '无'}</span>
+                                        <span className="text-gray-300">•</span>
+                                        <span className="text-gray-400">注册{user.regDays}天</span>
                                     </div>
                                 </div>
                             </div>
@@ -354,23 +377,23 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                                         </>
                                     )}
                                 </div>
-                                <ChevronRight size={14} className="text-gray-300" />
+                                <ChevronRight size={16} className="text-gray-400 hover:text-[#1E40AF] transition-colors" />
                             </div>
                         </div>
 
-                        <div className="flex items-center space-x-2 pt-1">
-                            <div className="flex items-center space-x-1 bg-gray-50 px-2 py-1 rounded-md border border-gray-100/50">
-                                <Globe size={10} className="text-blue-500" />
+                        <div className="flex items-center space-x-3 pt-1">
+                            <div className="flex items-center space-x-1.5 bg-gray-100 px-3 py-1.5 rounded-lg border border-gray-200 shadow-sm">
+                                <Globe size={12} className="text-blue-500" />
                                 <span className="text-[9px] text-gray-400 font-medium">IP:</span>
                                 <span className="text-[10px] font-bold text-gray-700">{user.ipCount}</span>
                             </div>
-                            <div className="flex items-center space-x-1 bg-gray-50 px-2 py-1 rounded-md border border-gray-100/50">
-                                <Smartphone size={10} className="text-purple-500" />
+                            <div className="flex items-center space-x-1.5 bg-gray-100 px-3 py-1.5 rounded-lg border border-gray-200 shadow-sm">
+                                <Smartphone size={12} className="text-purple-500" />
                                 <span className="text-[9px] text-gray-400 font-medium">设备:</span>
                                 <span className="text-[10px] font-bold text-gray-700">{user.deviceCount}</span>
                             </div>
-                            <div className={`flex items-center space-x-1 px-2 py-1 rounded-md border ml-auto ${sortBy === 'ecpm' ? 'bg-blue-600 border-blue-600' : 'bg-blue-50/30 border-blue-100/30'}`}>
-                                <Zap size={10} className={sortBy === 'ecpm' ? 'text-white' : 'text-orange-500'} />
+                            <div className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border ml-auto ${sortBy === 'ecpm' ? 'bg-blue-600 border-blue-600 shadow-md' : 'bg-blue-50 border-blue-200 shadow-sm'}`}>
+                                <Zap size={12} className={sortBy === 'ecpm' ? 'text-white' : 'text-orange-500'} />
                                 <span className={`text-[9px] font-medium uppercase tracking-tighter ${sortBy === 'ecpm' ? 'text-white/80' : 'text-gray-400'}`}>eCPM:</span>
                                 <span className={`text-[10px] font-black ${sortBy === 'ecpm' ? 'text-white' : (user.ecpm >= 100 ? 'text-green-600' : 'text-red-500')}`}>{user.ecpm.toFixed(2)}</span>
                             </div>

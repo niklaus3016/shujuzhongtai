@@ -7,7 +7,6 @@ import {
 import { authService } from '../services/authService';
 import { UserRole } from '../types';
 import EmployeeManagement from '../components/EmployeeManagement';
-import AdminManagement from '../components/AdminManagement';
 import { request } from '../services/api';
 
 interface TeamItem {
@@ -52,23 +51,37 @@ const mockTeams: TeamItem[] = [
 
 const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'today' | 'month'; onBack: () => void }> = ({ team, activeRate, mode, onBack }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  
-  const members: MemberInfo[] = useMemo(() => {
-    return Array.from({ length: 15 }).map((_, i) => ({
-      id: (Math.floor(Math.random() * 9000) + 1000).toString(),
-      name: `${team.leader}组_成员${i + 1}`,
-      avatar: `https://picsum.photos/seed/member${team.id}${i}/100/100`,
-      todayWatched: Math.floor(Math.random() * 150) + 10,
-      monthlyWatched: Math.floor(Math.random() * 3000) + 500,
-      todayEarnings: parseFloat((Math.random() * 30 + 5).toFixed(2)),
-      monthlyEarnings: parseFloat((Math.random() * 800 + 200).toFixed(2)),
-      todayEcpm: parseFloat((Math.random() * 150 + 50).toFixed(1)),
-      monthlyEcpm: parseFloat((Math.random() * 150 + 50).toFixed(1)),
-      ipCount: Math.random() > 0.8 ? 2 : 1,
-      deviceCount: 1,
-      status: Math.random() > 0.3 ? '在线' : '离线'
-    }));
-  }, [team.id, team.leader]);
+  const [members, setMembers] = useState<MemberInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchMembers = async () => {
+      setLoading(true);
+      try {
+        const token = localStorage.getItem('admin_token');
+        const response = await fetch(`https://xevbnmgazudl.sealoshzh.site/api/team/${team.id}/members`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        const result = await response.json();
+        if (result.success) {
+          setMembers(result.members || []);
+        } else {
+          throw new Error(result.message || '获取成员列表失败');
+        }
+      } catch (error) {
+        console.error('Error fetching members:', error);
+        setMembers([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMembers();
+  }, [team.id]);
 
   // Sort by earnings (high to low) and then filter by search term
   const sortedAndFilteredMembers = useMemo(() => {
@@ -114,12 +127,13 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 <div className="relative">
-                  <img src={member.avatar} className="w-10 h-10 rounded-full" alt="" />
+                  <div className={`w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-sm font-bold text-gray-500`}>
+                    {member.id}
+                  </div>
                   <div className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${member.status === '在线' ? 'bg-green-500' : 'bg-gray-300'}`}></div>
                 </div>
                 <div>
                   <div className="text-sm font-bold text-gray-900">{member.name}</div>
-                  <div className="text-[10px] text-gray-400 font-medium tracking-tight">ID: {member.id}</div>
                 </div>
               </div>
               <div className="text-right">
@@ -164,7 +178,14 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
           </div>
         ))}
 
-        {sortedAndFilteredMembers.length === 0 && (
+        {loading && (
+          <div className="py-20 text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1E40AF] mx-auto mb-4"></div>
+            <p className="text-xs text-gray-400 font-bold">加载中...</p>
+          </div>
+        )}
+
+        {!loading && sortedAndFilteredMembers.length === 0 && (
           <div className="py-20 text-center">
             <Search className="mx-auto text-gray-200 mb-2" size={48} />
             <p className="text-xs text-gray-400 font-bold">未找到符合条件的成员</p>
@@ -179,7 +200,6 @@ const Team: React.FC = () => {
   const [sortBy, setSortBy] = useState<'today' | 'month'>('today');
   const [teamSearchTerm, setTeamSearchTerm] = useState('');
   const [selectedTeam, setSelectedTeam] = useState<TeamItem | null>(null);
-  const [viewMode, setViewMode] = useState<'data' | 'accounts'>('data');
   const [teams, setTeams] = useState<TeamItem[]>([]);
   const [loading, setLoading] = useState(true);
   const currentUser = authService.getCurrentUser();
@@ -189,13 +209,20 @@ const Team: React.FC = () => {
       setLoading(true);
       try {
         // Fetch team list from backend
-        const teamList = await request<TeamItem[]>('/team/list', {
+        const token = localStorage.getItem('admin_token');
+        const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/team/list', {
           method: 'GET',
-          headers: new Headers({
-            'Content-Type': 'application/json'
-          })
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
         });
-        setTeams(teamList);
+        const result = await response.json();
+        if (result.success) {
+          setTeams(result.data || []);
+        } else {
+          throw new Error(result.message || '获取团队列表失败');
+        }
       } catch (error) {
         console.error('Error fetching teams:', error);
         // Fallback to mock data on error
@@ -260,25 +287,9 @@ const Team: React.FC = () => {
             <Users2 className="text-[#1E40AF] mr-2" size={24} />
             团队管理
           </h1>
-          <div className="flex items-center bg-gray-100 p-1 rounded-xl">
-            <button 
-              onClick={() => setViewMode('data')}
-              className={`px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all ${viewMode === 'data' ? 'bg-white text-[#1E40AF] shadow-sm' : 'text-gray-500'}`}
-            >
-              数据概览
-            </button>
-            <button 
-              onClick={() => setViewMode('accounts')}
-              className={`px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all ${viewMode === 'accounts' ? 'bg-white text-[#1E40AF] shadow-sm' : 'text-gray-500'}`}
-            >
-              账号管理
-            </button>
-          </div>
         </div>
 
-        {viewMode === 'data' && (
-          <>
-            <div className="relative mb-4 group">
+        <div className="relative mb-4 group">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#1E40AF] transition-colors" size={16} />
                 <input 
                     type="text"
@@ -322,13 +333,10 @@ const Team: React.FC = () => {
                     按本月团队总收益
                 </button>
             </div>
-          </>
-        )}
       </header>
 
       <div className="px-4 mt-4">
-        {viewMode === 'data' ? (
-          <div className="space-y-3">
+        <div className="space-y-3">
             {filteredAndSortedTeams.length > 0 ? (
               filteredAndSortedTeams.map((team) => (
             <div key={team.id} className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden p-4 space-y-4 transition-colors">
@@ -343,13 +351,10 @@ const Team: React.FC = () => {
                       </div>
                       <div>
                           <div className="flex items-center space-x-2">
-                              <span className="text-sm font-black text-gray-900">{team.leader} 团队</span>
-                              <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase ${
-                                  team.level === '荣耀' ? 'bg-yellow-100 text-yellow-600' : 'bg-gray-100 text-gray-500'
-                              }`}>{team.level}</span>
+                              <span className="text-sm font-black text-gray-900">{team.leader}</span>
                           </div>
                           <div className="text-[10px] text-gray-400 font-medium mt-0.5">
-                            ID: {team.id} • {sortBy === 'today' ? '今日成员活跃率' : '本月成员活跃率'}: {sortBy === 'today' ? team.todayActiveRate : team.monthlyActiveRate}
+                            {sortBy === 'today' ? '今日成员活跃率' : '本月成员活跃率'}: {sortBy === 'today' ? team.todayActiveRate : team.monthlyActiveRate}
                           </div>
                       </div>
                   </div>
@@ -431,10 +436,7 @@ const Team: React.FC = () => {
               <p className="text-[10px] text-gray-300 font-medium">仅展示活跃排名前 20 的团队</p>
           </div>
         )}
-          </div>
-        ) : (
-          <AdminManagement currentUser={currentUser} />
-        )}
+        </div>
       </div>
     </div>
   );

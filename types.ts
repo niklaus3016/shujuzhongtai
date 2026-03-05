@@ -1,6 +1,6 @@
 
 export enum UserRole {
-  SUPER_ADMIN = 'SUPER_ADMIN',
+  SUPER_ADMIN = 'superadmin',
   NORMAL_ADMIN = 'NORMAL_ADMIN',
   EMPLOYEE = 'EMPLOYEE'
 }
@@ -15,6 +15,7 @@ export interface AdminUser {
   commission?: number; // For normal admins
   status: 'enabled' | 'disabled';
   avatar?: string;
+  teamName?: string; // For team leaders, the name of their team
 }
 
 export interface ApiResponse<T> {

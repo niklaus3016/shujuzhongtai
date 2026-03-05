@@ -1,8 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
-  UserPlus, Key, Shield, ShieldOff, Search, X, 
-  MoreVertical, Check, AlertCircle, Loader2, User
+  UserPlus, Search, X, 
+  MoreVertical, Check, AlertCircle, Loader2, User, Phone, MapPin
 } from 'lucide-react';
 import { AdminUser, UserRole } from '../types';
 import { request } from '../services/api';
@@ -17,6 +17,12 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser }) 
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<AdminUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '',
+    phone: '',
+    region: ''
+  });
   
   // Employees data
   const [employees, setEmployees] = useState<AdminUser[]>([]);
@@ -50,6 +56,7 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser }) 
     fetchEmployees();
   }, [currentUser.id]);
 
+  // 过滤后的员工列表
   const filteredEmployees = useMemo(() => {
     let list = employees;
     // Normal admins only see their own employees
@@ -57,8 +64,8 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser }) 
       list = list.filter(e => e.parentId === currentUser.id);
     }
     return list.filter(e => 
-      e.username.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      e.id.toLowerCase().includes(searchTerm.toLowerCase())
+      (e.realName || e.name || e.username || '').toLowerCase().includes((searchTerm || '').toLowerCase()) || 
+      (e.employeeId || e.id || '').toLowerCase().includes((searchTerm || '').toLowerCase())
     );
   }, [employees, searchTerm, currentUser]);
 
@@ -71,22 +78,33 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser }) 
     }));
   };
 
-  const handleAddEmployee = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const username = formData.get('username') as string;
+  const handleAddEmployee = async () => {
+    if (!formData.name || !formData.phone) {
+      return;
+    }
     
-    const newEmployee: AdminUser = {
-      id: `E${Math.floor(Math.random() * 900) + 100}`,
-      username,
-      role: UserRole.EMPLOYEE,
-      parentId: currentUser.id,
-      coins: 0,
-      status: 'enabled'
-    };
-    
-    setEmployees(prev => [newEmployee, ...prev]);
-    setIsAddModalOpen(false);
+    setSaving(true);
+    try {
+      const result = await request<AdminUser>('/employee/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          realName: formData.name,
+          phone: formData.phone,
+          region: formData.region,
+          parentId: currentUser.id
+        })
+      });
+      
+      if (result) {
+        setEmployees(prev => [result, ...prev]);
+      }
+      setIsAddModalOpen(false);
+      setFormData({ name: '', phone: '', region: '' });
+    } catch (error) {
+      console.error('Failed to add employee:', error);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleChangePassword = (e: React.FormEvent<HTMLFormElement>) => {
@@ -121,39 +139,32 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser }) 
 
       <div className="space-y-3">
         {filteredEmployees.map((employee) => (
-          <div key={employee.id} className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between">
+          <div key={employee.id || employee._id} className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${employee.status === 'enabled' ? 'bg-blue-50 text-[#1E40AF]' : 'bg-gray-50 text-gray-400'}`}>
                 <User size={20} />
               </div>
               <div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm font-bold text-gray-900">{employee.username}</span>
+                <div className="text-sm font-bold text-gray-900">{employee.employeeId || employee.id || employee._id}</div>
+                <div className="flex items-center space-x-2 mt-0.5">
+                  <span className="text-xs text-gray-500">{employee.realName || employee.name || employee.username || '未知'}</span>
                   <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase ${employee.status === 'enabled' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
                     {employee.status === 'enabled' ? '启用中' : '已禁用'}
                   </span>
                 </div>
-                <div className="text-[10px] text-gray-400 font-medium">ID: {employee.id} • 金币: {Number(employee.coins || 0).toFixed(2)}</div>
               </div>
             </div>
             
             <div className="flex items-center space-x-2">
               <button 
-                onClick={() => {
-                  setSelectedEmployee(employee);
-                  setIsPasswordModalOpen(true);
-                }}
-                className="p-2 text-gray-400 hover:text-[#1E40AF] transition-colors"
-                title="修改密码"
-              >
-                <Key size={18} />
-              </button>
-              <button 
                 onClick={() => handleToggleStatus(employee.id)}
-                className={`p-2 transition-colors ${employee.status === 'enabled' ? 'text-green-500' : 'text-red-500'}`}
-                title={employee.status === 'enabled' ? '禁用账号' : '启用账号'}
+                className={`px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all ${
+                  employee.status === 'enabled' 
+                    ? 'bg-red-100 text-red-600 hover:bg-red-200' 
+                    : 'bg-green-100 text-green-600 hover:bg-green-200'
+                }`}
               >
-                {employee.status === 'enabled' ? <Shield size={18} /> : <ShieldOff size={18} />}
+                {employee.status === 'enabled' ? '禁用' : '启用'}
               </button>
             </div>
           </div>
@@ -169,40 +180,86 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser }) 
 
       {/* Add Employee Modal */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-sm rounded-[32px] p-6 shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-black text-gray-900">添加新员工</h3>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-gray-400"><X size={24} /></button>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
+            <div className="sticky top-0 bg-white px-6 pt-6 pb-4 border-b border-gray-50">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-bold text-gray-900">添加员工账号</h3>
+                <button onClick={() => setIsAddModalOpen(false)} className="text-gray-400"><X size={24} /></button>
+              </div>
             </div>
-            <form onSubmit={handleAddEmployee} className="space-y-4">
+            
+            <div className="p-6 space-y-4">
               <div>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1">员工姓名</label>
-                <input 
-                  name="username"
-                  type="text" 
-                  required
-                  placeholder="请输入员工姓名"
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all"
-                />
+                <label className="text-xs font-bold text-gray-500 mb-1.5 block">姓名</label>
+                <div className="relative">
+                  <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="请输入员工姓名"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
+                  />
+                </div>
               </div>
+              
               <div>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1">初始密码</label>
-                <input 
-                  name="password"
-                  type="password" 
-                  required
-                  placeholder="设置登录密码"
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all"
-                />
+                <label className="text-xs font-bold text-gray-500 mb-1.5 block">手机号</label>
+                <div className="relative">
+                  <Phone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="tel"
+                    placeholder="请输入手机号"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
+                  />
+                </div>
               </div>
-              <button 
-                type="submit"
-                className="w-full py-4 bg-[#1E40AF] text-white font-black rounded-2xl shadow-lg shadow-blue-100 active:scale-95 transition-all mt-2"
-              >
-                确认添加
-              </button>
-            </form>
+              
+              <div>
+                <label className="text-xs font-bold text-gray-500 mb-1.5 block">地区</label>
+                <div className="relative">
+                  <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="请输入地区"
+                    value={formData.region}
+                    onChange={(e) => setFormData({ ...formData, region: e.target.value })}
+                    className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
+                  />
+                </div>
+              </div>
+              
+              <div className="bg-blue-50 rounded-xl p-3">
+                <p className="text-xs text-blue-600">
+                  💡 员工号将由系统自动生成4位数字编号
+                </p>
+              </div>
+            </div>
+            
+            <div className="sticky bottom-0 bg-white px-6 py-4 border-t border-gray-50">
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => {
+                    setIsAddModalOpen(false);
+                    setFormData({ name: '', phone: '', region: '' });
+                  }}
+                  className="flex-1 py-3 bg-gray-100 text-gray-500 font-bold rounded-xl"
+                  disabled={saving}
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleAddEmployee}
+                  disabled={saving || !formData.name || !formData.phone}
+                  className={`flex-1 py-3 font-bold rounded-xl ${saving || !formData.name || !formData.phone ? 'bg-gray-300 text-gray-500' : 'bg-[#1E40AF] text-white'}`}
+                >
+                  {saving ? '添加中...' : '确认添加'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

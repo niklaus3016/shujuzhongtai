@@ -32,13 +32,18 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
     setLoading(true);
     try {
       const monthKey = getMonthKey(currentMonth);
-      const response = await request<any>(`/daily-target/month?month=${monthKey}`, {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch(`https://xevbnmgazudl.sealoshzh.site/api/daily-target/month?month=${monthKey}`, {
         method: 'GET',
-        headers: new Headers({ 'Content-Type': 'application/json' })
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
       });
-      if (response && response.data) {
+      const result = await response.json();
+      if (result.success && result.data) {
         const targetMap: Record<string, { targetCoins: number; bonusCoins: number }> = {};
-        response.data.forEach((item: DailyTarget) => {
+        result.data.forEach((item: DailyTarget) => {
           targetMap[item.date] = {
             targetCoins: item.targetCoins || 0,
             bonusCoins: item.bonusCoins || 0
@@ -69,24 +74,33 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
     
     setSaving(true);
     try {
-      await request<any>('/daily-target', {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/daily-target', {
         method: 'POST',
-        headers: new Headers({ 'Content-Type': 'application/json' }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           date: selectedDate,
           targetCoins: editAmount,
           bonusCoins: editBonus
         })
       });
-      setTargets(prev => ({
-        ...prev,
-        [selectedDate]: {
-          targetCoins: editAmount,
-          bonusCoins: editBonus
-        }
-      }));
-      setShowEditModal(false);
-      setSelectedDate(null);
+      const result = await response.json();
+      if (result.success) {
+        setTargets(prev => ({
+          ...prev,
+          [selectedDate]: {
+            targetCoins: editAmount,
+            bonusCoins: editBonus
+          }
+        }));
+        setShowEditModal(false);
+        setSelectedDate(null);
+      } else {
+        throw new Error(result.message || '保存失败');
+      }
     } catch (error) {
       console.error('Error saving target:', error);
       alert('保存失败，请重试');

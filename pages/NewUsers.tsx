@@ -5,6 +5,8 @@ import {
   Search, Filter, Calendar, Users
 } from 'lucide-react';
 import { request } from '../services/api';
+import { authService } from '../services/authService';
+import { UserRole } from '../types';
 
 interface NewUser {
   id: string;
@@ -25,12 +27,51 @@ interface NewUsersProps {
 }
 
 const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
+  const currentUser = authService.getCurrentUser();
+  const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
+  const isSuperAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
+  const [teamName, setTeamName] = useState<string>('');
+  
   const [loading, setLoading] = useState(true);
   const [sortBy, setSortBy] = useState<'watched' | 'earnings' | 'ecpm' | 'regDays'>('regDays');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTeam, setSelectedTeam] = useState('全部');
   const [users, setUsers] = useState<NewUser[]>([]);
   const [todayNewUsers, setTodayNewUsers] = useState(0);
+
+  // 获取当前用户的团队名称
+  useEffect(() => {
+    const fetchTeamName = async () => {
+      if (!isTeamLeader || !currentUser?.id) return;
+      
+      try {
+        const token = localStorage.getItem('admin_token');
+        
+        // 尝试从团队列表获取团队名称
+        const teamListRes = await fetch('https://xevbnmgazudl.sealoshzh.site/api/team/list', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        const teamListResult = await teamListRes.json();
+         
+        if (teamListResult.success && teamListResult.data) {
+          const team = teamListResult.data.find((t: any) => t.id === currentUser.id);
+          if (team && team.name) {
+            setTeamName(team.name);
+          } else if (team && team.leader) {
+            setTeamName(team.leader);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching team name:', error);
+      }
+    };
+
+    fetchTeamName();
+  }, [isTeamLeader, currentUser?.id]);
 
   // Derive unique teams for filtering
   const teams = useMemo(() => {
@@ -42,13 +83,20 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
     const fetchNewUsers = async () => {
       setLoading(true);
       try {
-        const response = await request<any>('/newuser/list?pageSize=1000', {
+        // 团队长只获取自己团队的新人，使用与Dashboard相同的API
+        // 优先使用从团队列表获取的teamName，如果没有则使用currentUser?.teamName
+        const effectiveTeamName = teamName || currentUser?.teamName;
+        const url = isTeamLeader && effectiveTeamName
+          ? `/dashboard/users?range=today&team=${encodeURIComponent(effectiveTeamName)}`
+          : '/dashboard/users?range=today';
+        
+        const response = await request<any>(url, { 
           method: 'GET',
           headers: new Headers({
             'Content-Type': 'application/json'
           })
         });
-        const list = response.list || response.users || [];
+        const list = response || [];
         const transformedUsers: NewUser[] = list.map((user: any) => ({
           id: user.employeeId || user.userId || '',
           userId: user.userId || '',
@@ -74,14 +122,18 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
     };
 
     fetchNewUsers();
-  }, []);
+  }, [isTeamLeader, currentUser?.teamName, teamName]);
 
   const sortedUsers = useMemo(() => {
     return [...users]
       .filter(u => {
+        // 只显示注册15天以内的新人
+        const isNewUser = u.regDays <= 15;
         const matchesSearch = u.id.includes(searchTerm) || u.name.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesTeam = selectedTeam === '全部' || u.superior === selectedTeam;
-        return matchesSearch && matchesTeam;
+        // 团队长只显示自己团队的用户
+        const matchesTeamLeader = !isTeamLeader || ((teamName || currentUser?.teamName) && u.superior === (teamName || currentUser?.teamName));
+        return isNewUser && matchesSearch && matchesTeam && matchesTeamLeader;
       })
       .sort((a, b) => {
         if (sortBy === 'regDays') {
@@ -89,7 +141,7 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
         }
         return b[sortBy as 'watched' | 'earnings' | 'ecpm'] - a[sortBy as 'watched' | 'earnings' | 'ecpm'];
       });
-  }, [users, sortBy, searchTerm, selectedTeam]);
+  }, [users, sortBy, searchTerm, selectedTeam, isTeamLeader, currentUser?.teamName, teamName]);
 
   if (loading) {
     return (
@@ -128,25 +180,27 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
             />
         </div>
 
-        {/* Team Filter Pills */}
-        <div className="flex items-center space-x-2 overflow-x-auto hide-scrollbar pb-3">
-          <div className="flex-shrink-0 p-1.5 bg-gray-50 rounded-lg text-gray-400">
-            <Users size={14} />
+        {/* Team Filter Pills - 只有超级管理员显示团队筛选 */}
+        {isSuperAdmin && (
+          <div className="flex items-center space-x-2 overflow-x-auto hide-scrollbar pb-3">
+            <div className="flex-shrink-0 p-1.5 bg-gray-50 rounded-lg text-gray-400">
+              <Users size={14} />
+            </div>
+            {teams.map((team) => (
+              <button
+                key={team}
+                onClick={() => setSelectedTeam(team)}
+                className={`flex-shrink-0 px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all border ${
+                  selectedTeam === team 
+                    ? 'bg-[#1E40AF] text-white border-[#1E40AF] shadow-sm' 
+                    : 'bg-white text-gray-500 border-gray-100 active:bg-gray-50'
+                }`}
+              >
+                {team}
+              </button>
+            ))}
           </div>
-          {teams.map((team) => (
-            <button
-              key={team}
-              onClick={() => setSelectedTeam(team)}
-              className={`flex-shrink-0 px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all border ${
-                selectedTeam === team 
-                  ? 'bg-[#1E40AF] text-white border-[#1E40AF] shadow-sm' 
-                  : 'bg-white text-gray-500 border-gray-100 active:bg-gray-50'
-              }`}
-            >
-              {team}
-            </button>
-          ))}
-        </div>
+        )}
 
         <div className="flex bg-gray-100 p-1 rounded-xl">
             <button 

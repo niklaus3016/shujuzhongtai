@@ -17,7 +17,8 @@ export const authService = {
       role: data.user.role as UserRole,
       token: data.token,
       status: 'enabled',
-      commission: data.user.commission
+      commission: data.user.commission,
+      teamName: data.user.teamName
     };
     
     this.saveSession(user, remember);
@@ -52,9 +53,18 @@ export const authService = {
 
   async updatePassword(userId: string, newPassword: string): Promise<void> {
     // Call the actual API
-    await request('/update-password', {
+    const token = localStorage.getItem('admin_token');
+    const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/update-password', {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
       body: JSON.stringify({ userId, newPassword }),
     });
+    const result = await response.json();
+    if (!result.success) {
+      throw new Error(result.message || '密码修改失败');
+    }
   }
 };

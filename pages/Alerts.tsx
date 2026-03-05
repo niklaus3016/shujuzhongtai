@@ -4,8 +4,9 @@ import {
   AlertTriangle, UserX, LineChart, ShieldCheck, Clock, 
   ChevronRight, ShieldAlert, BarChart3, Zap, Globe, Smartphone, TrendingDown, Wallet, Percent
 } from 'lucide-react';
-import { AlertItem } from '../types';
+import { AlertItem, UserRole } from '../types';
 import { request } from '../services/api';
+import { authService } from '../services/authService';
 
 interface LowPerformanceUser {
   id: string;
@@ -91,34 +92,156 @@ const mockLowPerfUsers: LowPerformanceUser[] = [
 ];
 
 const Alerts: React.FC = () => {
+  const currentUser = authService.getCurrentUser();
+  const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
+  const isSuperAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
+  const [teamName, setTeamName] = useState<string>('');
+  
   const [activeCategory, setActiveCategory] = useState<'业绩异常' | '系统预警'>('业绩异常');
   const [perfSubFilter, setPerfSubFilter] = useState<'昨日' | '本周'>('昨日');
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [systemAlerts, setSystemAlerts] = useState<any[]>([]);
+  const [lowPerfUsers, setLowPerfUsers] = useState<LowPerformanceUser[]>([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchTeamName = async () => {
+      if (!isTeamLeader || !currentUser?.id) return;
+      
+      try {
+        const token = localStorage.getItem('admin_token');
+        const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/team/list', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        const teamListResult = await response.json();
+        
+        if (teamListResult.success && teamListResult.data) {
+          const team = teamListResult.data.find((t: any) => t.id === currentUser.id);
+          if (team && team.name) {
+            setTeamName(team.name);
+          } else if (team && team.leader) {
+            setTeamName(team.leader);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching team name:', error);
+      }
+    };
+
+    fetchTeamName();
+  }, [isTeamLeader, currentUser?.id]);
 
   useEffect(() => {
     const fetchAlerts = async () => {
       setLoading(true);
       try {
-        // Fetch alert list from backend
-        const alertList = await request<AlertItem[]>('/alert/list', {
+        const token = localStorage.getItem('admin_token');
+        console.log('Fetching system alerts...');
+        const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/alert/list', {
           method: 'GET',
-          headers: new Headers({
-            'Content-Type': 'application/json'
-          })
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
         });
-        setAlerts(alertList);
+        console.log('System alerts API response status:', response.status);
+        const result = await response.json();
+        console.log('System alerts API response:', result);
+        if (result.success) {
+          setSystemAlerts(result.data || []);
+        } else {
+          console.log('System alerts API response not successful:', result);
+          // Fallback to mock data on error
+          setSystemAlerts(mockSystemAlerts);
+        }
       } catch (error) {
         console.error('Error fetching alerts:', error);
         // Fallback to mock data on error
-        setAlerts(mockAlerts);
+        setSystemAlerts(mockSystemAlerts);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const fetchLowPerfUsers = async () => {
+      // 团队长需要等待teamName获取完成
+      if (isTeamLeader && !teamName) {
+        return;
+      }
+      
+      setLoading(true);
+      try {
+        const token = localStorage.getItem('admin_token');
+        console.log('Fetching low performance users...');
+        // 团队长只获取自己团队的业绩异常用户
+        const url = isTeamLeader && teamName 
+          ? `/user/low-performance?team=${encodeURIComponent(teamName)}`
+          : '/user/low-performance';
+        
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        console.log('Low performance users API response status:', response.status);
+        const result = await response.json();
+        console.log('Low performance users API response:', result);
+        if (result.success) {
+          setLowPerfUsers(result.data || []);
+        } else {
+          console.log('Low performance users API response not successful:', result);
+          // Fallback to mock data on error
+          setLowPerfUsers(mockLowPerfUsers);
+        }
+      } catch (error) {
+        console.error('Error fetching low performance users:', error);
+        // Fallback to mock data on error
+        setLowPerfUsers(mockLowPerfUsers);
       } finally {
         setLoading(false);
       }
     };
 
     fetchAlerts();
-  }, []);
+    fetchLowPerfUsers();
+  }, [isTeamLeader, teamName]);
+
+  // 团队长获取到teamName后重新获取数据
+  useEffect(() => {
+    if (teamName) {
+      const fetchLowPerfUsers = async () => {
+        setLoading(true);
+        try {
+          const token = localStorage.getItem('admin_token');
+          const url = `/user/low-performance?team=${encodeURIComponent(teamName)}`;
+          
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          const result = await response.json();
+          if (result.success) {
+            setLowPerfUsers(result.data || []);
+          }
+        } catch (error) {
+          console.error('Error fetching low performance users:', error);
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      fetchLowPerfUsers();
+    }
+  }, [teamName, isTeamLeader]);
 
   return (
     <div className="pb-6 animate-in fade-in duration-300">
@@ -133,29 +256,39 @@ const Alerts: React.FC = () => {
             </button>
         </div>
 
-        {/* Main Category Tabs */}
-        <div className="flex bg-gray-100 p-1 rounded-2xl">
-            <button 
-                onClick={() => setActiveCategory('业绩异常')}
-                className={`flex-1 flex items-center justify-center py-2 text-[11px] font-bold rounded-xl transition-all ${
-                    activeCategory === '业绩异常' ? 'bg-white text-[#1E40AF] shadow-sm' : 'text-gray-500'
-                }`}
-            >
-                <BarChart3 size={14} className="mr-1.5" />
-                业绩异常
-                <span className="ml-1.5 w-4 h-4 bg-blue-100 text-[#1E40AF] rounded-full flex items-center justify-center text-[8px]">5</span>
-            </button>
-            <button 
-                onClick={() => setActiveCategory('系统预警')}
-                className={`flex-1 flex items-center justify-center py-2 text-[11px] font-bold rounded-xl transition-all ${
-                    activeCategory === '系统预警' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'
-                }`}
-            >
-                <ShieldAlert size={14} className="mr-1.5" />
-                系统预警
-                <span className="ml-1.5 w-4 h-4 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-[8px]">3</span>
-            </button>
-        </div>
+        {/* Main Category Tabs - 团队长只显示业绩异常 */}
+        {isSuperAdmin ? (
+          <div className="flex bg-gray-100 p-1 rounded-2xl">
+              <button 
+                  onClick={() => setActiveCategory('业绩异常')}
+                  className={`flex-1 flex items-center justify-center py-2 text-[11px] font-bold rounded-xl transition-all ${
+                      activeCategory === '业绩异常' ? 'bg-white text-[#1E40AF] shadow-sm' : 'text-gray-500'
+                  }`}
+              >
+                  <BarChart3 size={14} className="mr-1.5" />
+                  业绩异常
+                  <span className="ml-1.5 w-4 h-4 bg-blue-100 text-[#1E40AF] rounded-full flex items-center justify-center text-[8px]">5</span>
+              </button>
+              <button 
+                  onClick={() => setActiveCategory('系统预警')}
+                  className={`flex-1 flex items-center justify-center py-2 text-[11px] font-bold rounded-xl transition-all ${
+                      activeCategory === '系统预警' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'
+                  }`}
+              >
+                  <ShieldAlert size={14} className="mr-1.5" />
+                  系统预警
+                  <span className="ml-1.5 w-4 h-4 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-[8px]">3</span>
+              </button>
+          </div>
+        ) : (
+          <div className="flex bg-gray-100 p-1 rounded-2xl">
+              <div className="flex-1 flex items-center justify-center py-2 text-[11px] font-bold rounded-xl bg-white text-[#1E40AF] shadow-sm">
+                  <BarChart3 size={14} className="mr-1.5" />
+                  业绩异常
+                  <span className="ml-1.5 w-4 h-4 bg-blue-100 text-[#1E40AF] rounded-full flex items-center justify-center text-[8px]">{lowPerfUsers.length}</span>
+              </div>
+          </div>
+        )}
       </header>
 
       <div className="px-4 py-4 space-y-4">
@@ -190,65 +323,76 @@ const Alerts: React.FC = () => {
                 </div>
 
                 <div className="bg-white rounded-[28px] border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-50">
-                    {mockLowPerfUsers.map((user) => (
-                        <div 
-                          key={user.id} 
-                          className="p-4 space-y-3 active:bg-gray-50 transition-colors cursor-pointer"
-                        >
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center space-x-3 overflow-hidden">
-                                    <div className="relative flex-shrink-0">
-                                        <img src={user.avatar} className="w-10 h-10 rounded-full grayscale-[0.2]" alt="" />
-                                        <div className="absolute -top-1 -left-1 bg-red-500 text-white w-4 h-4 rounded-full border-2 border-white flex items-center justify-center text-[7px] font-black">!</div>
-                                    </div>
-                                    <div className="min-w-0">
-                                        <div className="text-sm font-bold text-gray-900 truncate">{user.name}</div>
-                                        <div className="text-[9px] text-red-500 font-black tracking-tight uppercase px-1.5 py-0.5 bg-red-50 rounded-md inline-block mt-0.5">
-                                            {user.reason}
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div className="flex items-center space-x-3 flex-shrink-0">
-                                    <div className="text-right flex flex-col space-y-0.5">
-                                        <div className="flex items-center justify-end space-x-1">
-                                            <span className={`text-[11px] font-black ${user.yesterdayEarnings < 50 ? 'text-red-500' : 'text-gray-900'}`}>
-                                                ¥{user.yesterdayEarnings.toFixed(2)}
-                                            </span>
-                                            <span className="text-[9px] text-gray-400 font-medium">{perfSubFilter}收益</span>
-                                        </div>
-                                        <div className="flex items-center justify-end space-x-1">
-                                            <span className={`text-[11px] font-black ${user.yesterdayWatched < 500 ? 'text-red-500' : 'text-gray-900'}`}>
-                                                {user.yesterdayWatched}
-                                            </span>
-                                            <span className="text-[9px] text-gray-400 font-bold">{perfSubFilter}次数</span>
-                                        </div>
-                                    </div>
-                                    <ChevronRight size={14} className="text-gray-300" />
-                                </div>
-                            </div>
-
-                            <div className="flex items-center space-x-2 pt-1">
-                                <div className="flex items-center space-x-1 bg-gray-50 px-2 py-1 rounded-md border border-gray-100/50">
-                                    <Globe size={10} className="text-blue-500" />
-                                    <span className="text-[9px] text-gray-400 font-medium">IP:</span>
-                                    <span className="text-[10px] font-bold text-gray-700">{user.ipCount}</span>
-                                </div>
-                                <div className="flex items-center space-x-1 bg-gray-50 px-2 py-1 rounded-md border border-gray-100/50">
-                                    <Smartphone size={10} className="text-purple-500" />
-                                    <span className="text-[9px] text-gray-400 font-medium">设备:</span>
-                                    <span className="text-[10px] font-bold text-gray-700">{user.deviceCount}</span>
-                                </div>
-                                <div className="flex items-center space-x-1 px-2 py-1 rounded-md border border-blue-100/30 bg-blue-50/30 ml-auto">
-                                    <Zap size={10} className="text-orange-500" />
-                                    <span className="text-[9px] font-medium uppercase tracking-tighter text-gray-400">eCPM:</span>
-                                    <span className={`text-[10px] font-black ${user.ecpm >= 100 ? 'text-green-600' : 'text-red-500'}`}>
-                                        {user.ecpm.toFixed(2)}
-                                    </span>
-                                </div>
-                            </div>
+                    {loading ? (
+                        <div className="p-8 text-center">
+                            <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-3"></div>
+                            <p className="text-sm text-gray-500">加载中...</p>
                         </div>
-                    ))}
+                    ) : lowPerfUsers.length === 0 ? (
+                        <div className="p-8 text-center">
+                            <p className="text-sm text-gray-400">暂无业绩异常用户</p>
+                        </div>
+                    ) : (
+                        lowPerfUsers.map((user) => (
+                            <div 
+                              key={user.id} 
+                              className="p-4 space-y-3 active:bg-gray-50 transition-colors cursor-pointer"
+                            >
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center space-x-3 overflow-hidden">
+                                        <div className="relative flex-shrink-0">
+                                            <img src={user.avatar || `https://picsum.photos/seed/${user.id}/100/100`} className="w-10 h-10 rounded-full grayscale-[0.2]" alt="" />
+                                            <div className="absolute -top-1 -left-1 bg-red-500 text-white w-4 h-4 rounded-full border-2 border-white flex items-center justify-center text-[7px] font-black">!</div>
+                                        </div>
+                                        <div className="min-w-0">
+                                            <div className="text-sm font-bold text-gray-900 truncate">{user.name}</div>
+                                            <div className="text-[9px] text-red-500 font-black tracking-tight uppercase px-1.5 py-0.5 bg-red-50 rounded-md inline-block mt-0.5">
+                                                {user.reason}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex items-center space-x-3 flex-shrink-0">
+                                        <div className="text-right flex flex-col space-y-0.5">
+                                            <div className="flex items-center justify-end space-x-1">
+                                                <span className={`text-[11px] font-black ${user.yesterdayEarnings < 50 ? 'text-red-500' : 'text-gray-900'}`}>
+                                                    ¥{user.yesterdayEarnings.toFixed(2)}
+                                                </span>
+                                                <span className="text-[9px] text-gray-400 font-medium">{perfSubFilter}收益</span>
+                                            </div>
+                                            <div className="flex items-center justify-end space-x-1">
+                                                <span className={`text-[11px] font-black ${user.yesterdayWatched < 500 ? 'text-red-500' : 'text-gray-900'}`}>
+                                                    {user.yesterdayWatched}
+                                                </span>
+                                                <span className="text-[9px] text-gray-400 font-bold">{perfSubFilter}次数</span>
+                                            </div>
+                                        </div>
+                                        <ChevronRight size={14} className="text-gray-300" />
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center space-x-2 pt-1">
+                                    <div className="flex items-center space-x-1 bg-gray-50 px-2 py-1 rounded-md border border-gray-100/50">
+                                        <Globe size={10} className="text-blue-500" />
+                                        <span className="text-[9px] text-gray-400 font-medium">IP:</span>
+                                        <span className="text-[10px] font-bold text-gray-700">{user.ipCount}</span>
+                                    </div>
+                                    <div className="flex items-center space-x-1 bg-gray-50 px-2 py-1 rounded-md border border-gray-100/50">
+                                        <Smartphone size={10} className="text-purple-500" />
+                                        <span className="text-[9px] text-gray-400 font-medium">设备:</span>
+                                        <span className="text-[10px] font-bold text-gray-700">{user.deviceCount}</span>
+                                    </div>
+                                    <div className="flex items-center space-x-1 px-2 py-1 rounded-md border border-blue-100/30 bg-blue-50/30 ml-auto">
+                                        <Zap size={10} className="text-orange-500" />
+                                        <span className="text-[9px] font-medium uppercase tracking-tighter text-gray-400">eCPM:</span>
+                                        <span className={`text-[10px] font-black ${user.ecpm >= 100 ? 'text-green-600' : 'text-red-500'}`}>
+                                            {user.ecpm.toFixed(2)}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))
+                    )}
                 </div>
             </>
         ) : (
@@ -263,42 +407,53 @@ const Alerts: React.FC = () => {
                         </div>
                     </div>
 
-                    {mockSystemAlerts.map((alert) => (
-                        <div key={alert.id} className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm space-y-4 active:bg-gray-50 transition-colors">
-                            <div className="flex items-start justify-between">
-                                <div className="flex items-center space-x-3">
-                                    <div className={`p-2.5 rounded-2xl ${alert.color}`}>
-                                        <alert.icon size={22} />
-                                    </div>
-                                    <div>
-                                        <div className="flex items-center space-x-2">
-                                            <span className="text-sm font-black text-gray-900">{alert.title}</span>
-                                            <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${
-                                                alert.severity === '高' ? 'bg-red-50 text-red-500' : 'bg-orange-50 text-orange-500'
-                                            }`}>{alert.severity}级风险</span>
-                                        </div>
-                                        <div className="text-[10px] text-gray-400 font-medium mt-0.5 flex items-center">
-                                            <Clock size={10} className="mr-1" />
-                                            {alert.time} • 预警编号 #{alert.id}
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="p-1 bg-gray-50 rounded-lg text-gray-300">
-                                    <ChevronRight size={16} />
-                                </div>
-                            </div>
-                            
-                            <div className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100/50 flex flex-col space-y-2">
-                                <p className="text-[11px] text-gray-600 leading-relaxed font-medium">
-                                    {alert.description}
-                                </p>
-                                <div className="flex items-center justify-end space-x-2 pt-1 border-t border-gray-100/50">
-                                    <button className="text-[10px] font-black text-gray-400 px-3 py-1.5 bg-white border border-gray-100 rounded-lg">忽略</button>
-                                    <button className="text-[10px] font-black text-red-600 px-3 py-1.5 bg-red-50 border border-red-100 rounded-lg">已知晓</button>
-                                </div>
-                            </div>
+                    {loading ? (
+                        <div className="p-8 text-center">
+                            <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-3"></div>
+                            <p className="text-sm text-gray-500">加载中...</p>
                         </div>
-                    ))}
+                    ) : systemAlerts.length === 0 ? (
+                        <div className="p-8 text-center">
+                            <p className="text-sm text-gray-400">暂无系统预警</p>
+                        </div>
+                    ) : (
+                        systemAlerts.map((alert) => (
+                            <div key={alert.id} className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm space-y-4 active:bg-gray-50 transition-colors">
+                                <div className="flex items-start justify-between">
+                                    <div className="flex items-center space-x-3">
+                                        <div className={`p-2.5 rounded-2xl ${alert.color || 'text-orange-600 bg-orange-50'}`}>
+                                            {alert.icon ? <alert.icon size={22} /> : <AlertTriangle size={22} />}
+                                        </div>
+                                        <div>
+                                            <div className="flex items-center space-x-2">
+                                                <span className="text-sm font-black text-gray-900">{alert.title}</span>
+                                                <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${
+                                                    alert.severity === '高' ? 'bg-red-50 text-red-500' : 'bg-orange-50 text-orange-500'
+                                                }`}>{alert.severity || '中'}级风险</span>
+                                            </div>
+                                            <div className="text-[10px] text-gray-400 font-medium mt-0.5 flex items-center">
+                                                <Clock size={10} className="mr-1" />
+                                                {alert.time || new Date().toLocaleString('zh-CN')} • 预警编号 #{alert.id}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="p-1 bg-gray-50 rounded-lg text-gray-300">
+                                        <ChevronRight size={16} />
+                                    </div>
+                                </div>
+                                
+                                <div className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100/50 flex flex-col space-y-2">
+                                    <p className="text-[11px] text-gray-600 leading-relaxed font-medium">
+                                        {alert.description}
+                                    </p>
+                                    <div className="flex items-center justify-end space-x-2 pt-1 border-t border-gray-100/50">
+                                        <button className="text-[10px] font-black text-gray-400 px-3 py-1.5 bg-white border border-gray-100 rounded-lg">忽略</button>
+                                        <button className="text-[10px] font-black text-red-600 px-3 py-1.5 bg-red-50 border border-red-100 rounded-lg">已知晓</button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))
+                    )}
 
                     <div className="pt-4 text-center">
                         <p className="text-[10px] text-gray-300 font-medium">系统仅保留最近 72 小时的预警记录</p>
