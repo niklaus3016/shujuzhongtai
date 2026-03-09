@@ -33,7 +33,7 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
     try {
       const monthKey = getMonthKey(currentMonth);
       const token = localStorage.getItem('admin_token');
-      const response = await fetch(`https://xevbnmgazudl.sealoshzh.site/api/daily-target/month?month=${monthKey}`, {
+      const response = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/daily-target/month?month=${monthKey}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -75,7 +75,7 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
     setSaving(true);
     try {
       const token = localStorage.getItem('admin_token');
-      const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/daily-target', {
+      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/daily-target', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

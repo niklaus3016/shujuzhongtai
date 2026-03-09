@@ -48,7 +48,7 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
         const token = localStorage.getItem('admin_token');
         
         // 尝试从团队列表获取团队名称
-        const teamListRes = await fetch('https://xevbnmgazudl.sealoshzh.site/api/team/list', {
+        const teamListRes = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/team/list', {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',

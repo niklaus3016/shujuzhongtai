@@ -110,7 +110,7 @@ const Alerts: React.FC = () => {
       
       try {
         const token = localStorage.getItem('admin_token');
-        const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/team/list', {
+        const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/team/list', {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -141,7 +141,7 @@ const Alerts: React.FC = () => {
       try {
         const token = localStorage.getItem('admin_token');
         console.log('Fetching system alerts...');
-        const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/alert/list', {
+        const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/alert/list', {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',

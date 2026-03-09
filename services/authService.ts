@@ -54,7 +54,7 @@ export const authService = {
   async updatePassword(userId: string, newPassword: string): Promise<void> {
     // Call the actual API
     const token = localStorage.getItem('admin_token');
-    const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/update-password', {
+    const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/update-password', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

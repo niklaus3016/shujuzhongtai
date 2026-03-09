@@ -64,8 +64,8 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser }) 
       list = list.filter(e => e.parentId === currentUser.id);
     }
     return list.filter(e => 
-      (e.realName || e.name || e.username || '').toLowerCase().includes((searchTerm || '').toLowerCase()) || 
-      (e.employeeId || e.id || '').toLowerCase().includes((searchTerm || '').toLowerCase())
+      (e.username || '').toLowerCase().includes((searchTerm || '').toLowerCase()) || 
+      (e.id || '').toLowerCase().includes((searchTerm || '').toLowerCase())
     );
   }, [employees, searchTerm, currentUser]);
 
@@ -139,15 +139,15 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser }) 
 
       <div className="space-y-3">
         {filteredEmployees.map((employee) => (
-          <div key={employee.id || employee._id} className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between">
+          <div key={employee.id} className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${employee.status === 'enabled' ? 'bg-blue-50 text-[#1E40AF]' : 'bg-gray-50 text-gray-400'}`}>
                 <User size={20} />
               </div>
               <div>
-                <div className="text-sm font-bold text-gray-900">{employee.employeeId || employee.id || employee._id}</div>
+                <div className="text-sm font-bold text-gray-900">{employee.id}</div>
                 <div className="flex items-center space-x-2 mt-0.5">
-                  <span className="text-xs text-gray-500">{employee.realName || employee.name || employee.username || '未知'}</span>
+                  <span className="text-xs text-gray-500">{employee.username || '未知'}</span>
                   <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase ${employee.status === 'enabled' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
                     {employee.status === 'enabled' ? '启用中' : '已禁用'}
                   </span>

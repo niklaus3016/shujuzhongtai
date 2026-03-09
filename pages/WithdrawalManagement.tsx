@@ -45,7 +45,7 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
     setLoading(true);
     try {
       const token = localStorage.getItem('admin_token');
-      const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/withdraw/list', {
+      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/withdraw/list', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -86,7 +86,7 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
   const handleProcess = async (id: string, action: 'approve' | 'reject') => {
     try {
       const token = localStorage.getItem('admin_token');
-      await fetch(`https://xevbnmgazudl.sealoshzh.site/api/withdraw/${id}/${action}`, {
+      await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/withdraw/${id}/${action}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -105,7 +105,7 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
     try {
       const token = localStorage.getItem('admin_token');
       for (const id of selectedRecords) {
-        await fetch(`https://xevbnmgazudl.sealoshzh.site/api/withdraw/${id}/${action}`, {
+        await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/withdraw/${id}/${action}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

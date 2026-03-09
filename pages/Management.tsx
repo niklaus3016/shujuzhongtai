@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, Target, ToggleLeft, ToggleRight, Wallet, ChevronRight,
-  UserPlus, Settings, TrendingUp, Plus, ChevronLeft, Info
+  UserPlus, Settings, TrendingUp, Plus, ChevronLeft, Info, Check
 } from 'lucide-react';
 import { request } from '../services/api';
 import AccountManagement from './AccountManagement';
@@ -36,7 +36,7 @@ const Management: React.FC<ManagementProps> = () => {
   const fetchWithdrawStatus = async () => {
     try {
       const token = localStorage.getItem('admin_token');
-      const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/settings/withdraw-status', {
+      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/settings/withdraw-status', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -63,7 +63,7 @@ const Management: React.FC<ManagementProps> = () => {
     setWithdrawalLoading(true);
     try {
       const token = localStorage.getItem('admin_token');
-      const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/withdraw/list', {
+      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/withdraw/list', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -91,7 +91,7 @@ const Management: React.FC<ManagementProps> = () => {
     setStatusLoading(true);
     try {
       const token = localStorage.getItem('admin_token');
-      const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/health', {
+      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/health', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -117,7 +117,7 @@ const Management: React.FC<ManagementProps> = () => {
     try {
       const token = localStorage.getItem('admin_token');
       const newStatus = !withdrawEnabled;
-      const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/settings/withdraw-status', {
+      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/settings/withdraw-status', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -146,7 +146,7 @@ const Management: React.FC<ManagementProps> = () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('admin_token');
-      const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/gold/deduct', {
+      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/gold/deduct', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -176,7 +176,7 @@ const Management: React.FC<ManagementProps> = () => {
   const fetchCommissionRate = async () => {
     try {
       const token = localStorage.getItem('admin_token');
-      const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/settings/commission-rate', {
+      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/settings/commission-rate', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -197,7 +197,7 @@ const Management: React.FC<ManagementProps> = () => {
     setCommissionLoading(true);
     try {
       const token = localStorage.getItem('admin_token');
-      const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/settings/commission-rate', {
+      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/settings/commission-rate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -225,7 +225,7 @@ const Management: React.FC<ManagementProps> = () => {
     setHistoryLoading(true);
     try {
       const token = localStorage.getItem('admin_token');
-      const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/gold/deduct/history', {
+      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/gold/deduct/history', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

@@ -1,6 +1,6 @@
 import { ApiResponse } from '../types';
 
-const BASE_URL = 'https://xevbnmgazudl.sealoshzh.site/api/admin';
+const BASE_URL = 'https://wfqmaepvjkdd.sealoshzh.site/api/admin';
 
 export async function request<T>(
   endpoint: string,

@@ -59,7 +59,7 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
       setLoading(true);
       try {
         const token = localStorage.getItem('admin_token');
-        const response = await fetch(`https://xevbnmgazudl.sealoshzh.site/api/team/${team.id}/members`, {
+        const response = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/team/${team.id}/members`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -210,7 +210,7 @@ const Team: React.FC = () => {
       try {
         // Fetch team list from backend
         const token = localStorage.getItem('admin_token');
-        const response = await fetch('https://xevbnmgazudl.sealoshzh.site/api/team/list', {
+        const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/team/list', {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
