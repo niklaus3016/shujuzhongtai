@@ -4,3 +4,9 @@ dist/
 .env.local
 *.log
 .DS_Store
+
+# Android
+android/
+*.apk
+*.aab
+*.keystore
