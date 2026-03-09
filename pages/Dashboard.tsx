@@ -121,7 +121,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       const transformedUsers: DashboardUser[] = userResponse.map((user: any) => ({
         id: user.employeeId || user.userId || '',
         userId: user.userId || '',
-        name: user.userId || user.employeeId || '',
+        name: user.realName || user.name || user.username || user.userName || user.userId || user.employeeId || '',
         avatar: '',
         watched: user.watched || 0,
         earnings: (user.earnings || 0) / 1000,
@@ -129,7 +129,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         deviceCount: user.deviceCount || 1,
         ecpm: user.ecpm || 0,
         trend: 'up' as const,
-        superior: user.superior || '系统直属',
+        superior: user.superior || user.teamName || '系统直属',
         regDays: user.regDays || 1
       }));
 
@@ -261,7 +261,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         )}
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-md overflow-hidden animate-in fade-in duration-500">
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50">
+            <div className="p-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2 bg-gradient-to-r from-blue-50 to-indigo-50">
                 <h3 className="text-sm font-bold text-gray-900 flex items-center">
                     <Users size={16} className="mr-2 text-[#1E40AF]" />
                     {isTeamLeader ? '成员实时表现' : '用户实时表现'}
@@ -270,21 +270,21 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                 <div className="flex bg-white p-1 rounded-lg shadow-sm">
                     <button 
                         onClick={() => setSortBy('ecpm')}
-                        className={`px-3 py-1.5 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'ecpm' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
+                        className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'ecpm' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
                     >
-                        按eCPM
+                        eCPM
                     </button>
                     <button 
                         onClick={() => setSortBy('watched')}
-                        className={`px-3 py-1.5 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'watched' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
+                        className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'watched' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
                     >
-                        按次数
+                        次数
                     </button>
                     <button 
                         onClick={() => setSortBy('earnings')}
-                        className={`px-3 py-1.5 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'earnings' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
+                        className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'earnings' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
                     >
-                        按收益
+                        收益
                     </button>
                 </div>
             </div>
