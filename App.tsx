@@ -74,7 +74,7 @@ const App: React.FC = () => {
       case AppTab.MANAGEMENT:
         return <Management />;
       case AppTab.ALERTS:
-        return <Alerts />;
+        return <Alerts onSelectUser={(user) => setSelectedUser(user)} />;
       case AppTab.PROFILE:
         return <Settings onLogout={handleLogout} />;
       default:

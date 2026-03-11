@@ -1,4 +1,5 @@
 import { ApiResponse } from '../types';
+import { retryFetch } from '../utils/retryFetch';
 
 const BASE_URL = 'https://wfqmaepvjkdd.sealoshzh.site/api/admin';
 
@@ -6,19 +7,23 @@ export async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = localStorage.getItem('admin_token');
-  
-  const headers = new Headers(options.headers);
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-  headers.set('Content-Type', 'application/json');
+  return retryFetch(async () => {
+    const token = localStorage.getItem('admin_token');
+    
+    const headers = new Headers(options.headers);
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+    headers.set('Content-Type', 'application/json');
 
-  try {
     const response = await fetch(`${BASE_URL}${endpoint}`, {
       ...options,
       headers,
     });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
 
     const text = await response.text();
     
@@ -40,8 +45,5 @@ export async function request<T>(
     
     const { success, ...rest } = result;
     return rest as T;
-  } catch (error: any) {
-    console.error('API请求错误:', error);
-    throw error;
-  }
+  });
 }

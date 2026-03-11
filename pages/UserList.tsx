@@ -161,7 +161,7 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
                                     )}
                                 </div>
                                 <div className="min-w-0">
-                                    <div className="text-sm font-bold text-gray-900 truncate">上级: {user.superior}</div>
+                                    <div className="text-sm font-bold text-gray-900 truncate">团队: {user.superior}</div>
                                 </div>
                             </div>
                             

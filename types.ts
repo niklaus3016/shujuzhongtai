@@ -16,6 +16,7 @@ export interface AdminUser {
   status: 'enabled' | 'disabled';
   avatar?: string;
   teamName?: string; // For team leaders, the name of their team
+  phoneCount?: number; // 领取手机数
 }
 
 export interface ApiResponse<T> {

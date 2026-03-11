@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   UserPlus, Search, X, 
-  MoreVertical, Check, AlertCircle, Loader2, User, Phone, MapPin
+  MoreVertical, Check, AlertCircle, Loader2, User, Phone, MapPin, Smartphone
 } from 'lucide-react';
 import { AdminUser, UserRole } from '../types';
 import { request } from '../services/api';
@@ -21,7 +21,8 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser }) 
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
-    region: ''
+    region: '',
+    phoneCount: ''
   });
   
   // Employees data
@@ -91,6 +92,7 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser }) 
           realName: formData.name,
           phone: formData.phone,
           region: formData.region,
+          phoneCount: parseInt(formData.phoneCount) || 0,
           parentId: currentUser.id
         })
       });
@@ -99,7 +101,7 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser }) 
         setEmployees(prev => [result, ...prev]);
       }
       setIsAddModalOpen(false);
-      setFormData({ name: '', phone: '', region: '' });
+      setFormData({ name: '', phone: '', region: '', phoneCount: '' });
     } catch (error) {
       console.error('Failed to add employee:', error);
     } finally {
@@ -232,6 +234,21 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser }) 
                 </div>
               </div>
               
+              <div>
+                <label className="text-xs font-bold text-gray-500 mb-1.5 block">领取手机数</label>
+                <div className="relative">
+                  <Smartphone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="number"
+                    placeholder="请输入领取手机数"
+                    value={formData.phoneCount}
+                    onChange={(e) => setFormData({ ...formData, phoneCount: e.target.value })}
+                    className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    min="0"
+                  />
+                </div>
+              </div>
+              
               <div className="bg-blue-50 rounded-xl p-3">
                 <p className="text-xs text-blue-600">
                   💡 员工号将由系统自动生成4位数字编号
@@ -244,7 +261,7 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser }) 
                 <button
                   onClick={() => {
                     setIsAddModalOpen(false);
-                    setFormData({ name: '', phone: '', region: '' });
+                    setFormData({ name: '', phone: '', region: '', phoneCount: '' });
                   }}
                   className="flex-1 py-3 bg-gray-100 text-gray-500 font-bold rounded-xl"
                   disabled={saving}

@@ -17,7 +17,10 @@ interface TeamItem {
   monthlyAds: number;
   totalAds: number;
   todayRevenue: number;
+  todayEarnings?: number;
+  earnings?: number;
   totalRevenue: number;
+  totalEarnings?: number;
   todayGrowth: number;
   monthGrowth: number;
   ecpm: number;
@@ -208,24 +211,26 @@ const Team: React.FC = () => {
     const fetchTeams = async () => {
       setLoading(true);
       try {
-        // Fetch team list from backend
-        const token = localStorage.getItem('admin_token');
-        const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/team/list', {
+        const result = await request<any>('/team/list', {
           method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
+          headers: new Headers({
+            'Content-Type': 'application/json'
+          })
         });
-        const result = await response.json();
-        if (result.success) {
-          setTeams(result.data || []);
-        } else {
-          throw new Error(result.message || '获取团队列表失败');
-        }
+        console.log('Team API Response:', result);
+        const teamsData = result || [];
+        teamsData.forEach((team: any, index: number) => {
+          console.log(`Team ${index}:`, {
+            id: team.id,
+            leader: team.leader,
+            todayRevenue: team.todayRevenue,
+            todayAds: team.todayAds,
+            totalRevenue: team.totalRevenue
+          });
+        });
+        setTeams(teamsData);
       } catch (error) {
         console.error('Error fetching teams:', error);
-        // Fallback to mock data on error
         setTeams(mockTeams);
       } finally {
         setLoading(false);
@@ -245,9 +250,11 @@ const Team: React.FC = () => {
         team.leader.toLowerCase().includes(teamSearchTerm.toLowerCase()) || 
         team.id.toLowerCase().includes(teamSearchTerm.toLowerCase())
       )
-      .sort((a, b) => 
-        sortBy === 'today' ? b.todayRevenue - a.todayRevenue : b.totalRevenue - a.totalRevenue
-      );
+      .sort((a, b) => {
+        const revenueA = sortBy === 'today' ? Number(a.todayRevenue || 0) : Number(a.totalRevenue || 0);
+        const revenueB = sortBy === 'today' ? Number(b.todayRevenue || 0) : Number(b.totalRevenue || 0);
+        return revenueB - revenueA;
+      });
   }, [teams, teamSearchTerm, sortBy]);
 
   if (!currentUser) return null;
@@ -359,7 +366,7 @@ const Team: React.FC = () => {
                       </div>
                   </div>
                   <div className="text-right">
-                      <div className="text-xs font-black text-gray-900">¥ {Number(sortBy === 'today' ? team.todayRevenue : team.totalRevenue).toFixed(2)}</div>
+                      <div className="text-xs font-black text-gray-900">¥ {Number(sortBy === 'today' ? team.todayRevenue || 0 : team.totalRevenue || 0).toFixed(2)}</div>
                       <div className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">
                         {sortBy === 'today' ? '今日团队总收益' : '本月团队总收益'}
                       </div>

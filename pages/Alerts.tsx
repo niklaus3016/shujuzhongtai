@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   AlertTriangle, UserX, LineChart, ShieldCheck, Clock, 
-  ChevronRight, ShieldAlert, BarChart3, Zap, Globe, Smartphone, TrendingDown, Wallet, Percent
+  ChevronRight, ShieldAlert, BarChart3, Zap, Globe, Smartphone, TrendingDown, Wallet, Percent, Trash2
 } from 'lucide-react';
 import { AlertItem, UserRole } from '../types';
 import { request } from '../services/api';
@@ -91,7 +91,11 @@ const mockLowPerfUsers: LowPerformanceUser[] = [
   { id: '8705', name: '丁*磊', avatar: 'https://picsum.photos/seed/a5/100/100', yesterdayWatched: 499, yesterdayEarnings: 49.9, ipCount: 1, deviceCount: 1, ecpm: 100.0, reason: '临界异常' },
 ];
 
-const Alerts: React.FC = () => {
+interface AlertsProps {
+  onSelectUser?: (user: any) => void;
+}
+
+const Alerts: React.FC<AlertsProps> = ({ onSelectUser }) => {
   const currentUser = authService.getCurrentUser();
   const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
   const isSuperAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
@@ -103,24 +107,23 @@ const Alerts: React.FC = () => {
   const [systemAlerts, setSystemAlerts] = useState<any[]>([]);
   const [lowPerfUsers, setLowPerfUsers] = useState<LowPerformanceUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [swipingUserId, setSwipingUserId] = useState<string | null>(null);
+  const [swipingAlertId, setSwipingAlertId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchTeamName = async () => {
       if (!isTeamLeader || !currentUser?.id) return;
       
       try {
-        const token = localStorage.getItem('admin_token');
-        const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/team/list', {
+        const teamListResult = await request<any>('/team/list', {
           method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
+          headers: new Headers({
+            'Content-Type': 'application/json'
+          })
         });
-        const teamListResult = await response.json();
         
-        if (teamListResult.success && teamListResult.data) {
-          const team = teamListResult.data.find((t: any) => t.id === currentUser.id);
+        if (teamListResult) {
+          const team = teamListResult.find((t: any) => t.id === currentUser.id);
           if (team && team.name) {
             setTeamName(team.name);
           } else if (team && team.leader) {
@@ -139,28 +142,21 @@ const Alerts: React.FC = () => {
     const fetchAlerts = async () => {
       setLoading(true);
       try {
-        const token = localStorage.getItem('admin_token');
         console.log('Fetching system alerts...');
-        const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/alert/list', {
+        const result = await request<any>('/alert/list', {
           method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
+          headers: new Headers({
+            'Content-Type': 'application/json'
+          })
         });
-        console.log('System alerts API response status:', response.status);
-        const result = await response.json();
         console.log('System alerts API response:', result);
-        if (result.success) {
-          setSystemAlerts(result.data || []);
+        if (result && result.length > 0) {
+          setSystemAlerts(result);
         } else {
-          console.log('System alerts API response not successful:', result);
-          // Fallback to mock data on error
           setSystemAlerts(mockSystemAlerts);
         }
       } catch (error) {
         console.error('Error fetching alerts:', error);
-        // Fallback to mock data on error
         setSystemAlerts(mockSystemAlerts);
       } finally {
         setLoading(false);
@@ -175,33 +171,22 @@ const Alerts: React.FC = () => {
       
       setLoading(true);
       try {
-        const token = localStorage.getItem('admin_token');
         console.log('Fetching low performance users...');
         // 团队长只获取自己团队的业绩异常用户
-        const url = isTeamLeader && teamName 
+        const endpoint = isTeamLeader && teamName 
           ? `/user/low-performance?team=${encodeURIComponent(teamName)}`
           : '/user/low-performance';
         
-        const response = await fetch(url, {
+        const result = await request<any>(endpoint, {
           method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
+          headers: new Headers({
+            'Content-Type': 'application/json'
+          })
         });
-        console.log('Low performance users API response status:', response.status);
-        const result = await response.json();
         console.log('Low performance users API response:', result);
-        if (result.success) {
-          setLowPerfUsers(result.data || []);
-        } else {
-          console.log('Low performance users API response not successful:', result);
-          // Fallback to mock data on error
-          setLowPerfUsers(mockLowPerfUsers);
-        }
+        setLowPerfUsers(result || []);
       } catch (error) {
         console.error('Error fetching low performance users:', error);
-        // Fallback to mock data on error
         setLowPerfUsers(mockLowPerfUsers);
       } finally {
         setLoading(false);
@@ -212,37 +197,6 @@ const Alerts: React.FC = () => {
     fetchLowPerfUsers();
   }, [isTeamLeader, teamName]);
 
-  // 团队长获取到teamName后重新获取数据
-  useEffect(() => {
-    if (teamName) {
-      const fetchLowPerfUsers = async () => {
-        setLoading(true);
-        try {
-          const token = localStorage.getItem('admin_token');
-          const url = `/user/low-performance?team=${encodeURIComponent(teamName)}`;
-          
-          const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            }
-          });
-          const result = await response.json();
-          if (result.success) {
-            setLowPerfUsers(result.data || []);
-          }
-        } catch (error) {
-          console.error('Error fetching low performance users:', error);
-        } finally {
-          setLoading(false);
-        }
-      };
-      
-      fetchLowPerfUsers();
-    }
-  }, [teamName, isTeamLeader]);
-
   return (
     <div className="pb-6 animate-in fade-in duration-300">
       <header className="sticky top-0 bg-white z-40 px-4 py-3 border-b border-gray-100 shadow-sm">
@@ -251,9 +205,6 @@ const Alerts: React.FC = () => {
                 <ShieldAlert className="text-[#1E40AF] mr-2" size={24} />
                 预警中心
             </h1>
-            <button className="text-[10px] font-black text-[#1E40AF] bg-blue-50 px-3 py-1.5 rounded-full border border-blue-100 active:bg-blue-100 transition-colors">
-                全部标记已读
-            </button>
         </div>
 
         {/* Main Category Tabs - 团队长只显示业绩异常 */}
@@ -267,7 +218,7 @@ const Alerts: React.FC = () => {
               >
                   <BarChart3 size={14} className="mr-1.5" />
                   业绩异常
-                  <span className="ml-1.5 w-4 h-4 bg-blue-100 text-[#1E40AF] rounded-full flex items-center justify-center text-[8px]">5</span>
+                  <span className="ml-1.5 w-4 h-4 bg-blue-100 text-[#1E40AF] rounded-full flex items-center justify-center text-[8px]">{lowPerfUsers.length}</span>
               </button>
               <button 
                   onClick={() => setActiveCategory('系统预警')}
@@ -277,7 +228,7 @@ const Alerts: React.FC = () => {
               >
                   <ShieldAlert size={14} className="mr-1.5" />
                   系统预警
-                  <span className="ml-1.5 w-4 h-4 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-[8px]">3</span>
+                  <span className="ml-1.5 w-4 h-4 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-[8px]">{systemAlerts.length}</span>
               </button>
           </div>
         ) : (
@@ -333,11 +284,39 @@ const Alerts: React.FC = () => {
                             <p className="text-sm text-gray-400">暂无业绩异常用户</p>
                         </div>
                     ) : (
-                        lowPerfUsers.map((user) => (
-                            <div 
-                              key={user.id} 
-                              className="p-4 space-y-3 active:bg-gray-50 transition-colors cursor-pointer"
+                        lowPerfUsers.map((user, index) => (
+                            <div
+                              key={`${user.id}-${index}`}
+                              className="relative overflow-hidden"
+                              onClick={() => {
+                                // Navigate to user detail page
+                                if (onSelectUser) {
+                                  onSelectUser({
+                                    id: user.id,
+                                    userId: user.id,
+                                    name: user.name,
+                                    avatar: user.avatar,
+                                    watched: user.yesterdayWatched,
+                                    earnings: user.yesterdayEarnings,
+                                    ipCount: user.ipCount,
+                                    deviceCount: user.deviceCount,
+                                    ecpm: user.ecpm,
+                                    trend: 'stable' as const
+                                  });
+                                }
+                              }}
                             >
+                              <div 
+                                className={`p-4 space-y-3 active:bg-gray-50 transition-colors cursor-pointer ${swipingUserId === user.id ? '-translate-x-16' : 'translate-x-0'}`}
+                                onTouchStart={(e) => {
+                                  e.stopPropagation();
+                                  setSwipingUserId(user.id);
+                                }}
+                                onTouchEnd={(e) => {
+                                  e.stopPropagation();
+                                  setSwipingUserId(null);
+                                }}
+                              >
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center space-x-3 overflow-hidden">
                                         <div className="relative flex-shrink-0">
@@ -390,6 +369,13 @@ const Alerts: React.FC = () => {
                                         </span>
                                     </div>
                                 </div>
+                              </div>
+                              <button 
+                                onClick={() => setLowPerfUsers(lowPerfUsers.filter(u => u.id !== user.id))}
+                                className={`absolute right-0 top-0 bottom-0 w-16 bg-red-500 text-white flex items-center justify-center active:bg-red-600 transition-opacity duration-200 ${swipingUserId === user.id ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                              >
+                                <Trash2 size={20} />
+                              </button>
                             </div>
                         ))
                     )}
@@ -418,7 +404,25 @@ const Alerts: React.FC = () => {
                         </div>
                     ) : (
                         systemAlerts.map((alert) => (
-                            <div key={alert.id} className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm space-y-4 active:bg-gray-50 transition-colors">
+                            <div 
+                              key={alert.id} 
+                              className="relative overflow-hidden"
+                              onClick={() => {
+                                // Show alert detail or handle alert click
+                                console.log('Alert clicked:', alert);
+                              }}
+                            >
+                              <div 
+                                className={`bg-white p-4 rounded-3xl border border-gray-100 shadow-sm space-y-4 active:bg-gray-50 transition-colors ${swipingAlertId === alert.id ? '-translate-x-16' : 'translate-x-0'}`}
+                                onTouchStart={(e) => {
+                                  e.stopPropagation();
+                                  setSwipingAlertId(alert.id);
+                                }}
+                                onTouchEnd={(e) => {
+                                  e.stopPropagation();
+                                  setSwipingAlertId(null);
+                                }}
+                              >
                                 <div className="flex items-start justify-between">
                                     <div className="flex items-center space-x-3">
                                         <div className={`p-2.5 rounded-2xl ${alert.color || 'text-orange-600 bg-orange-50'}`}>
@@ -442,15 +446,18 @@ const Alerts: React.FC = () => {
                                     </div>
                                 </div>
                                 
-                                <div className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100/50 flex flex-col space-y-2">
+                                <div className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100/50">
                                     <p className="text-[11px] text-gray-600 leading-relaxed font-medium">
                                         {alert.description}
                                     </p>
-                                    <div className="flex items-center justify-end space-x-2 pt-1 border-t border-gray-100/50">
-                                        <button className="text-[10px] font-black text-gray-400 px-3 py-1.5 bg-white border border-gray-100 rounded-lg">忽略</button>
-                                        <button className="text-[10px] font-black text-red-600 px-3 py-1.5 bg-red-50 border border-red-100 rounded-lg">已知晓</button>
-                                    </div>
                                 </div>
+                              </div>
+                              <button 
+                                onClick={() => setSystemAlerts(systemAlerts.filter(a => a.id !== alert.id))}
+                                className={`absolute right-0 top-0 bottom-0 w-16 bg-red-500 text-white flex items-center justify-center active:bg-red-600 rounded-r-3xl transition-opacity duration-200 ${swipingAlertId === alert.id ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                              >
+                                <Trash2 size={20} />
+                              </button>
                             </div>
                         ))
                     )}

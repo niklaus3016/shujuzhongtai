@@ -62,6 +62,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
     } else {
       setLoading(true);
     }
+    // 清空之前的数据，避免显示旧数据
+    setUserData([]);
+    setKpiData([]);
     try {
       const timeRangeMap: Record<string, string> = {
         [TimeRange.TODAY]: 'today',
@@ -121,7 +124,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       const transformedUsers: DashboardUser[] = userResponse.map((user: any) => ({
         id: user.employeeId || user.userId || '',
         userId: user.userId || '',
-        name: user.realName || user.name || user.username || user.userName || user.userId || user.employeeId || '',
+        name: user.realName || user.realname || user.name || user.username || user.userName || user.userId || user.employeeId || '',
         avatar: '',
         watched: user.watched || 0,
         earnings: (user.earnings || 0) / 1000,
@@ -136,18 +139,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       setUserData(transformedUsers);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
-      // Fallback to mock data on error
-      setKpiData([
-        { title: '今日利润', value: '¥32,651', growth: '+5.4%', isUp: true, icon: BarChart3, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-        { title: '今日利润率', value: '67.6%', growth: '+1.2%', isUp: true, icon: Percent, color: 'text-pink-600', bg: 'bg-pink-50' },
-        { title: '业务总收入', value: '¥48,291', growth: '+8.1%', isUp: true, icon: Wallet, color: 'text-green-600', bg: 'bg-green-50' },
-        { title: '用户分成金额', value: '¥15,640', growth: '+18.2%', isUp: true, icon: Coins, color: 'text-orange-600', bg: 'bg-orange-50' },
-        { title: '广告总曝光', value: '1,284,092', growth: '+12.5%', isUp: true, icon: Eye, color: 'text-blue-600', bg: 'bg-blue-50' },
-        { title: '广告总点击', value: '84,321', growth: '-2.4%', isUp: false, icon: MousePointer2, color: 'text-purple-600', bg: 'bg-purple-50' },
-        { title: '今日平均 eCPM', value: '142.5', growth: '+4.2%', isUp: true, icon: Zap, color: 'text-yellow-600', bg: 'bg-yellow-50' },
-        { title: '今日活跃用户', value: '4,892', growth: '+2.1%', isUp: true, icon: Users, color: 'text-cyan-600', bg: 'bg-cyan-50' },
-      ]);
-      setUserData(mockDashboardUsers);
+      // 数据获取失败，保持数据为空，不显示模拟数据
+      setKpiData([]);
+      setUserData([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -164,7 +158,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
 
   const kpis = kpiData;
 
-  const sortedUsers = [...(userData.length > 0 ? userData : mockDashboardUsers)].sort((a, b) => b[sortBy] - a[sortBy]);
+  const sortedUsers = [...userData].sort((a, b) => b[sortBy] - a[sortBy]);
 
   if (loading) {
     return (
@@ -220,7 +214,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         {/* 只要不是团队长，就显示KPI数据看板 */}
         {showKPIDashboard && (
           <div className="grid grid-cols-2 gap-3">
-            {kpis.map((kpi: any, idx) => {
+            {kpis.length === 0 ? (
+              <div className="col-span-2 p-8 text-center text-gray-400 bg-white rounded-2xl border border-gray-100">
+                <div className="text-sm mb-2">暂无数据</div>
+                <div className="text-[10px]">请稍后刷新或检查网络连接</div>
+              </div>
+            ) : kpis.map((kpi: any, idx) => {
               const Icon = kpi.icon;
               const rawValue = kpi.title.includes('eCPM') ? parseFloat(kpi.value) : 0;
               
@@ -290,9 +289,14 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
             </div>
             
             <div className="divide-y divide-gray-100">
-                {sortedUsers.map((user, idx) => (
+                {sortedUsers.length === 0 ? (
+                  <div className="p-8 text-center text-gray-400">
+                    <div className="text-sm mb-2">暂无用户数据</div>
+                    <div className="text-[10px]">请稍后刷新或检查网络连接</div>
+                  </div>
+                ) : sortedUsers.map((user, idx) => (
                     <div 
-                      key={user.id} 
+                      key={`${user.id}-${idx}`}
                       className="p-4 space-y-3 active:bg-gray-50 transition-all duration-200 cursor-pointer hover:bg-gray-50/50 animate-in fade-in duration-300"
                       onClick={() => onSelectUser?.(user)}
                     >

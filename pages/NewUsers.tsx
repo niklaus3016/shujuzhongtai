@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Zap, Globe, Smartphone, ChevronRight, UserPlus, 
@@ -111,7 +110,10 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
           superior: user.superior || '系统直属'
         }));
         setUsers(transformedUsers);
-        setTodayNewUsers(response.todayNewUsers || 0);
+        
+        // 计算今日新增：注册天数 <= 1 的用户数量
+        const todayCount = transformedUsers.filter(u => u.regDays <= 1).length;
+        setTodayNewUsers(todayCount);
       } catch (error) {
         console.error('Error fetching new users:', error);
         setUsers([]);
