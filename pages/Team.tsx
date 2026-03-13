@@ -1,12 +1,13 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   Users2, TrendingUp, ChevronRight, Filter, Award, 
-  PlayCircle, ChevronLeft, Search, Zap, Globe, Smartphone, TrendingDown, X
+  PlayCircle, ChevronLeft, Search, Zap, Globe, Smartphone, TrendingDown, X, UserPlus
 } from 'lucide-react';
 import { authService } from '../services/authService';
 import { UserRole } from '../types';
 import EmployeeManagement from '../components/EmployeeManagement';
+import TeamLeaderDashboard from '../components/TeamLeaderDashboard';
 import { request } from '../services/api';
 
 interface TeamItem {
@@ -205,20 +206,58 @@ const Team: React.FC = () => {
   const [selectedTeam, setSelectedTeam] = useState<TeamItem | null>(null);
   const [teams, setTeams] = useState<TeamItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const currentUser = authService.getCurrentUser();
+  const [timeRange, setTimeRange] = useState<string>('today');
+  // 使用 useMemo 缓存 currentUser，避免每次渲染都返回新对象
+  const currentUser = useMemo(() => authService.getCurrentUser(), []);
+
+  const handleRefresh = useCallback(() => {
+    // 刷新团队数据
+    const fetchTeams = async () => {
+      setLoading(true);
+      try {
+        const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/team/list', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        const result = await response.json();
+        console.log('Team API Response:', result);
+        const teamsData = result.data || [];
+        teamsData.forEach((team: any, index: number) => {
+          console.log(`Team ${index}:`, {
+            id: team.id,
+            leader: team.leader,
+            todayRevenue: team.todayRevenue,
+            todayAds: team.todayAds,
+            totalRevenue: team.totalRevenue
+          });
+        });
+        setTeams(teamsData);
+      } catch (error) {
+        console.error('Error fetching teams:', error);
+        setTeams(mockTeams);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTeams();
+  }, []); // 没有依赖项，因为不使用任何外部变量
 
   useEffect(() => {
     const fetchTeams = async () => {
       setLoading(true);
       try {
-        const result = await request<any>('/team/list', {
+        const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/team/list', {
           method: 'GET',
-          headers: new Headers({
+          headers: {
             'Content-Type': 'application/json'
-          })
+          }
         });
+        const result = await response.json();
         console.log('Team API Response:', result);
-        const teamsData = result || [];
+        const teamsData = result.data || [];
         teamsData.forEach((team: any, index: number) => {
           console.log(`Team ${index}:`, {
             id: team.id,
@@ -261,16 +300,25 @@ const Team: React.FC = () => {
 
   // Normal Admin (Team Leader) view
   if (currentUser.role === UserRole.NORMAL_ADMIN) {
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    
     return (
       <div className="p-4 pb-24">
         <header className="mb-6">
-          <h1 className="text-xl font-bold text-gray-900 flex items-center">
-            <Users2 className="text-[#1E40AF] mr-2" size={24} />
-            我的团队
-          </h1>
-          <p className="text-xs text-gray-400 font-medium mt-1">管理您的下级员工账号及收益</p>
+          <div className="flex items-center justify-between">
+            <h1 className="text-xl font-bold text-gray-900 flex items-center">
+              <Users2 className="text-[#1E40AF] mr-2" size={24} />
+              我的团队
+            </h1>
+            <button 
+              onClick={() => setIsAddModalOpen(true)}
+              className="bg-[#1E40AF] text-white p-2 rounded-xl shadow-lg shadow-blue-100 active:scale-95 transition-all"
+            >
+              <UserPlus size={20} />
+            </button>
+          </div>
         </header>
-        <EmployeeManagement currentUser={currentUser} />
+        <EmployeeManagement currentUser={currentUser} isAddModalOpen={isAddModalOpen} setIsAddModalOpen={setIsAddModalOpen} />
       </div>
     );
   }
@@ -344,7 +392,12 @@ const Team: React.FC = () => {
 
       <div className="px-4 mt-4">
         <div className="space-y-3">
-            {filteredAndSortedTeams.length > 0 ? (
+            {loading ? (
+              <div className="py-20 text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1E40AF] mx-auto mb-4"></div>
+                <p className="text-xs text-gray-400 font-bold">加载中...</p>
+              </div>
+            ) : filteredAndSortedTeams.length > 0 ? (
               filteredAndSortedTeams.map((team) => (
             <div key={team.id} className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden p-4 space-y-4 transition-colors">
               <div className="flex items-center justify-between">

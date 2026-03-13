@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { TimeRange, KPIStats, User, UserRole } from '../types';
 import { 
   TrendingUp, TrendingDown, Eye, MousePointer2, Coins, 
@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { request } from '../services/api';
 import { authService } from '../services/authService';
+import TeamLeaderDashboard from '../components/TeamLeaderDashboard';
 
 interface DashboardUser {
   id: string;
@@ -43,7 +44,8 @@ const mockDashboardUsers: DashboardUser[] = [
 ];
 
 const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) => {
-  const currentUser = authService.getCurrentUser();
+  // 使用 useMemo 缓存 currentUser，避免每次渲染都返回新对象
+  const currentUser = useMemo(() => authService.getCurrentUser(), []);
   const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
   const isSuperAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
   // 只要不是团队长，就显示数据看板（包括超级管理员和普通管理员）
@@ -56,6 +58,14 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
   const [kpiData, setKpiData] = useState<any[]>([]);
   const [userData, setUserData] = useState<DashboardUser[]>([]);
 
+  // Time range mapping
+  const timeRangeMap: Record<string, string> = {
+    [TimeRange.TODAY]: 'today',
+    [TimeRange.YESTERDAY]: 'yesterday',
+    [TimeRange.THIS_WEEK]: 'week',
+    [TimeRange.THIS_MONTH]: 'month'
+  };
+
   const fetchData = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
       setRefreshing(true);
@@ -66,12 +76,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
     setUserData([]);
     setKpiData([]);
     try {
-      const timeRangeMap: Record<string, string> = {
-        [TimeRange.TODAY]: 'today',
-        [TimeRange.YESTERDAY]: 'yesterday',
-        [TimeRange.THIS_WEEK]: 'week',
-        [TimeRange.THIS_MONTH]: 'month'
-      };
       const rangeParam = timeRangeMap[timeRange];
 
       // 只要不是团队长，就获取KPI数据
@@ -94,13 +98,15 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         const showGrowth = timeRange === TimeRange.TODAY || timeRange === TimeRange.THIS_MONTH;
 
         // Transform KPI data to match frontend format
+        const userShare = Number(kpiResponse.coins || 0) / 1000;
+        const platformCost = userShare * 0.2;
         const transformedKpis = [
-          { title: `${timePrefix}利润`, value: `¥${(Number(kpiResponse.revenue || 0) - Number(kpiResponse.coins || 0) / 1000).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: BarChart3, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-          { title: `${timePrefix}利润率`, value: `${kpiResponse.revenue > 0 ? ((Number(kpiResponse.revenue || 0) - Number(kpiResponse.coins || 0) / 1000) / Number(kpiResponse.revenue) * 100).toFixed(2) : '0.00'}%`, growth: showGrowth ? `${kpiResponse.profitMarginGrowth > 0 ? '+' : ''}${kpiResponse.profitMarginGrowth || 0}%` : '', isUp: kpiResponse.profitMarginGrowth > 0, icon: Percent, color: 'text-pink-600', bg: 'bg-pink-50' },
+          { title: `${timePrefix}利润`, value: `¥${(Number(kpiResponse.revenue || 0) - userShare - platformCost).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: BarChart3, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+          { title: `${timePrefix}利润率`, value: `${kpiResponse.revenue > 0 ? ((Number(kpiResponse.revenue || 0) - userShare - platformCost) / Number(kpiResponse.revenue) * 100).toFixed(2) : '0.00'}%`, growth: showGrowth ? `${kpiResponse.profitMarginGrowth > 0 ? '+' : ''}${kpiResponse.profitMarginGrowth || 0}%` : '', isUp: kpiResponse.profitMarginGrowth > 0, icon: Percent, color: 'text-pink-600', bg: 'bg-pink-50' },
           { title: '业务总收入', value: `¥${Number(kpiResponse.revenue || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: Wallet, color: 'text-green-600', bg: 'bg-green-50' },
           { title: '用户分成金额', value: `¥${(Number(kpiResponse.coins || 0) / 1000).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, subValue: `${kpiResponse.revenue > 0 ? ((Number(kpiResponse.coins || 0) / 1000 / Number(kpiResponse.revenue)) * 100).toFixed(2) : '0.00'}%`, growth: showGrowth ? `${kpiResponse.coinsGrowth > 0 ? '+' : ''}${kpiResponse.coinsGrowth || 0}%` : '', isUp: kpiResponse.coinsGrowth > 0, icon: Coins, color: 'text-orange-600', bg: 'bg-orange-50' },
           { title: '广告总曝光', value: kpiResponse.impressions?.toLocaleString() || '0', growth: showGrowth ? `${kpiResponse.impressionsGrowth > 0 ? '+' : ''}${kpiResponse.impressionsGrowth || 0}%` : '', isUp: kpiResponse.impressionsGrowth > 0, icon: Eye, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { title: '广告总点击', value: kpiResponse.clicks?.toLocaleString() || '0', subValue: kpiResponse.impressions > 0 ? `${((kpiResponse.clicks || 0) / kpiResponse.impressions * 100).toFixed(2)}%` : '0.00%', growth: showGrowth ? `${kpiResponse.clicksGrowth > 0 ? '+' : ''}${kpiResponse.clicksGrowth || 0}%` : '', isUp: kpiResponse.clicksGrowth > 0, icon: MousePointer2, color: 'text-purple-600', bg: 'bg-purple-50' },
+          { title: '团队分成', value: `¥${(Number(kpiResponse.coins || 0) / 1000 * 0.2).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.coinsGrowth > 0 ? '+' : ''}${kpiResponse.coinsGrowth || 0}%` : '', isUp: kpiResponse.coinsGrowth > 0, icon: Users, color: 'text-purple-600', bg: 'bg-purple-50' },
           { title: `${timePrefix}平均 eCPM`, value: `${kpiResponse.ecpm || 0}`, growth: showGrowth ? `${kpiResponse.ecpmGrowth > 0 ? '+' : ''}${kpiResponse.ecpmGrowth || 0}%` : '', isUp: kpiResponse.ecpmGrowth > 0, icon: Zap, color: 'text-yellow-600', bg: 'bg-yellow-50' },
           { title: `${timePrefix}活跃用户`, value: kpiResponse.activeUsers?.toLocaleString() || '0', growth: showGrowth ? `${kpiResponse.activeUsersGrowth > 0 ? '+' : ''}${kpiResponse.activeUsersGrowth || 0}%` : '', isUp: kpiResponse.activeUsersGrowth > 0, icon: Users, color: 'text-cyan-600', bg: 'bg-cyan-50' },
         ];
@@ -109,9 +115,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       }
 
       // Fetch user data - 团队长只获取自己团队的用户
-      const userUrl = isTeamLeader && currentUser?.teamName 
-        ? `/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(currentUser.teamName)}`
+      // 即使 currentUser 中没有 teamName 字段，也使用默认团队名称
+      const teamName = currentUser?.teamName || '鼎盛战队';
+      const userUrl = isTeamLeader 
+        ? `/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}`
         : `/dashboard/users?range=${rangeParam}`;
+      
+      console.log('用户数据 API 路径:', userUrl);
       
       const userResponse = await request<any[]>(userUrl, {
         method: 'GET',
@@ -136,7 +146,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         regDays: user.regDays || 1
       }));
 
-      setUserData(transformedUsers);
+      // 团队长只显示自己团队的成员数据
+      const filteredUsers = isTeamLeader 
+        ? transformedUsers.filter(user => user.superior === teamName)
+        : transformedUsers;
+
+      setUserData(filteredUsers);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
       // 数据获取失败，保持数据为空，不显示模拟数据
@@ -149,12 +164,21 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
   }, [timeRange]);
 
   useEffect(() => {
+    // 初始加载数据
     fetchData();
+    
+    // 设置自动刷新定时器，每30秒刷新一次
+    const interval = setInterval(() => {
+      fetchData();
+    }, 30000);
+    
+    // 清理函数
+    return () => clearInterval(interval);
   }, [fetchData]);
 
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     fetchData(true);
-  };
+  }, [fetchData]);
 
   const kpis = kpiData;
 
@@ -211,52 +235,59 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       </header>
 
       <div className="px-4 mt-4 space-y-4">
-        {/* 只要不是团队长，就显示KPI数据看板 */}
-        {showKPIDashboard && (
-          <div className="grid grid-cols-2 gap-3">
-            {kpis.length === 0 ? (
-              <div className="col-span-2 p-8 text-center text-gray-400 bg-white rounded-2xl border border-gray-100">
-                <div className="text-sm mb-2">暂无数据</div>
-                <div className="text-[10px]">请稍后刷新或检查网络连接</div>
-              </div>
-            ) : kpis.map((kpi: any, idx) => {
-              const Icon = kpi.icon;
-              const rawValue = kpi.title.includes('eCPM') ? parseFloat(kpi.value) : 0;
-              
-              return (
-                <div key={idx} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-md hover:shadow-lg transition-all duration-300 animate-in fade-in duration-500">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className={`p-2.5 rounded-xl ${kpi.bg} shadow-sm`}>
-                      <Icon size={20} className={kpi.color} />
-                    </div>
-                    {kpi.growth && (
-                      <div className={`text-[9px] font-bold flex items-center ${kpi.isUp ? 'text-[#10B981]' : 'text-[#EF4444]'} bg-opacity-10 px-2 py-0.5 rounded-full`}>
-                        {kpi.isUp ? <TrendingUp size={10} className="mr-0.5" /> : <TrendingDown size={10} className="mr-0.5" />}
-                        {kpi.growth}
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-gray-500 text-[10px] font-medium mb-1 uppercase tracking-wider">{kpi.title}</div>
-                  <div className={`text-lg font-bold leading-none ${
-                      kpi.title.includes('eCPM') 
-                          ? (rawValue >= 150 ? 'text-[#10B981]' : 'text-[#EF4444]') 
-                          : 'text-gray-900'
-                  }`}>
-                      {kpi.value}
-                      {kpi.subValue && (
-                        <span className={`ml-1.5 text-[10px] font-bold ${
-                          kpi.title === '广告总点击' 
-                            ? (parseFloat(kpi.subValue) >= 70 ? 'text-[#10B981]' : 'text-[#EF4444]')
-                            : (parseFloat(kpi.subValue) > 50 ? 'text-[#EF4444]' : 'text-[#10B981]')
-                        }`}>
-                          ({kpi.subValue})
-                        </span>
-                      )}
-                  </div>
+        {/* 团队长显示专用数据看板，超级管理员显示完整数据看板 */}
+        {isTeamLeader ? (
+          <TeamLeaderDashboard 
+            timeRange={timeRangeMap[timeRange]} 
+            onRefresh={handleRefresh} 
+          />
+        ) : (
+          showKPIDashboard && (
+            <div className="grid grid-cols-2 gap-3">
+              {kpis.length === 0 ? (
+                <div className="col-span-2 p-8 text-center text-gray-400 bg-white rounded-2xl border border-gray-100">
+                  <div className="text-sm mb-2">暂无数据</div>
+                  <div className="text-[10px]">请稍后刷新或检查网络连接</div>
                 </div>
-              );
-            })}
-          </div>
+              ) : kpis.map((kpi: any, idx) => {
+                const Icon = kpi.icon;
+                const rawValue = kpi.title.includes('eCPM') ? parseFloat(kpi.value) : 0;
+                
+                return (
+                  <div key={idx} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-md hover:shadow-lg transition-all duration-300 animate-in fade-in duration-500">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className={`p-2.5 rounded-xl ${kpi.bg} shadow-sm`}>
+                        <Icon size={20} className={kpi.color} />
+                      </div>
+                      {kpi.growth && (
+                        <div className={`text-[9px] font-bold flex items-center ${kpi.isUp ? 'text-[#10B981]' : 'text-[#EF4444]'} bg-opacity-10 px-2 py-0.5 rounded-full`}>
+                          {kpi.isUp ? <TrendingUp size={10} className="mr-0.5" /> : <TrendingDown size={10} className="mr-0.5" />}
+                          {kpi.growth}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-gray-500 text-[10px] font-medium mb-1 uppercase tracking-wider">{kpi.title}</div>
+                    <div className={`text-lg font-bold leading-none ${
+                        kpi.title.includes('eCPM') 
+                            ? (rawValue >= 150 ? 'text-[#10B981]' : 'text-[#EF4444]') 
+                            : 'text-gray-900'
+                    }`}>
+                        {kpi.value}
+                        {kpi.subValue && (
+                          <span className={`ml-1.5 text-[10px] font-bold ${
+                            kpi.title === '广告总点击' 
+                              ? (parseFloat(kpi.subValue) >= 70 ? 'text-[#10B981]' : 'text-[#EF4444]')
+                              : (parseFloat(kpi.subValue) > 50 ? 'text-[#EF4444]' : 'text-[#10B981]')
+                          }`}>
+                            ({kpi.subValue})
+                          </span>
+                        )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
         )}
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-md overflow-hidden animate-in fade-in duration-500">

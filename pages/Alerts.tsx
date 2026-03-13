@@ -107,6 +107,7 @@ const Alerts: React.FC<AlertsProps> = ({ onSelectUser }) => {
   const [systemAlerts, setSystemAlerts] = useState<any[]>([]);
   const [lowPerfUsers, setLowPerfUsers] = useState<LowPerformanceUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [swipingUserId, setSwipingUserId] = useState<string | null>(null);
   const [swipingAlertId, setSwipingAlertId] = useState<string | null>(null);
 
@@ -141,6 +142,7 @@ const Alerts: React.FC<AlertsProps> = ({ onSelectUser }) => {
   useEffect(() => {
     const fetchAlerts = async () => {
       setLoading(true);
+      setError(null);
       try {
         console.log('Fetching system alerts...');
         const result = await request<any>('/alert/list', {
@@ -150,14 +152,11 @@ const Alerts: React.FC<AlertsProps> = ({ onSelectUser }) => {
           })
         });
         console.log('System alerts API response:', result);
-        if (result && result.length > 0) {
-          setSystemAlerts(result);
-        } else {
-          setSystemAlerts(mockSystemAlerts);
-        }
+        setSystemAlerts(result || []);
       } catch (error) {
         console.error('Error fetching alerts:', error);
-        setSystemAlerts(mockSystemAlerts);
+        setError('接口错误：获取系统预警失败');
+        setSystemAlerts([]);
       } finally {
         setLoading(false);
       }
@@ -170,6 +169,7 @@ const Alerts: React.FC<AlertsProps> = ({ onSelectUser }) => {
       }
       
       setLoading(true);
+      setError(null);
       try {
         console.log('Fetching low performance users...');
         // 团队长只获取自己团队的业绩异常用户
@@ -187,7 +187,8 @@ const Alerts: React.FC<AlertsProps> = ({ onSelectUser }) => {
         setLowPerfUsers(result || []);
       } catch (error) {
         console.error('Error fetching low performance users:', error);
-        setLowPerfUsers(mockLowPerfUsers);
+        setError('接口错误：获取业绩异常用户失败');
+        setLowPerfUsers([]);
       } finally {
         setLoading(false);
       }
@@ -243,6 +244,19 @@ const Alerts: React.FC<AlertsProps> = ({ onSelectUser }) => {
       </header>
 
       <div className="px-4 py-4 space-y-4">
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+            <div className="flex items-start space-x-3">
+              <div className="flex-shrink-0 pt-0.5">
+                <AlertTriangle size={18} className="text-red-500" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-red-800 mb-1">接口错误</h3>
+                <p className="text-xs text-red-600">{error}</p>
+              </div>
+            </div>
+          </div>
+        )}
         {activeCategory === '业绩异常' ? (
             <>
                 {/* Performance Sub-filters */}

@@ -4,6 +4,8 @@ import {
   ChevronRight, Filter
 } from 'lucide-react';
 import { request } from '../services/api';
+import { authService } from '../services/authService';
+import { UserRole } from '../types';
 
 interface ListUser {
   id: string;
@@ -28,12 +30,24 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
   const [sortBy, setSortBy] = useState<'watched' | 'earnings' | 'ecpm'>('earnings');
   const [users, setUsers] = useState<ListUser[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // 使用 useMemo 缓存 currentUser，避免每次渲染都返回新对象
+  const currentUser = useMemo(() => authService.getCurrentUser(), []);
+  const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
+  const teamName = currentUser?.teamName || '鼎盛战队';
 
   useEffect(() => {
     const fetchUsers = async () => {
       setLoading(true);
       try {
-        const response = await request<any>('/dashboard/users?range=today', {
+        // 团队长只获取自己团队的用户
+        const userUrl = isTeamLeader 
+          ? `/dashboard/users?range=today&team=${encodeURIComponent(teamName)}`
+          : `/dashboard/users?range=today`;
+        
+        console.log('用户数据 API 路径:', userUrl);
+        
+        const response = await request<any>(userUrl, {
           method: 'GET',
           headers: new Headers({
             'Content-Type': 'application/json'
@@ -53,7 +67,12 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
           superior: user.superior || '系统直属'
         }));
 
-        setUsers(transformedUsers);
+        // 团队长只显示自己团队的成员数据
+        const filteredUsers = isTeamLeader 
+          ? transformedUsers.filter(user => user.superior === teamName)
+          : transformedUsers;
+
+        setUsers(filteredUsers);
       } catch (error) {
         console.error('Error fetching users:', error);
       } finally {
@@ -62,7 +81,7 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
     };
 
     fetchUsers();
-  }, []);
+  }, [isTeamLeader, teamName]);
 
   const filteredAndSortedUsers = useMemo(() => {
     return users

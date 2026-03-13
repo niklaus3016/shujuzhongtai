@@ -34,6 +34,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [addType, setAddType] = useState<'team' | 'employee'>('team');
   const [searchKeyword, setSearchKeyword] = useState('');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState<Account | null>(null);
   const [formData, setFormData] = useState({
     teamName: '',
     realName: '',
@@ -204,33 +206,74 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     }
   };
 
-  const openEditModal = (account: Account) => {
-    setEditingAccount(account);
-    if (account.role === 'EMPLOYEE') {
-      setFormData({
-        parentId: account.parentId || '',
-        realName: account.realName || '',
-        phone: account.phone || '',
-        region: account.region || '',
-        teamName: '',
-        username: '',
-        password: '',
-        employeeId: account.employeeId || ''
-      });
-    } else {
-      setFormData({
-        teamName: account.teamName || '',
-        realName: account.realName || '',
-        phone: account.phone || '',
-        region: account.region || '',
-        username: account.username || '',
-        password: '',
-        employeeId: '',
-        parentId: account.parentId || ''
-      });
+  const handleDeleteAccount = async () => {
+    if (!deletingAccount) return;
+    
+    setSaving(true);
+    try {
+      if (deletingAccount.role === 'EMPLOYEE') {
+        await request<any>(`/employee/${deletingAccount._id}`, {
+          method: 'DELETE',
+          headers: new Headers({ 'Content-Type': 'application/json' })
+        });
+      } else {
+        await request<any>(`/account/${deletingAccount._id}`, {
+          method: 'DELETE',
+          headers: new Headers({ 'Content-Type': 'application/json' })
+        });
+      }
+      setShowDeleteModal(false);
+      setDeletingAccount(null);
+      fetchAccounts();
+    } catch (error: any) {
+      console.error('Error deleting account:', error);
+      setError(error.message || '删除失败，请重试');
+    } finally {
+      setSaving(false);
     }
+  };
+
+  const openDeleteModal = (account: Account) => {
+    setDeletingAccount(account);
+    setShowDeleteModal(true);
+  };
+
+  const openEditModal = (account: Account) => {
+    // 先设置editingAccount
+    setEditingAccount(account);
+    
+    // 先设置showEditModal，然后在useEffect中处理formData
     setShowEditModal(true);
   };
+
+  // 当editingAccount变化时，更新formData
+  useEffect(() => {
+    if (editingAccount) {
+      if (editingAccount.role === 'EMPLOYEE') {
+        setFormData({
+          parentId: editingAccount.parentId || '',
+          realName: editingAccount.realName || '',
+          phone: editingAccount.phone || '',
+          region: editingAccount.region || '',
+          teamName: '',
+          username: '',
+          password: '',
+          employeeId: editingAccount.employeeId || ''
+        });
+      } else {
+        setFormData({
+          teamName: editingAccount.teamName || '',
+          realName: editingAccount.realName || '',
+          phone: editingAccount.phone || '',
+          region: editingAccount.region || '',
+          username: editingAccount.username || '',
+          password: '',
+          employeeId: '',
+          parentId: editingAccount.parentId || ''
+        });
+      }
+    }
+  }, [editingAccount]);
 
   const toggleAccountStatus = async (account: Account) => {
     try {
@@ -389,6 +432,14 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                         className="p-2 text-gray-400 hover:text-[#1E40AF] transition-colors"
                       >
                         <Edit2 size={16} />
+                      </button>
+                    )}
+                    {account.role !== 'SUPER_ADMIN' && (
+                      <button
+                        onClick={() => openDeleteModal(account)}
+                        className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                      >
+                        <Trash2 size={16} />
                       </button>
                     )}
                     <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${(account.status === 'enabled' || account.status === '1') ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'}`}>
@@ -608,17 +659,17 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         </div>
       )}
 
-      {showEditModal && editingAccount && (
+      {showEditModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
             <div className="sticky top-0 bg-white px-6 pt-6 pb-4 border-b border-gray-50">
               <h2 className="text-lg font-bold text-gray-900">
-                编辑{editingAccount.role === 'EMPLOYEE' ? '员工' : '团队长'}账号
+                编辑{editingAccount?.role === 'EMPLOYEE' ? '员工' : '团队长'}账号
               </h2>
             </div>
             
             <div className="p-6 space-y-4">
-              {editingAccount.role === 'EMPLOYEE' ? (
+              {editingAccount?.role === 'EMPLOYEE' ? (
                 <>
                   <div>
                     <label className="text-xs font-bold text-gray-500 mb-1.5 block">所属团队</label>
@@ -801,11 +852,68 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                   取消
                 </button>
                 <button
-                  onClick={editingAccount.role === 'EMPLOYEE' ? handleEditEmployee : handleEditAccount}
+                  onClick={editingAccount?.role === 'EMPLOYEE' ? handleEditEmployee : handleEditAccount}
                   disabled={saving}
                   className={`flex-1 py-3 font-bold rounded-xl ${saving ? 'bg-gray-300 text-gray-500' : 'bg-[#1E40AF] text-white'}`}
                 >
                   {saving ? '保存中...' : '保存修改'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteModal && deletingAccount && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm animate-in zoom-in-95 duration-200">
+            <div className="px-6 pt-6 pb-4 border-b border-gray-50">
+              <h2 className="text-lg font-bold text-gray-900">删除账号</h2>
+            </div>
+            
+            <div className="p-6">
+              <div className="flex items-center space-x-4 mb-4">
+                <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center">
+                  <Trash2 size={24} className="text-red-500" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">
+                    确定要删除 <span className="font-bold text-gray-900">
+                      {deletingAccount.role === 'EMPLOYEE' ? deletingAccount.realName : deletingAccount.teamName || deletingAccount.username}
+                    </span> 账号吗？
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    此操作不可撤销，删除后将无法恢复。
+                  </p>
+                </div>
+              </div>
+              
+              {error && (
+                <div className="mb-4 p-3 bg-red-50 text-red-500 text-xs font-bold rounded-xl text-center">
+                  {error}
+                </div>
+              )}
+            </div>
+            
+            <div className="px-6 py-4 border-t border-gray-50">
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setDeletingAccount(null);
+                    setError(null);
+                  }}
+                  className="flex-1 py-3 bg-gray-100 text-gray-500 font-bold rounded-xl"
+                  disabled={saving}
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleDeleteAccount}
+                  disabled={saving}
+                  className={`flex-1 py-3 font-bold rounded-xl ${saving ? 'bg-gray-300 text-gray-500' : 'bg-red-500 text-white'}`}
+                >
+                  {saving ? '删除中...' : '确认删除'}
                 </button>
               </div>
             </div>

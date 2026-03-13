@@ -18,11 +18,21 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AppTab>(AppTab.DASHBOARD);
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [showAllUsers, setShowAllUsers] = useState(false);
+  const mainRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // Check authentication on mount
     setIsAuthenticated(authService.isAuthenticated());
   }, []);
+
+  useEffect(() => {
+    // Reset scroll position when navigating between pages
+    setTimeout(() => {
+      if (mainRef.current) {
+        mainRef.current.scrollTop = 0;
+      }
+    }, 10);
+  }, [selectedUser, showAllUsers, activeTab]);
 
   const handleLoginSuccess = () => {
     setIsAuthenticated(true);
@@ -43,12 +53,12 @@ const App: React.FC = () => {
   const renderContent = () => {
     // Priority 1: Individual User Detail
     if (selectedUser) {
-      return <UserDetail user={selectedUser} onBack={() => setSelectedUser(null)} />;
+      return <UserDetail key={`user-${selectedUser.id}`} user={selectedUser} onBack={() => setSelectedUser(null)} />;
     }
 
     // Priority 2: All Users Secondary Page
     if (showAllUsers) {
-      return <UserList onBack={() => setShowAllUsers(false)} onSelectUser={(user) => {
+      return <UserList key="user-list" onBack={() => setShowAllUsers(false)} onSelectUser={(user) => {
         setShowAllUsers(false);
         setSelectedUser(user);
       }} />;
@@ -59,6 +69,7 @@ const App: React.FC = () => {
       case AppTab.DASHBOARD:
         return (
           <Dashboard 
+            key="dashboard"
             onSelectUser={(user) => setSelectedUser(user)} 
             onViewAllUsers={() => setShowAllUsers(true)}
           />
@@ -66,20 +77,22 @@ const App: React.FC = () => {
       case AppTab.NEW_USERS:
         return (
           <NewUsers 
+            key="new-users"
             onSelectUser={(user) => setSelectedUser(user)} 
           />
         );
       case AppTab.TEAM:
-        return <Team />;
+        return <Team key="team" />;
       case AppTab.MANAGEMENT:
-        return <Management />;
+        return <Management key="management" />;
       case AppTab.ALERTS:
-        return <Alerts onSelectUser={(user) => setSelectedUser(user)} />;
+        return <Alerts key="alerts" onSelectUser={(user) => setSelectedUser(user)} />;
       case AppTab.PROFILE:
-        return <Settings onLogout={handleLogout} />;
+        return <Settings key="settings" onLogout={handleLogout} />;
       default:
         return (
           <Dashboard 
+            key="dashboard"
             onSelectUser={(user) => setSelectedUser(user)} 
             onViewAllUsers={() => setShowAllUsers(true)} 
           />
@@ -90,7 +103,7 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col min-h-screen bg-[#F9FAFB] max-w-md mx-auto relative overflow-hidden shadow-2xl">
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto pb-24 hide-scrollbar">
+      <main ref={mainRef} className="flex-1 overflow-y-auto pt-7 pb-24 hide-scrollbar">
         {renderContent()}
       </main>
 

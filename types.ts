@@ -13,10 +13,12 @@ export interface AdminUser {
   parentId?: string; // For employees, who is their admin
   coins?: number; // For employees
   commission?: number; // For normal admins
-  status: 'enabled' | 'disabled';
+  status: 'enabled' | 'disabled' | '1' | '0';
   avatar?: string;
   teamName?: string; // For team leaders, the name of their team
   phoneCount?: number; // 领取手机数
+  phone?: string; // 手机号
+  region?: string; // 地区
 }
 
 export interface ApiResponse<T> {
