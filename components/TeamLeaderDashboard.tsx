@@ -44,13 +44,8 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
       console.log('格式化后的时间范围:', formattedTimeRange);
       
       // 使用正确的 API 路径 - KPI 接口
-      // 假设团队名称为"鼎盛战队"，实际应该从 currentUser 中获取
       const teamName = currentUser?.teamName || '鼎盛战队';
-      if (!currentUser?.teamName) {
-        console.warn('用户对象中缺少 teamName 字段，默认使用"鼎盛战队"');
-      }
       const apiUrl = `https://wfqmaepvjkdd.sealoshzh.site/api/admin/dashboard/kpi?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}`;
-      console.log('API 路径:', apiUrl);
       
       const response = await fetch(apiUrl, {
         method: 'GET',
@@ -60,15 +55,11 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
         })
       });
 
-      console.log('API 响应状态:', response.status);
-      console.log('API 响应状态文本:', response.statusText);
-      
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
 
       const result = await response.json();
-      console.log('API 响应数据:', result);
       
       // 即使 result.success 为 false，也尝试获取数据
       // if (!result.success) {

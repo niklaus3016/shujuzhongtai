@@ -22,6 +22,7 @@ interface DashboardUser {
   ecpm: number;
   trend: 'up' | 'down' | 'stable';
   superior?: string;
+  teamName?: string;
   regDays: number;
 }
 
@@ -54,7 +55,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
   const [timeRange, setTimeRange] = useState<TimeRange>(TimeRange.TODAY);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [sortBy, setSortBy] = useState<'watched' | 'earnings' | 'ecpm'>('earnings');
+  const [sortBy, setSortBy] = useState<'watched' | 'earnings' | 'ecpm' | 'agc'>('earnings');
   const [kpiData, setKpiData] = useState<any[]>([]);
   const [userData, setUserData] = useState<DashboardUser[]>([]);
 
@@ -115,13 +116,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       }
 
       // Fetch user data - 团队长只获取自己团队的用户
-      // 即使 currentUser 中没有 teamName 字段，也使用默认团队名称
       const teamName = currentUser?.teamName || '鼎盛战队';
       const userUrl = isTeamLeader 
         ? `/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}`
         : `/dashboard/users?range=${rangeParam}`;
-      
-      console.log('用户数据 API 路径:', userUrl);
       
       const userResponse = await request<any[]>(userUrl, {
         method: 'GET',
@@ -143,12 +141,16 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         ecpm: user.ecpm || 0,
         trend: 'up' as const,
         superior: user.superior || user.teamName || '系统直属',
+        teamName: user.teamName || user.superior || '系统直属',
         regDays: user.regDays || 1
       }));
 
       // 团队长只显示自己团队的成员数据
       const filteredUsers = isTeamLeader 
-        ? transformedUsers.filter(user => user.superior === teamName)
+        ? transformedUsers.filter(user => {
+            const userTeam = user.teamName || user.superior || '系统直属';
+            return userTeam === teamName;
+          })
         : transformedUsers;
 
       setUserData(filteredUsers);
@@ -182,7 +184,14 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
 
   const kpis = kpiData;
 
-  const sortedUsers = [...userData].sort((a, b) => b[sortBy] - a[sortBy]);
+  const sortedUsers = [...userData].sort((a, b) => {
+    if (isTeamLeader && sortBy === 'agc') {
+      const agcA = a.watched > 0 ? (a.earnings * 1000) / a.watched : 0;
+      const agcB = b.watched > 0 ? (b.earnings * 1000) / b.watched : 0;
+      return agcB - agcA;
+    }
+    return b[sortBy] - a[sortBy];
+  });
 
   if (loading) {
     return (
@@ -299,10 +308,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                 </h3>
                 <div className="flex bg-white p-1 rounded-lg shadow-sm">
                     <button 
-                        onClick={() => setSortBy('ecpm')}
-                        className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'ecpm' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
+                        onClick={() => setSortBy(isTeamLeader ? 'agc' : 'ecpm')}
+                        className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === (isTeamLeader ? 'agc' : 'ecpm') ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
                     >
-                        eCPM
+                        {isTeamLeader ? '平均金币' : 'eCPM'}
                     </button>
                     <button 
                         onClick={() => setSortBy('watched')}
@@ -402,8 +411,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                                     ) : (
                                         <>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className={`text-[11px] font-black ${user.ecpm >= 100 ? 'text-green-600' : 'text-red-500'}`}>{user.ecpm.toFixed(2)}</span>
-                                                <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">eCPM</span>
+                                                <span className={`text-[11px] font-black ${isTeamLeader ? (user.watched > 0 ? ((user.earnings * 1000) / user.watched) >= 100 : false) : (user.ecpm >= 100) ? 'text-green-600' : 'text-red-500'}`}>
+                                                    {isTeamLeader ? (user.watched > 0 ? ((user.earnings * 1000) / user.watched).toFixed(2) : '0.00') : user.ecpm.toFixed(2)}
+                                                </span>
+                                                <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">{isTeamLeader ? '平均金币' : 'eCPM'}</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
                                                 <span className="text-[11px] font-black text-gray-500">¥{user.earnings.toFixed(2)}</span>
@@ -427,10 +438,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                                 <span className="text-[9px] text-gray-400 font-medium">设备:</span>
                                 <span className="text-[10px] font-bold text-gray-700">{user.deviceCount}</span>
                             </div>
-                            <div className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border ml-auto ${sortBy === 'ecpm' ? 'bg-blue-600 border-blue-600 shadow-md' : 'bg-blue-50 border-blue-200 shadow-sm'}`}>
-                                <Zap size={12} className={sortBy === 'ecpm' ? 'text-white' : 'text-orange-500'} />
-                                <span className={`text-[9px] font-medium uppercase tracking-tighter ${sortBy === 'ecpm' ? 'text-white/80' : 'text-gray-400'}`}>eCPM:</span>
-                                <span className={`text-[10px] font-black ${sortBy === 'ecpm' ? 'text-white' : (user.ecpm >= 100 ? 'text-green-600' : 'text-red-500')}`}>{user.ecpm.toFixed(2)}</span>
+                            <div className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border ml-auto ${sortBy === (isTeamLeader ? 'agc' : 'ecpm') ? 'bg-blue-600 border-blue-600 shadow-md' : 'bg-blue-50 border-blue-200 shadow-sm'}`}>
+                                <Zap size={12} className={sortBy === (isTeamLeader ? 'agc' : 'ecpm') ? 'text-white' : 'text-orange-500'} />
+                                <span className={`text-[9px] font-medium uppercase tracking-tighter ${sortBy === (isTeamLeader ? 'agc' : 'ecpm') ? 'text-white/80' : 'text-gray-400'}`}>{isTeamLeader ? '平均金币:' : 'eCPM:'}</span>
+                                <span className={`text-[10px] font-black ${sortBy === (isTeamLeader ? 'agc' : 'ecpm') ? 'text-white' : (isTeamLeader ? (user.watched > 0 ? ((user.earnings * 1000) / user.watched) >= 100 : false) : (user.ecpm >= 100)) ? 'text-green-600' : 'text-red-500'}`}>
+                                    {isTeamLeader ? (user.watched > 0 ? ((user.earnings * 1000) / user.watched).toFixed(2) : '0.00') : user.ecpm.toFixed(2)}
+                                </span>
                             </div>
                         </div>
                     </div>
