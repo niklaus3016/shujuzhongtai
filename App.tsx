@@ -9,6 +9,8 @@ import Alerts from './pages/Alerts';
 import UserDetail from './pages/UserDetail';
 import Management from './pages/Management';
 import Settings from './pages/Settings';
+import GroupLeaderManagement from './pages/GroupLeaderManagement';
+import GroupManagement from './pages/GroupManagement';
 import BottomNav from './components/BottomNav';
 import Login from './pages/Login';
 import { authService } from './services/authService';
@@ -89,6 +91,10 @@ const App: React.FC = () => {
         return <Alerts key="alerts" onSelectUser={(user) => setSelectedUser(user)} />;
       case AppTab.PROFILE:
         return <Settings key="settings" onLogout={handleLogout} />;
+      case AppTab.GROUP_LEADER_MANAGEMENT:
+        return <GroupLeaderManagement key="group-leader-management" />;
+      case AppTab.GROUP_MANAGEMENT:
+        return <GroupManagement key="group-management" />;
       default:
         return (
           <Dashboard 

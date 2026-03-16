@@ -33,8 +33,46 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
     name: '',
     phone: '',
     region: '',
-    phoneCount: ''
+    phoneCount: '',
+    teamGroupId: '',
+    groupName: ''
   });
+  
+  // Groups data
+  const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    const fetchGroups = async () => {
+      try {
+        // Fetch groups
+        let groupsResponse;
+        if (currentUser.role === UserRole.NORMAL_ADMIN && currentUser.teamName) {
+          // Team leaders only see their own teams' groups
+          groupsResponse = await request<{ id: string; name: string }[]>(`/group/list?teamName=${encodeURIComponent(currentUser.teamName)}`, {
+            method: 'GET'
+          });
+        } else {
+          // Super admins see all groups
+          groupsResponse = await request<{ id: string; name: string }[]>(`/group/list`, {
+            method: 'GET'
+          });
+        }
+        setGroups(groupsResponse);
+      } catch (error) {
+        console.error('Error fetching groups:', error);
+        // Fallback to mock data on error
+        setGroups([
+          { id: 'G001', name: '一组' },
+          { id: 'G002', name: '二组' },
+          { id: 'G003', name: '三组' },
+        ]);
+      }
+    };
+
+    if (currentUser.role === UserRole.SUPER_ADMIN || currentUser.role === UserRole.NORMAL_ADMIN) {
+      fetchGroups();
+    }
+  }, [currentUser]);
   
   // Employees data
   const [employees, setEmployees] = useState<AdminUser[]>([]);
@@ -116,7 +154,9 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
           phone: formData.phone,
           region: formData.region,
           phoneCount: parseInt(formData.phoneCount) || 0,
-          parentId: currentUser.id
+          parentId: currentUser.id,
+          teamGroupId: formData.teamGroupId,
+          groupName: formData.groupName
         })
       });
       
@@ -124,7 +164,7 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
         setEmployees(prev => [result, ...prev]);
       }
       setIsAddModalOpen(false);
-      setFormData({ name: '', phone: '', region: '', phoneCount: '' });
+      setFormData({ name: '', phone: '', region: '', phoneCount: '', teamGroupId: '', groupName: '' });
       setError(null);
     } catch (error: any) {
       console.error('Failed to add employee:', error);
@@ -153,13 +193,15 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
           phone: formData.phone,
           region: formData.region,
           phoneCount: parseInt(formData.phoneCount) || 0,
-          parentId: currentUser.id
+          parentId: currentUser.id,
+          teamGroupId: formData.teamGroupId,
+          groupName: formData.groupName
         })
       });
       
       setIsEditModalOpen(false);
       setSelectedEmployee(null);
-      setFormData({ name: '', phone: '', region: '', phoneCount: '' });
+      setFormData({ name: '', phone: '', region: '', phoneCount: '', teamGroupId: '', groupName: '' });
       // 重新获取员工列表
       const employeeList = await request<AdminUser[]>('/employee/list?pageSize=100', {
         method: 'GET',
@@ -219,7 +261,9 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
       name: employee.username || '',
       phone: employee.phone || '',
       region: employee.region || '',
-      phoneCount: employee.phoneCount?.toString() || ''
+      phoneCount: employee.phoneCount?.toString() || '',
+      teamGroupId: employee.teamGroupId || '',
+      groupName: employee.groupName || ''
     });
     setIsEditModalOpen(true);
   };
@@ -285,6 +329,11 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
                     地区: {employee.region}
                   </div>
                 )}
+                {employee.groupName && (
+                  <div className="text-[10px] text-gray-400 font-medium">
+                    组: {employee.groupName}
+                  </div>
+                )}
                 <div className="text-[10px] text-gray-400 font-medium">
                   领取手机数: {employee.phoneCount || 0}
                 </div>
@@ -333,7 +382,7 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
               <h3 className="text-lg font-black text-gray-900">添加新员工</h3>
               <button onClick={() => {
                 setIsAddModalOpen(false);
-                setFormData({ name: '', phone: '', region: '', phoneCount: '' });
+                setFormData({ name: '', phone: '', region: '', phoneCount: '', teamGroupId: '', groupName: '' });
                 setError(null);
               }} className="text-gray-400"><X size={24} /></button>
             </div>
@@ -393,6 +442,29 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
                   min="0"
                 />
               </div>
+              {(currentUser.role === UserRole.SUPER_ADMIN || currentUser.role === UserRole.NORMAL_ADMIN) && (
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1">选择组</label>
+                  <select
+                    name="teamGroupId"
+                    value={formData.teamGroupId}
+                    onChange={(e) => {
+                      const selectedGroup = groups.find(g => g.id === e.target.value);
+                      setFormData({
+                        ...formData,
+                        teamGroupId: e.target.value,
+                        groupName: selectedGroup?.name || ''
+                      });
+                    }}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all"
+                  >
+                    <option value="">请选择组</option>
+                    {groups.map(group => (
+                      <option key={group.id} value={group.id}>{group.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="bg-blue-50 rounded-xl p-3">
                 <p className="text-xs text-blue-600">
                   💡 员工号将由系统自动生成4位数字编号
@@ -419,7 +491,7 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
               <button onClick={() => {
                 setIsEditModalOpen(false);
                 setSelectedEmployee(null);
-                setFormData({ name: '', phone: '', region: '', phoneCount: '' });
+                setFormData({ name: '', phone: '', region: '', phoneCount: '', teamGroupId: '', groupName: '' });
                 setError(null);
               }} className="text-gray-400"><X size={24} /></button>
             </div>
@@ -479,6 +551,29 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
                   min="0"
                 />
               </div>
+              {(currentUser.role === UserRole.SUPER_ADMIN || currentUser.role === UserRole.NORMAL_ADMIN) && (
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1">选择组</label>
+                  <select
+                    name="teamGroupId"
+                    value={formData.teamGroupId}
+                    onChange={(e) => {
+                      const selectedGroup = groups.find(g => g.id === e.target.value);
+                      setFormData({
+                        ...formData,
+                        teamGroupId: e.target.value,
+                        groupName: selectedGroup?.name || ''
+                      });
+                    }}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all"
+                  >
+                    <option value="">请选择组</option>
+                    {groups.map(group => (
+                      <option key={group.id} value={group.id}>{group.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <button 
                 type="submit"
                 disabled={saving || !formData.name || !formData.phone}

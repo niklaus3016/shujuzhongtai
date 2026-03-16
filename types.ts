@@ -45,7 +45,9 @@ export enum AppTab {
   ALERTS = '异常监控',
   USERS = '用户管理',
   RANKING = '排名',
-  PROFILE = '我的'
+  PROFILE = '我的',
+  GROUP_LEADER_MANAGEMENT = '组长管理',
+  GROUP_MANAGEMENT = '组管理'
 }
 
 export interface KPIStats {

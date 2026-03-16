@@ -1,6 +1,6 @@
 import React from 'react';
 import { AppTab, UserRole } from '../types';
-import { Home, ShieldAlert, UserPlus, Users2, User, Settings } from 'lucide-react';
+import { Home, ShieldAlert, UserPlus, Users2, User, Settings, Users, Layers } from 'lucide-react';
 import { authService } from '../services/authService';
 
 interface BottomNavProps {
@@ -22,16 +22,18 @@ const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab }) => {
         { id: AppTab.DASHBOARD, icon: Home, label: '首页' },
         { id: AppTab.NEW_USERS, icon: UserPlus, label: '新人' },
         { id: AppTab.TEAM, icon: Users2, label: '团队' },
+        { id: AppTab.GROUP_LEADER_MANAGEMENT, icon: Users, label: '组长' },
         { id: AppTab.MANAGEMENT, icon: Settings, label: '管理' },
         { id: AppTab.ALERTS, icon: ShieldAlert, label: '预警' },
         { id: AppTab.PROFILE, icon: User, label: '我的' },
       ];
     } else if (isTeamLeader) {
-      // 团队长：隐藏管理模块
+      // 团队长：隐藏管理模块，添加组管理
       return [
         { id: AppTab.DASHBOARD, icon: Home, label: '首页' },
         { id: AppTab.NEW_USERS, icon: UserPlus, label: '新人' },
         { id: AppTab.TEAM, icon: Users2, label: '团队' },
+        { id: AppTab.GROUP_MANAGEMENT, icon: Layers, label: '组管理' },
         { id: AppTab.ALERTS, icon: ShieldAlert, label: '预警' },
         { id: AppTab.PROFILE, icon: User, label: '我的' },
       ];
