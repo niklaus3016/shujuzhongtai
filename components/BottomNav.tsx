@@ -11,6 +11,7 @@ interface BottomNavProps {
 const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab }) => {
   const currentUser = authService.getCurrentUser();
   const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
+  const isGroupLeader = currentUser?.role === UserRole.GROUP_LEADER;
   const isSuperAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
 
   // 根据角色定义不同的菜单项
@@ -32,6 +33,13 @@ const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab }) => {
         { id: AppTab.NEW_USERS, icon: UserPlus, label: '新人' },
         { id: AppTab.TEAM, icon: Users2, label: '团队' },
         { id: AppTab.ALERTS, icon: ShieldAlert, label: '预警' },
+        { id: AppTab.PROFILE, icon: User, label: '我的' },
+      ];
+    } else if (isGroupLeader) {
+      // 组长：简化菜单，只显示首页和我的
+      return [
+        { id: AppTab.DASHBOARD, icon: Home, label: '首页' },
+        { id: AppTab.TEAM, icon: Users2, label: '组员' },
         { id: AppTab.PROFILE, icon: User, label: '我的' },
       ];
     }

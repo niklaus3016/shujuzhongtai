@@ -18,7 +18,9 @@ export const authService = {
       token: data.token,
       status: 'enabled',
       commission: data.user.commission,
-      teamName: data.user.teamName
+      teamName: data.user.teamName,
+      teamGroupId: data.user.teamGroupId,
+      groupName: data.user.groupName
     };
     
     this.saveSession(user, remember);

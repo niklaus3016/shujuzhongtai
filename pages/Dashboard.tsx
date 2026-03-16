@@ -23,6 +23,7 @@ interface DashboardUser {
   trend: 'up' | 'down' | 'stable';
   superior?: string;
   teamName?: string;
+  teamGroupId?: string;
   regDays: number;
 }
 
@@ -48,9 +49,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
   // 使用 useMemo 缓存 currentUser，避免每次渲染都返回新对象
   const currentUser = useMemo(() => authService.getCurrentUser(), []);
   const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
+  const isGroupLeader = currentUser?.role === UserRole.GROUP_LEADER;
   const isSuperAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
-  // 只要不是团队长，就显示数据看板（包括超级管理员和普通管理员）
-  const showKPIDashboard = !isTeamLeader;
+  // 只要不是团队长和组长，就显示数据看板（包括超级管理员和普通管理员）
+  const showKPIDashboard = !isTeamLeader && !isGroupLeader;
   
   const [timeRange, setTimeRange] = useState<TimeRange>(TimeRange.TODAY);
   const [loading, setLoading] = useState(true);
@@ -79,13 +81,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
     try {
       const rangeParam = timeRangeMap[timeRange];
 
-      // 只要不是团队长，就获取KPI数据
+      // 只要不是团队长和组长，就获取KPI数据
       if (showKPIDashboard) {
         const kpiResponse = await request<any>(`/dashboard/kpi?range=${rangeParam}`, {
-          method: 'GET',
-          headers: new Headers({
-            'Content-Type': 'application/json'
-          })
+          method: 'GET'
         });
 
         // Time prefix for dynamic titles
@@ -115,17 +114,18 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         setKpiData(transformedKpis);
       }
 
-      // Fetch user data - 团队长只获取自己团队的用户
-      const teamName = currentUser?.teamName || '鼎盛战队';
-      const userUrl = isTeamLeader 
-        ? `/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}`
-        : `/dashboard/users?range=${rangeParam}`;
+      // Fetch user data - 团队长只获取自己团队的用户，组长只获取自己组的用户
+      let userUrl = `/dashboard/users?range=${rangeParam}`;
+      if (isTeamLeader) {
+        const teamName = currentUser?.teamName || '鼎盛战队';
+        userUrl = `/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}`;
+      } else if (isGroupLeader) {
+        const teamGroupId = currentUser?.teamGroupId;
+        userUrl = `/dashboard/users?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}`;
+      }
       
       const userResponse = await request<any[]>(userUrl, {
-        method: 'GET',
-        headers: new Headers({
-          'Content-Type': 'application/json'
-        })
+        method: 'GET'
       });
 
       // Transform user data to match frontend format
@@ -142,16 +142,24 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         trend: 'up' as const,
         superior: user.superior || user.teamName || '系统直属',
         teamName: user.teamName || user.superior || '系统直属',
+        teamGroupId: user.teamGroupId || user.groupId || '',
         regDays: user.regDays || 1
       }));
 
-      // 团队长只显示自己团队的成员数据
-      const filteredUsers = isTeamLeader 
-        ? transformedUsers.filter(user => {
-            const userTeam = user.teamName || user.superior || '系统直属';
-            return userTeam === teamName;
-          })
-        : transformedUsers;
+      // 团队长只显示自己团队的成员数据，组长只显示自己组的成员数据
+      let filteredUsers = transformedUsers;
+      if (isTeamLeader) {
+        const teamName = currentUser?.teamName || '鼎盛战队';
+        filteredUsers = transformedUsers.filter(user => {
+          const userTeam = user.teamName || user.superior || '系统直属';
+          return userTeam === teamName;
+        });
+      } else if (isGroupLeader) {
+        const teamGroupId = currentUser?.teamGroupId;
+        filteredUsers = transformedUsers.filter(user => {
+          return user.teamGroupId === teamGroupId;
+        });
+      }
 
       setUserData(filteredUsers);
     } catch (error) {

@@ -82,6 +82,9 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
     // Normal admins only see their own employees
     if (currentUser.role === UserRole.NORMAL_ADMIN) {
       list = list.filter(e => e.parentId === currentUser.id);
+    } else if (currentUser.role === UserRole.GROUP_LEADER) {
+      // Group leaders only see their own group employees
+      list = list.filter(e => e.teamGroupId === currentUser.teamGroupId);
     }
     return list.filter(e => 
       (e.username || '').toLowerCase().includes((searchTerm || '').toLowerCase()) || 

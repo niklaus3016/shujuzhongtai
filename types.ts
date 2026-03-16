@@ -2,6 +2,7 @@
 export enum UserRole {
   SUPER_ADMIN = 'superadmin',
   NORMAL_ADMIN = 'NORMAL_ADMIN',
+  GROUP_LEADER = 'GROUP_LEADER',
   EMPLOYEE = 'EMPLOYEE'
 }
 
@@ -16,6 +17,8 @@ export interface AdminUser {
   status: 'enabled' | 'disabled' | '1' | '0';
   avatar?: string;
   teamName?: string; // For team leaders, the name of their team
+  teamGroupId?: string; // For group leaders, the id of their group
+  groupName?: string; // For group leaders, the name of their group
   phoneCount?: number; // 领取手机数
   phone?: string; // 手机号
   region?: string; // 地区

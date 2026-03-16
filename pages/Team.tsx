@@ -323,6 +323,23 @@ const Team: React.FC = () => {
     );
   }
 
+  // Group Leader view
+  if (currentUser.role === UserRole.GROUP_LEADER) {
+    return (
+      <div className="p-4 pb-24">
+        <header className="mb-6">
+          <div className="flex items-center">
+            <h1 className="text-xl font-bold text-gray-900 flex items-center">
+              <Users2 className="text-[#1E40AF] mr-2" size={24} />
+              我的组员
+            </h1>
+          </div>
+        </header>
+        <EmployeeManagement currentUser={currentUser} isAddModalOpen={false} setIsAddModalOpen={() => {}} />
+      </div>
+    );
+  }
+
   if (selectedTeam) {
     return (
       <TeamMemberDetail 

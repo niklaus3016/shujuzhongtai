@@ -14,6 +14,7 @@ interface SettingsProps {
 const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
   const currentUser = authService.getCurrentUser();
   const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
+  const isGroupLeader = currentUser?.role === UserRole.GROUP_LEADER;
   const isSuperAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
   
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -119,88 +120,34 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
       if (isTeamLeader) {
         // 即使 currentUser 中没有 teamName 字段，也使用默认团队名称
         const teamName = currentUser?.teamName || '鼎盛战队';
-        const token = localStorage.getItem('admin_token');
-        console.log('Token:', token ? '存在' : '不存在');
         
-        // 直接使用完整的API路径，与TeamLeaderDashboard保持一致
+        // 使用request函数统一处理API请求
         // 获取团队今日数据
-        const apiUrl = `https://wfqmaepvjkdd.sealoshzh.site/api/admin/dashboard/kpi?range=today&team=${encodeURIComponent(teamName)}`;
-        console.log('API 路径:', apiUrl);
-        
-        const todayResponse = await fetch(apiUrl, {
-          method: 'GET',
-          headers: new Headers({
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          })
+        const todayResponse = await request<any>(`/dashboard/kpi?range=today&team=${encodeURIComponent(teamName)}`, {
+          method: 'GET'
         });
-        
-        console.log('今日数据API响应状态:', todayResponse.status);
-        console.log('今日数据API响应状态文本:', todayResponse.statusText);
-        
-        if (!todayResponse.ok) {
-          throw new Error(`HTTP ${todayResponse.status}`);
-        }
-        
-        const todayResult = await todayResponse.json();
-        console.log('API 响应数据:', todayResult);
-        const todayData = todayResult.data || todayResult;
-        console.log('处理后的数据:', todayData);
         
         // 获取团队本月数据
-        const monthResponse = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/admin/dashboard/kpi?range=month&team=${encodeURIComponent(teamName)}`, {
-          method: 'GET',
-          headers: new Headers({
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          })
+        const monthResponse = await request<any>(`/dashboard/kpi?range=month&team=${encodeURIComponent(teamName)}`, {
+          method: 'GET'
         });
-        
-        if (!monthResponse.ok) {
-          throw new Error(`HTTP ${monthResponse.status}`);
-        }
-        
-        const monthResult = await monthResponse.json();
-        const monthData = monthResult.data || monthResult;
         
         // 获取团队内用户上月累计金币
-        const lastMonthResponse = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/team/last-month-coins?team=${encodeURIComponent(teamName)}`, {
-          method: 'GET',
-          headers: new Headers({
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          })
+        const lastMonthResponse = await request<any>(`/team/last-month-coins?team=${encodeURIComponent(teamName)}`, {
+          method: 'GET'
         });
-        
-        if (!lastMonthResponse.ok) {
-          throw new Error(`HTTP ${lastMonthResponse.status}`);
-        }
-        
-        const lastMonthResult = await lastMonthResponse.json();
-        const lastMonthData = lastMonthResult.data || lastMonthResult;
 
         // 获取团队累计金币
-        const totalResponse = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/admin/dashboard/kpi?range=all&team=${encodeURIComponent(teamName)}`, {
-          method: 'GET',
-          headers: new Headers({
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          })
+        const totalResponse = await request<any>(`/dashboard/kpi?range=all&team=${encodeURIComponent(teamName)}`, {
+          method: 'GET'
         });
-        
-        if (!totalResponse.ok) {
-          throw new Error(`HTTP ${totalResponse.status}`);
-        }
-        
-        const totalResult = await totalResponse.json();
-        const totalData = totalResult.data || totalResult;
 
         // 计算收益 - 团队长收益 = 团队金币 * 20%
-        console.log('Team responses:', { todayData, monthData, lastMonthData, totalData });
-        const todayTeamCoins = Number(todayData?.coins || 0) / 1000;
-        const monthTeamCoins = Number(monthData?.coins || 0) / 1000;
-        const lastMonthTeamCoins = Number(lastMonthData?.coins || 0) / 1000;
-        const totalTeamCoins = Number(totalData?.coins || 0) / 1000;
+        console.log('Team responses:', { todayResponse, monthResponse, lastMonthResponse, totalResponse });
+        const todayTeamCoins = Number(todayResponse?.coins || 0) / 1000;
+        const monthTeamCoins = Number(monthResponse?.coins || 0) / 1000;
+        const lastMonthTeamCoins = Number(lastMonthResponse?.coins || 0) / 1000;
+        const totalTeamCoins = Number(totalResponse?.coins || 0) / 1000;
         console.log('Calculated coins:', { todayTeamCoins, monthTeamCoins, lastMonthTeamCoins, totalTeamCoins });
 
         setEarnings({
@@ -209,36 +156,63 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
           lastMonth: lastMonthTeamCoins * 0.2,
           total: totalTeamCoins * 0.2
         });
+      } else if (currentUser?.role === UserRole.GROUP_LEADER) {
+        // 组长获取自己组的收益数据
+        const teamGroupId = currentUser?.teamGroupId;
+        
+        // 使用request函数统一处理API请求
+        // 获取组今日数据
+        const todayResponse = await request<any>(`/dashboard/kpi?range=today&group=${encodeURIComponent(teamGroupId || '')}`, {
+          method: 'GET'
+        });
+        
+        // 获取组本月数据
+        const monthResponse = await request<any>(`/dashboard/kpi?range=month&group=${encodeURIComponent(teamGroupId || '')}`, {
+          method: 'GET'
+        });
+        
+        // 获取组内用户上月累计金币
+        const lastMonthResponse = await request<any>(`/team/last-month-coins?group=${encodeURIComponent(teamGroupId || '')}`, {
+          method: 'GET'
+        });
+
+        // 获取组累计金币
+        const totalResponse = await request<any>(`/dashboard/kpi?range=all&group=${encodeURIComponent(teamGroupId || '')}`, {
+          method: 'GET'
+        });
+
+        // 计算收益 - 组长收益 = 组金币 * 10%
+        console.log('Group responses:', { todayResponse, monthResponse, lastMonthResponse, totalResponse });
+        const todayGroupCoins = Number(todayResponse?.coins || 0) / 1000;
+        const monthGroupCoins = Number(monthResponse?.coins || 0) / 1000;
+        const lastMonthGroupCoins = Number(lastMonthResponse?.coins || 0) / 1000;
+        const totalGroupCoins = Number(totalResponse?.coins || 0) / 1000;
+        console.log('Calculated group coins:', { todayGroupCoins, monthGroupCoins, lastMonthGroupCoins, totalGroupCoins });
+
+        setEarnings({
+          today: todayGroupCoins * 0.1,
+          month: monthGroupCoins * 0.1,
+          lastMonth: lastMonthGroupCoins * 0.1,
+          total: totalGroupCoins * 0.1
+        });
       } else {
         // 超级管理员获取全局数据
         const todayResponse = await request<any>('/dashboard/kpi?range=today', {
-          method: 'GET',
-          headers: new Headers({
-            'Content-Type': 'application/json'
-          })
+          method: 'GET'
         });
         
         const monthResponse = await request<any>('/dashboard/kpi?range=month', {
-          method: 'GET',
-          headers: new Headers({
-            'Content-Type': 'application/json'
-          })
+          method: 'GET'
         });
         
         // 获取上月累计金币
         const lastMonthResponse = await request<any>('/dashboard/kpi?range=lastMonth', {
-          method: 'GET',
-          headers: new Headers({
-            'Content-Type': 'application/json'
-          })
+          method: 'GET'
         });
 
         // 获取累计金币
         const totalResponse = await request<any>('/dashboard/kpi?range=all', {
-          method: 'GET',
-          headers: new Headers({
-            'Content-Type': 'application/json'
-          })
+          method: 'GET'
         });
 
         console.log('Admin responses:', { todayResponse, monthResponse, lastMonthResponse, totalResponse });
@@ -257,13 +231,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
       }
     } catch (error) {
       console.error('Error fetching earnings data:', error);
-      // 使用默认值，而不是硬编码的固定值
-      setEarnings({
-        today: 0,
-        month: 0,
-        lastMonth: 0,
-        total: 0
-      });
+      // 保持当前数据，不设置为0，避免数据闪烁
     }
   };
 
@@ -326,7 +294,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     fetchEarnings();
     fetchWithdrawRecords();
     loadWithdrawStatus();
-  }, [isTeamLeader, currentUser?.teamName]);
+  }, [isTeamLeader, isGroupLeader, currentUser?.teamName, currentUser?.teamGroupId]);
 
   const sections = [
     {
@@ -355,7 +323,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                 <div className="flex items-center space-x-2">
                     <h2 className="text-xl font-black">{currentUser?.username || 'Admin Pro'}</h2>
                     <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full backdrop-blur-sm border border-white/10 uppercase">
-                      {isSuperAdmin ? '超级管理员' : '普通管理员'}
+                      {isSuperAdmin ? '超级管理员' : isTeamLeader ? '团队长' : isGroupLeader ? '组长' : '普通管理员'}
                     </span>
                 </div>
                 <div className="flex items-center space-x-1 mt-0.5 opacity-80">
