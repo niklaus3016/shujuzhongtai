@@ -60,6 +60,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
   const [sortBy, setSortBy] = useState<'watched' | 'earnings' | 'ecpm' | 'agc'>('earnings');
   const [kpiData, setKpiData] = useState<any[]>([]);
   const [userData, setUserData] = useState<DashboardUser[]>([]);
+  
+  // 添加滚动位置保存
+  const scrollPositionRef = React.useRef<number>(0);
 
   // Time range mapping
   const timeRangeMap: Record<string, string> = {
@@ -70,14 +73,14 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
   };
 
   const fetchData = useCallback(async (isRefresh = false) => {
+    // 保存当前滚动位置
     if (isRefresh) {
+      scrollPositionRef.current = window.scrollY || document.documentElement.scrollTop;
       setRefreshing(true);
     } else {
       setLoading(true);
     }
-    // 清空之前的数据，避免显示旧数据
-    setUserData([]);
-    setKpiData([]);
+    // 不清空之前的数据，避免闪屏
     try {
       const rangeParam = timeRangeMap[timeRange];
 
@@ -86,6 +89,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         const kpiResponse = await request<any>(`/dashboard/kpi?range=${rangeParam}`, {
           method: 'GET'
         });
+
+        // 调试：打印API返回的完整数据
+        console.log('KPI API Response for range', rangeParam, ':', kpiResponse);
+        console.log('Active Users:', kpiResponse.activeUsers);
+        console.log('All KPI Response keys:', Object.keys(kpiResponse));
 
         // Time prefix for dynamic titles
         const timePrefixMap: Record<string, string> = {
@@ -170,6 +178,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
     } finally {
       setLoading(false);
       setRefreshing(false);
+      // 恢复滚动位置
+      if (scrollPositionRef.current > 0) {
+        setTimeout(() => {
+          window.scrollTo(0, scrollPositionRef.current);
+        }, 50);
+      }
     }
   }, [timeRange]);
 
@@ -177,9 +191,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
     // 初始加载数据
     fetchData();
     
-    // 设置自动刷新定时器，每30秒刷新一次
+    // 设置自动刷新定时器，每30秒刷新一次，使用刷新模式
     const interval = setInterval(() => {
-      fetchData();
+      fetchData(true);
     }, 30000);
     
     // 清理函数
