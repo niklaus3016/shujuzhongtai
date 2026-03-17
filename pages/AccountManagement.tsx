@@ -221,6 +221,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           })
         });
       } else {
+        const selectedGroup = groups.find(g => g._id === formData.groupId);
         await request<any>('/employee/create', {
           method: 'POST',
           body: JSON.stringify({
@@ -228,7 +229,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
             realName: formData.realName,
             phone: formData.phone,
             region: formData.region,
-            groupId: formData.groupId
+            groupId: formData.groupId,
+            groupName: selectedGroup?.groupName || ''
           })
         });
       }
@@ -322,6 +324,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
 
     setSaving(true);
     try {
+      const selectedGroup = groups.find(g => g._id === formData.groupId);
       await request<any>(`/employee/${editingAccount._id}`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -330,7 +333,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           phone: formData.phone,
           region: formData.region,
           employeeId: formData.employeeId,
-          groupId: formData.groupId
+          groupId: formData.groupId,
+          groupName: selectedGroup?.groupName || ''
         })
       });
       setShowEditModal(false);
