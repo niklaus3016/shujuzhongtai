@@ -101,7 +101,28 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
       let teamLeaderEarnings = 0;
       let activeUsersCount = 0;
       let totalUsersCount = 0;
+      let groupsData: any[] = [];
       try {
+        // 先获取组列表，获取每个组的分成比例
+        const groupsUrl = '/group/list';
+        const groupsResponse = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/admin${groupsUrl}`, {
+          method: 'GET',
+          headers: new Headers({
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          })
+        });
+        
+        if (groupsResponse.ok) {
+          const groupsResult = await groupsResponse.json();
+          groupsData = groupsResult.data || groupsResult || [];
+          console.log('组列表:', groupsData);
+          // 检查每个组的ID字段
+          groupsData.forEach((group: any) => {
+            console.log(`组: _id=${group._id}, id=${group.id}, groupName=${group.groupName}, commission=${group.commission}`);
+          });
+        }
+        
         const userUrl = `/dashboard/users?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}`;
         const userResponse = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/admin${userUrl}`, {
           method: 'GET',
@@ -120,6 +141,11 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
           console.log('用户列表总数:', users.length);
           console.log('用户列表:', users);
           
+          // 检查每个用户的组ID字段
+          users.forEach((user: any) => {
+            console.log(`用户 ${user.userId || user.employeeId}: groupId=${user.groupId}, teamGroupId=${user.teamGroupId}, groupName=${user.groupName}`);
+          });
+          
           // 团队长只计算自己团队的用户
           const filteredUsers = users.filter((user: any) => {
             const userTeam = user.teamName || user.superior || '系统直属';
@@ -129,9 +155,14 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
           console.log('过滤后用户数:', filteredUsers.length);
           console.log('团队总用户数:', totalUsersCount);
           
-          // 从后端获取组长提成比例，如果没有则使用默认值
-          const leaderCommissionRate = responseData?.leaderCommissionRate || responseData?.groupLeaderRate || 0.05;
-          console.log('组长提成比例:', leaderCommissionRate);
+          // 构建组名称到分成比例的映射（因为用户数据中有groupName但没有groupId）
+          const groupCommissionMap: Record<string, number> = {};
+          groupsData.forEach((group: any) => {
+            if (group.groupName && group.commission !== undefined) {
+              groupCommissionMap[group.groupName] = group.commission;
+              console.log(`组 ${group.groupName}: 分成比例=${group.commission}`);
+            }
+          });
           
           // 计算活跃用户数：有收益或观看次数的用户（只计算本团队的用户）
           activeUsersCount = filteredUsers.filter((user: any) => (user.watched > 0 || user.earnings > 0)).length;
@@ -141,11 +172,15 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
           // 计算团队组长收益：每个用户如果有组长（有组别），则该用户收益的提成比例归组长（只计算本团队的用户）
           teamLeaderEarnings = filteredUsers.reduce((total: number, user: any) => {
             const userEarnings = (user.earnings || 0) / 1000;
-            // 如果用户有组长（teamGroupId不为空），则计算组长收益
-            const hasLeader = user.teamGroupId && user.teamGroupId !== '' && user.teamGroupId !== '无';
+            // 获取用户的组名称（groupName）
+            const userGroupName = user.groupName || '';
+            // 如果用户有组长（groupName不为空），则计算组长收益
+            const hasLeader = userGroupName && userGroupName !== '' && userGroupName !== '无';
+            // 从组数据中获取分成比例，如果没有则使用默认值5%
+            const leaderCommissionRate = hasLeader ? (groupCommissionMap[userGroupName] || 0.05) : 0;
             const leaderEarnings = hasLeader ? userEarnings * leaderCommissionRate : 0;
             if (hasLeader) {
-              console.log(`用户 ${user.userId || user.employeeId}: 收益=${userEarnings}, 组别=${user.teamGroupId}, 组长收益=${leaderEarnings}`);
+              console.log(`用户 ${user.userId || user.employeeId}: 收益=${userEarnings}, 组别名称=${userGroupName}, 组长分成比例=${leaderCommissionRate}, 组长收益=${leaderEarnings}`);
             }
             return total + leaderEarnings;
           }, 0);

@@ -384,7 +384,7 @@ const Team: React.FC = () => {
         console.log('Team.tsx - 团队名称:', currentUser.teamName);
         
         // 获取组长账号
-        const groupAccounts = await request<any[]>('/admin/group-leader/list', { method: 'GET' });
+        const groupAccounts = await request<any[]>('/group-leader/list', { method: 'GET' });
         console.log('Team.tsx - 所有组长账号:', groupAccounts);
         
         // 获取员工账号
@@ -392,7 +392,7 @@ const Team: React.FC = () => {
         console.log('Team.tsx - 所有员工账号:', employeeAccounts);
         
         // 获取组列表
-        const groupsData = await request<any[]>('/admin/team-group/list', { method: 'GET' });
+        const groupsData = await request<any[]>('/team-group/list', { method: 'GET' });
         const filteredGroups = groupsData.filter((g: any) => g.teamName === currentUser.teamName);
         setGroups(filteredGroups);
         console.log('Team.tsx - 组列表:', filteredGroups);
