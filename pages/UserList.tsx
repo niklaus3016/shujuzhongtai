@@ -34,7 +34,7 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
   const [loading, setLoading] = useState(true);
   
   // 使用左滑返回hook
-  const swipeRef = useSwipeBack({ onBack: () => onBack?.() });
+  const swipeRef = useSwipeBack({ onBack: onBack || (() => {}) });
   
   // 添加昨日用户数据，用于计算次数对比
   const [yesterdayUserData, setYesterdayUserData] = useState<Record<string, number>>({});

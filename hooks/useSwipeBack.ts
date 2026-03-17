@@ -19,6 +19,8 @@ export const useSwipeBack = ({ onBack, threshold = 100, edgeWidth = 50 }: SwipeB
       touchStartX.current = touch.clientX;
       touchStartY.current = touch.clientY;
       isHorizontalSwipe.current = false;
+      // 阻止默认行为，防止浏览器返回
+      e.preventDefault();
     }
   }, [edgeWidth]);
 
@@ -32,6 +34,8 @@ export const useSwipeBack = ({ onBack, threshold = 100, edgeWidth = 50 }: SwipeB
     // 判断是否为水平滑动（水平位移大于垂直位移）
     if (Math.abs(deltaX) > Math.abs(deltaY) && deltaX > 0) {
       isHorizontalSwipe.current = true;
+      // 阻止默认行为，防止浏览器返回
+      e.preventDefault();
       // 可以在这里添加视觉反馈，比如页面跟随手指移动
     }
   }, []);
