@@ -22,7 +22,6 @@ const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab }) => {
         { id: AppTab.DASHBOARD, icon: Home, label: '首页' },
         { id: AppTab.NEW_USERS, icon: UserPlus, label: '新人' },
         { id: AppTab.TEAM, icon: Users2, label: '团队' },
-        { id: AppTab.GROUP_LEADER_MANAGEMENT, icon: Users, label: '组长' },
         { id: AppTab.MANAGEMENT, icon: Settings, label: '管理' },
         { id: AppTab.ALERTS, icon: ShieldAlert, label: '预警' },
         { id: AppTab.PROFILE, icon: User, label: '我的' },
@@ -32,8 +31,8 @@ const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab }) => {
       return [
         { id: AppTab.DASHBOARD, icon: Home, label: '首页' },
         { id: AppTab.NEW_USERS, icon: UserPlus, label: '新人' },
-        { id: AppTab.TEAM, icon: Users2, label: '团队' },
-        { id: AppTab.GROUP_MANAGEMENT, icon: Layers, label: '组管理' },
+        { id: AppTab.TEAM, icon: User, label: '帐号' },
+        { id: AppTab.GROUP_MANAGEMENT, icon: Layers, label: '团队' },
         { id: AppTab.ALERTS, icon: ShieldAlert, label: '预警' },
         { id: AppTab.PROFILE, icon: User, label: '我的' },
       ];

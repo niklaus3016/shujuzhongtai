@@ -6,6 +6,7 @@ import {
 import { request } from '../services/api';
 import { authService } from '../services/authService';
 import { UserRole } from '../types';
+import { useSwipeBack } from '../hooks/useSwipeBack';
 
 interface ListUser {
   id: string;
@@ -18,6 +19,7 @@ interface ListUser {
   deviceCount: number;
   ecpm: number;
   superior?: string;
+  teamName?: string;
 }
 
 interface UserListProps {
@@ -27,23 +29,37 @@ interface UserListProps {
 
 const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortBy, setSortBy] = useState<'watched' | 'earnings' | 'ecpm'>('earnings');
+  const [sortBy, setSortBy] = useState<'watched' | 'earnings' | 'agc'>('earnings');
   const [users, setUsers] = useState<ListUser[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // 使用左滑返回hook
+  const swipeRef = useSwipeBack({ onBack: () => onBack?.() });
+  
+  // 添加昨日用户数据，用于计算次数对比
+  const [yesterdayUserData, setYesterdayUserData] = useState<Record<string, number>>({});
+  
+  // 添加昨日用户收益数据，用于计算收益对比
+  const [yesterdayEarningsData, setYesterdayEarningsData] = useState<Record<string, number>>({});
   
   // 使用 useMemo 缓存 currentUser，避免每次渲染都返回新对象
   const currentUser = useMemo(() => authService.getCurrentUser(), []);
   const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
   const teamName = currentUser?.teamName || '鼎盛战队';
 
+  // 组件挂载时重置滚动位置到顶部
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
   useEffect(() => {
     const fetchUsers = async () => {
       setLoading(true);
       try {
-        // 团队长只获取自己团队的用户
+        // 团队长只获取自己团队的用户，不限制数据数量
         const userUrl = isTeamLeader 
-          ? `/dashboard/users?range=today&team=${encodeURIComponent(teamName)}`
-          : `/dashboard/users?range=today`;
+          ? `/dashboard/users?range=today&team=${encodeURIComponent(teamName)}&limit=1000`
+          : `/dashboard/users?range=today&limit=1000`;
         
         console.log('用户数据 API 路径:', userUrl);
         
@@ -53,28 +69,65 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
             'Content-Type': 'application/json'
           })
         });
-
+        
         const transformedUsers: ListUser[] = response.map((user: any) => ({
           id: user.employeeId || user.userId || '',
           userId: user.userId || '',
-          name: user.userId || user.employeeId || '',
+          name: user.realName || user.realname || user.name || user.username || user.userName || user.userId || user.employeeId || '',
           avatar: '',
           watched: user.watched || 0,
           earnings: (user.earnings || 0) / 1000,
           ipCount: user.ipCount || 1,
           deviceCount: user.deviceCount || 1,
           ecpm: user.ecpm || 0,
-          superior: user.superior || '系统直属'
+          superior: user.superior || user.teamName || '系统直属',
+          teamName: user.teamName || user.superior || '系统直属'
         }));
-
+        
         // 团队长只显示自己团队的成员数据
-        const filteredUsers = isTeamLeader 
-          ? transformedUsers.filter(user => user.superior === teamName)
-          : transformedUsers;
-
+        let filteredUsers = transformedUsers;
+        if (isTeamLeader) {
+          console.log('团队长团队名称:', teamName);
+          filteredUsers = transformedUsers.filter(user => {
+            const userTeam = user.teamName || user.superior || '系统直属';
+            return userTeam === teamName;
+          });
+          console.log('过滤后用户数:', filteredUsers.length);
+        }
+        
+        console.log('转换后的用户数据:', transformedUsers);
         setUsers(filteredUsers);
+        
+        // 同时获取昨日用户数据用于计算次数对比
+        try {
+          let yesterdayUserUrl = isTeamLeader 
+            ? `/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}&limit=1000`
+            : `/dashboard/users?range=yesterday&limit=1000`;
+          
+          const yesterdayUserResponse = await request<any>(yesterdayUserUrl, {
+            method: 'GET',
+            headers: new Headers({
+              'Content-Type': 'application/json'
+            })
+          });
+          
+          // 构建用户ID到次数和收益的映射
+          const yesterdayUserMap: Record<string, number> = {};
+          const yesterdayEarningsMap: Record<string, number> = {};
+          yesterdayUserResponse.forEach((user: any) => {
+            const userId = user.employeeId || user.userId || '';
+            yesterdayUserMap[userId] = user.watched || 0;
+            yesterdayEarningsMap[userId] = (user.earnings || 0) / 1000;
+          });
+          
+          setYesterdayUserData(yesterdayUserMap);
+          setYesterdayEarningsData(yesterdayEarningsMap);
+        } catch (error) {
+          console.error('Error fetching yesterday user data:', error);
+        }
       } catch (error) {
         console.error('Error fetching users:', error);
+        setUsers([]);
       } finally {
         setLoading(false);
       }
@@ -89,11 +142,18 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
         user.id.includes(searchTerm) || 
         user.name.toLowerCase().includes(searchTerm.toLowerCase())
       )
-      .sort((a, b) => b[sortBy] - a[sortBy]);
+      .sort((a, b) => {
+        if (sortBy === 'agc') {
+          const agcA = a.watched > 0 ? (a.earnings * 1000) / a.watched : 0;
+          const agcB = b.watched > 0 ? (b.earnings * 1000) / b.watched : 0;
+          return agcB - agcA;
+        }
+        return b[sortBy] - a[sortBy];
+      });
   }, [searchTerm, sortBy, users]);
 
   return (
-    <div className="pb-6 animate-in slide-in-from-right duration-300 min-h-screen bg-[#F9FAFB]">
+    <div ref={swipeRef} className="pb-6 animate-in slide-in-from-right duration-300 min-h-screen bg-[#F9FAFB]">
       <header className="sticky top-0 bg-white z-50 border-b border-gray-100">
         <div className="px-4 py-4 flex items-center">
             {onBack && (
@@ -122,10 +182,10 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
         <div className="px-4 pb-4 flex items-center justify-between">
             <div className="flex bg-gray-100 p-1 rounded-xl w-full">
                 <button 
-                    onClick={() => setSortBy('ecpm')}
-                    className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all ${sortBy === 'ecpm' ? 'bg-white text-[#1E40AF] shadow-sm' : 'text-gray-400'}`}
+                    onClick={() => setSortBy('agc')}
+                    className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all ${sortBy === 'agc' ? 'bg-white text-[#1E40AF] shadow-sm' : 'text-gray-400'}`}
                 >
-                    按eCPM
+                    按平均金币
                 </button>
                 <button 
                     onClick={() => setSortBy('watched')}
@@ -189,33 +249,33 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
                                     {sortBy === 'earnings' ? (
                                         <>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className="text-[11px] font-black text-[#1E40AF]">¥{user.earnings.toFixed(2)}</span>
+                                                <span className={`text-[11px] font-black ${yesterdayEarningsData[user.id] !== undefined ? (user.earnings > yesterdayEarningsData[user.id] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.id] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>¥{user.earnings.toFixed(2)}</span>
                                                 <span className="text-[9px] text-gray-400 font-medium">收益</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className="text-[11px] font-black text-gray-900">{user.watched}</span>
+                                                <span className={`text-[11px] font-black ${yesterdayUserData[user.id] !== undefined ? (user.watched > yesterdayUserData[user.id] ? 'text-green-600' : user.watched < yesterdayUserData[user.id] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>{user.watched}</span>
                                                 <span className="text-[9px] text-gray-400 font-bold">次数</span>
                                             </div>
                                         </>
                                     ) : sortBy === 'watched' ? (
                                         <>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className="text-[11px] font-black text-[#1E40AF]">{user.watched}</span>
+                                                <span className={`text-[11px] font-black ${yesterdayUserData[user.id] !== undefined ? (user.watched > yesterdayUserData[user.id] ? 'text-green-600' : user.watched < yesterdayUserData[user.id] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>{user.watched}</span>
                                                 <span className="text-[9px] text-gray-400 font-bold">次数</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className="text-[11px] font-black text-gray-500">¥{user.earnings.toFixed(2)}</span>
+                                                <span className={`text-[11px] font-black ${yesterdayEarningsData[user.id] !== undefined ? (user.earnings > yesterdayEarningsData[user.id] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.id] ? 'text-red-500' : 'text-gray-500') : 'text-gray-500'}`}>¥{user.earnings.toFixed(2)}</span>
                                                 <span className="text-[9px] text-gray-400 font-medium">收益</span>
                                             </div>
                                         </>
                                     ) : (
                                         <>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className={`text-[11px] font-black ${user.ecpm >= 150 ? 'text-green-600' : 'text-red-500'}`}>{user.ecpm.toFixed(1)}</span>
-                                                <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">eCPM</span>
+                                                <span className={`text-[11px] font-black ${(user.watched > 0 ? ((user.earnings * 1000) / user.watched) >= 100 : false) ? 'text-green-600' : 'text-red-500'}`}>{(user.watched > 0 ? ((user.earnings * 1000) / user.watched) : 0).toFixed(2)}</span>
+                                                <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">平均金币</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className="text-[11px] font-black text-gray-500">¥{user.earnings.toFixed(2)}</span>
+                                                <span className={`text-[11px] font-black ${yesterdayEarningsData[user.id] !== undefined ? (user.earnings > yesterdayEarningsData[user.id] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.id] ? 'text-red-500' : 'text-gray-500') : 'text-gray-500'}`}>¥{user.earnings.toFixed(2)}</span>
                                                 <span className="text-[9px] text-gray-400 font-medium">收益</span>
                                             </div>
                                         </>
@@ -236,10 +296,10 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
                                 <span className="text-[9px] text-gray-400 font-medium">设备:</span>
                                 <span className="text-[10px] font-bold text-gray-700">{user.deviceCount}</span>
                             </div>
-                            <div className={`flex items-center space-x-1 px-2 py-1 rounded-md border ml-auto ${sortBy === 'ecpm' ? 'bg-blue-600 border-blue-600' : 'bg-blue-50/30 border-blue-100/30'}`}>
-                                <Zap size={10} className={sortBy === 'ecpm' ? 'text-white' : 'text-orange-500'} />
-                                <span className={`text-[9px] font-medium uppercase tracking-tighter ${sortBy === 'ecpm' ? 'text-white/80' : 'text-gray-400'}`}>eCPM:</span>
-                                <span className={`text-[10px] font-black ${sortBy === 'ecpm' ? 'text-white' : (user.ecpm >= 150 ? 'text-green-600' : 'text-red-500')}`}>{user.ecpm.toFixed(1)}</span>
+                            <div className={`flex items-center space-x-1 px-2 py-1 rounded-md border ml-auto ${sortBy === 'agc' ? 'bg-blue-600 border-blue-600' : 'bg-blue-50/30 border-blue-100/30'}`}>
+                                <Zap size={10} className={sortBy === 'agc' ? 'text-white' : 'text-orange-500'} />
+                                <span className={`text-[9px] font-medium uppercase tracking-tighter ${sortBy === 'agc' ? 'text-white/80' : 'text-gray-400'}`}>平均金币:</span>
+                                <span className={`text-[10px] font-black ${sortBy === 'agc' ? 'text-white' : (user.watched > 0 ? ((user.earnings * 1000) / user.watched) >= 100 : false) ? 'text-green-600' : 'text-red-500'}`}>{(user.watched > 0 ? ((user.earnings * 1000) / user.watched) : 0).toFixed(2)}</span>
                             </div>
                         </div>
                     </div>

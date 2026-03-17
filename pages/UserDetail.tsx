@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, Calendar, TrendingUp, Wallet, BarChart2 } from 'lucide-react';
 import { request } from '../services/api';
+import { useSwipeBack } from '../hooks/useSwipeBack';
 
 interface DailyStat {
   date: string;
@@ -34,6 +35,9 @@ const UserDetail: React.FC<UserDetailProps> = ({ user, onBack }) => {
   const [loading, setLoading] = useState(true);
   const [totalEarnings, setTotalEarnings] = useState(0);
   const [monthlyData, setMonthlyData] = useState<MonthlySummary[]>([]);
+  
+  // 使用左滑返回hook
+  const swipeRef = useSwipeBack({ onBack });
 
   useEffect(() => {
     const fetchEarnings = async () => {
@@ -81,7 +85,7 @@ const UserDetail: React.FC<UserDetailProps> = ({ user, onBack }) => {
   }, [user.id]);
 
   return (
-    <div className="min-h-screen bg-white animate-in slide-in-from-right duration-300">
+    <div ref={swipeRef} className="min-h-screen bg-white animate-in slide-in-from-right duration-300">
       <header className="sticky top-0 bg-white z-50 px-4 py-4 flex items-center border-b border-gray-50">
         <button onClick={onBack} className="p-2 -ml-2 text-gray-400 active:text-gray-900">
           <ChevronLeft size={24} />

@@ -43,16 +43,18 @@ export async function request<T>(
           throw new Error('服务器返回格式错误，请检查网络或联系管理员');
         }
 
-        if (!result.success) {
+        // 检查是否有success字段
+        if ('success' in result && !result.success) {
           throw new Error(result.message || '请求失败');
         }
 
+        // 检查是否有data字段
         if (result.data !== undefined) {
           return result.data;
         }
         
-        const { success, ...rest } = result;
-        return rest as T;
+        // 如果没有success和data字段，直接返回整个结果
+        return result as T;
       } catch (error) {
         lastError = error as Error;
         console.log(`尝试 ${baseUrl}${endpoint} 失败:`, lastError.message);

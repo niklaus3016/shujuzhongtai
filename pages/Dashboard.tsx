@@ -57,12 +57,24 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
   const [timeRange, setTimeRange] = useState<TimeRange>(TimeRange.TODAY);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [sortBy, setSortBy] = useState<'watched' | 'earnings' | 'ecpm' | 'agc'>('earnings');
+  const [sortBy, setSortBy] = useState<'watched' | 'earnings' | 'agc'>('earnings');
   const [kpiData, setKpiData] = useState<any[]>([]);
   const [userData, setUserData] = useState<DashboardUser[]>([]);
   
   // 添加滚动位置保存
   const scrollPositionRef = React.useRef<number>(0);
+  
+  // 添加昨日KPI数据，用于计算增长率
+  const [yesterdayKpiData, setYesterdayKpiData] = useState<any>(null);
+  
+  // 添加昨日用户数据，用于计算次数对比
+  const [yesterdayUserData, setYesterdayUserData] = useState<Record<string, number>>({});
+  
+  // 添加昨日用户收益数据，用于计算收益对比
+  const [yesterdayEarningsData, setYesterdayEarningsData] = useState<Record<string, number>>({});
+  
+  // 使用ref存储昨日数据，避免闭包问题
+  const yesterdayUserDataRef = React.useRef<Record<string, number>>({});
 
   // Time range mapping
   const timeRangeMap: Record<string, string> = {
@@ -94,6 +106,22 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         console.log('KPI API Response for range', rangeParam, ':', kpiResponse);
         console.log('Active Users:', kpiResponse.activeUsers);
         console.log('All KPI Response keys:', Object.keys(kpiResponse));
+        console.log('Profit Margin Growth:', kpiResponse.profitMarginGrowth);
+        console.log('Revenue Growth:', kpiResponse.revenueGrowth);
+        console.log('Coins Growth:', kpiResponse.coinsGrowth);
+
+        // 如果是今日数据，同时获取昨日数据用于计算增长率
+        if (timeRange === TimeRange.TODAY) {
+          try {
+            const yesterdayResponse = await request<any>(`/dashboard/kpi?range=yesterday`, {
+              method: 'GET'
+            });
+            setYesterdayKpiData(yesterdayResponse);
+            console.log('Yesterday KPI Data:', yesterdayResponse);
+          } catch (error) {
+            console.error('Error fetching yesterday KPI data:', error);
+          }
+        }
 
         // Time prefix for dynamic titles
         const timePrefixMap: Record<string, string> = {
@@ -108,9 +136,22 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         // Transform KPI data to match frontend format
         const userShare = Number(kpiResponse.coins || 0) / 1000;
         const platformCost = userShare * 0.2;
+        
+        // 计算利润率
+        const todayProfitMargin = kpiResponse.revenue > 0 ? ((Number(kpiResponse.revenue || 0) - userShare - platformCost) / Number(kpiResponse.revenue) * 100) : 0;
+        
+        // 计算利润率增长率（今日 - 昨日）
+        let profitMarginGrowth = 0;
+        if (timeRange === TimeRange.TODAY && yesterdayKpiData) {
+          const yesterdayUserShare = Number(yesterdayKpiData.coins || 0) / 1000;
+          const yesterdayPlatformCost = yesterdayUserShare * 0.2;
+          const yesterdayProfitMargin = yesterdayKpiData.revenue > 0 ? ((Number(yesterdayKpiData.revenue || 0) - yesterdayUserShare - yesterdayPlatformCost) / Number(yesterdayKpiData.revenue) * 100) : 0;
+          profitMarginGrowth = todayProfitMargin - yesterdayProfitMargin;
+        }
+        
         const transformedKpis = [
           { title: `${timePrefix}利润`, value: `¥${(Number(kpiResponse.revenue || 0) - userShare - platformCost).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: BarChart3, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-          { title: `${timePrefix}利润率`, value: `${kpiResponse.revenue > 0 ? ((Number(kpiResponse.revenue || 0) - userShare - platformCost) / Number(kpiResponse.revenue) * 100).toFixed(2) : '0.00'}%`, growth: showGrowth ? `${kpiResponse.profitMarginGrowth > 0 ? '+' : ''}${kpiResponse.profitMarginGrowth || 0}%` : '', isUp: kpiResponse.profitMarginGrowth > 0, icon: Percent, color: 'text-pink-600', bg: 'bg-pink-50' },
+          { title: `${timePrefix}利润率`, value: `${todayProfitMargin.toFixed(2)}%`, growth: showGrowth ? `${profitMarginGrowth > 0 ? '+' : ''}${profitMarginGrowth.toFixed(2)}%` : '', isUp: profitMarginGrowth > 0, icon: Percent, color: 'text-pink-600', bg: 'bg-pink-50' },
           { title: '业务总收入', value: `¥${Number(kpiResponse.revenue || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: Wallet, color: 'text-green-600', bg: 'bg-green-50' },
           { title: '用户分成金额', value: `¥${(Number(kpiResponse.coins || 0) / 1000).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, subValue: `${kpiResponse.revenue > 0 ? ((Number(kpiResponse.coins || 0) / 1000 / Number(kpiResponse.revenue)) * 100).toFixed(2) : '0.00'}%`, growth: showGrowth ? `${kpiResponse.coinsGrowth > 0 ? '+' : ''}${kpiResponse.coinsGrowth || 0}%` : '', isUp: kpiResponse.coinsGrowth > 0, icon: Coins, color: 'text-orange-600', bg: 'bg-orange-50' },
           { title: '广告总曝光', value: kpiResponse.impressions?.toLocaleString() || '0', growth: showGrowth ? `${kpiResponse.impressionsGrowth > 0 ? '+' : ''}${kpiResponse.impressionsGrowth || 0}%` : '', isUp: kpiResponse.impressionsGrowth > 0, icon: Eye, color: 'text-blue-600', bg: 'bg-blue-50' },
@@ -123,24 +164,54 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       }
 
       // Fetch user data - 团队长只获取自己团队的用户，组长只获取自己组的用户
-      let userUrl = `/dashboard/users?range=${rangeParam}`;
+      let userUrl = `/dashboard/users?range=${rangeParam}&limit=30`;
       if (isTeamLeader) {
         const teamName = currentUser?.teamName || '鼎盛战队';
-        userUrl = `/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}`;
+        userUrl = `/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}&limit=30`;
       } else if (isGroupLeader) {
         const teamGroupId = currentUser?.teamGroupId;
-        userUrl = `/dashboard/users?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}`;
+        userUrl = `/dashboard/users?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}&limit=30`;
       }
       
       const userResponse = await request<any[]>(userUrl, {
         method: 'GET'
       });
 
+      // 如果是今日数据，同时获取昨日用户数据用于计算次数对比
+      if (timeRange === TimeRange.TODAY) {
+        try {
+          let yesterdayUserUrl = `/dashboard/users?range=yesterday&limit=30`;
+          if (isTeamLeader) {
+            const teamName = currentUser?.teamName || '鼎盛战队';
+            yesterdayUserUrl = `/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}&limit=30`;
+          } else if (isGroupLeader) {
+            const teamGroupId = currentUser?.teamGroupId;
+            yesterdayUserUrl = `/dashboard/users?range=yesterday&group=${encodeURIComponent(teamGroupId || '')}&limit=30`;
+          }
+          const yesterdayUserResponse = await request<any[]>(yesterdayUserUrl, {
+            method: 'GET'
+          });
+          // 构建用户ID到次数和收益的映射
+          const yesterdayUserMap: Record<string, number> = {};
+          const yesterdayEarningsMap: Record<string, number> = {};
+          yesterdayUserResponse.forEach((user: any) => {
+            const userId = user.employeeId || user.userId || '';
+            yesterdayUserMap[userId] = user.watched || 0;
+            yesterdayEarningsMap[userId] = (user.earnings || 0) / 1000;
+          });
+          yesterdayUserDataRef.current = yesterdayUserMap;
+          setYesterdayUserData(yesterdayUserMap);
+          setYesterdayEarningsData(yesterdayEarningsMap);
+        } catch (error) {
+          console.error('Error fetching yesterday user data:', error);
+        }
+      }
+
       // Transform user data to match frontend format
       const transformedUsers: DashboardUser[] = userResponse.map((user: any) => ({
         id: user.employeeId || user.userId || '',
         userId: user.userId || '',
-        name: user.realName || user.realname || user.name || user.username || user.userName || user.userId || user.employeeId || '',
+        name: user.realName || user.realname || user.name || user.username || user.userName || user.employeeId || user.userId || '',
         avatar: '',
         watched: user.watched || 0,
         earnings: (user.earnings || 0) / 1000,
@@ -156,19 +227,28 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
 
       // 团队长只显示自己团队的成员数据，组长只显示自己组的成员数据
       let filteredUsers = transformedUsers;
+      console.log('过滤前用户数:', transformedUsers.length);
+      console.log('当前用户:', currentUser);
+      console.log('是否团队长:', isTeamLeader);
+      console.log('是否组长:', isGroupLeader);
+      
       if (isTeamLeader) {
         const teamName = currentUser?.teamName || '鼎盛战队';
+        console.log('团队长团队名称:', teamName);
         filteredUsers = transformedUsers.filter(user => {
           const userTeam = user.teamName || user.superior || '系统直属';
+          console.log(`用户 ${user.userId || user.id}: teamName=${user.teamName}, superior=${user.superior}, 匹配=${userTeam === teamName}`);
           return userTeam === teamName;
         });
       } else if (isGroupLeader) {
         const teamGroupId = currentUser?.teamGroupId;
+        console.log('组长组别ID:', teamGroupId);
         filteredUsers = transformedUsers.filter(user => {
           return user.teamGroupId === teamGroupId;
         });
       }
-
+      
+      console.log('过滤后用户数:', filteredUsers.length);
       setUserData(filteredUsers);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -185,20 +265,22 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         }, 50);
       }
     }
-  }, [timeRange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeRange, isTeamLeader, isGroupLeader, showKPIDashboard]);
 
   useEffect(() => {
     // 初始加载数据
     fetchData();
     
-    // 设置自动刷新定时器，每30秒刷新一次，使用刷新模式
+    // 设置自动刷新定时器，每60秒刷新一次，使用刷新模式
     const interval = setInterval(() => {
       fetchData(true);
-    }, 30000);
+    }, 60000);
     
     // 清理函数
     return () => clearInterval(interval);
-  }, [fetchData]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeRange]);
 
   const handleRefresh = useCallback(() => {
     fetchData(true);
@@ -207,7 +289,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
   const kpis = kpiData;
 
   const sortedUsers = [...userData].sort((a, b) => {
-    if (isTeamLeader && sortBy === 'agc') {
+    if (sortBy === 'agc') {
       const agcA = a.watched > 0 ? (a.earnings * 1000) / a.watched : 0;
       const agcB = b.watched > 0 ? (b.earnings * 1000) / b.watched : 0;
       return agcB - agcA;
@@ -308,7 +390,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                           <span className={`ml-1.5 text-[10px] font-bold ${
                             kpi.title === '广告总点击' 
                               ? (parseFloat(kpi.subValue) >= 70 ? 'text-[#10B981]' : 'text-[#EF4444]')
-                              : (parseFloat(kpi.subValue) > 50 ? 'text-[#EF4444]' : 'text-[#10B981]')
+                              : kpi.title === '用户分成金额'
+                                ? (parseFloat(kpi.subValue) <= 60 ? 'text-[#10B981]' : 'text-[#EF4444]')
+                                : (parseFloat(kpi.subValue) > 50 ? 'text-[#EF4444]' : 'text-[#10B981]')
                           }`}>
                             ({kpi.subValue})
                           </span>
@@ -326,14 +410,14 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                 <h3 className="text-sm font-bold text-gray-900 flex items-center">
                     <Users size={16} className="mr-2 text-[#1E40AF]" />
                     {isTeamLeader ? '成员实时表现' : '用户实时表现'}
-                    <span className="ml-2 px-2 py-0.5 bg-[#1E40AF] text-white text-[9px] rounded-full shadow-sm">Top 10</span>
+                    <span className="ml-2 px-2 py-0.5 bg-[#1E40AF] text-white text-[9px] rounded-full shadow-sm">Top 30</span>
                 </h3>
                 <div className="flex bg-white p-1 rounded-lg shadow-sm">
                     <button 
-                        onClick={() => setSortBy(isTeamLeader ? 'agc' : 'ecpm')}
-                        className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === (isTeamLeader ? 'agc' : 'ecpm') ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
+                        onClick={() => setSortBy('agc')}
+                        className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'agc' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
                     >
-                        {isTeamLeader ? '平均金币' : 'eCPM'}
+                        平均金币
                     </button>
                     <button 
                         onClick={() => setSortBy('watched')}
@@ -398,10 +482,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                                             <span className="bg-emerald-100 text-emerald-600 text-[8px] font-black px-2 py-0.5 rounded-full border border-emerald-200 uppercase leading-tight flex-shrink-0 shadow-sm">新人</span>
                                         )}
                                     </div>
-                                    <div className="text-[10px] text-gray-400 font-medium tracking-tight flex items-center space-x-1.5 overflow-hidden mt-1">
-                                        <span className="text-[#1E40AF] font-bold truncate">团队: {user.superior || '无'}</span>
-                                        <span className="text-gray-300">•</span>
-                                        <span className="text-gray-400">注册{user.regDays}天</span>
+                                    <div className="text-[10px] text-gray-400 font-medium tracking-tight flex flex-col space-y-0.5 overflow-hidden mt-1">
+                                        <div className="flex items-center space-x-1.5">
+                                            <span className="text-[#1E40AF] font-bold truncate">团队: {user.superior || '无'}</span>
+                                            <span className="text-gray-300">•</span>
+                                            <span className="text-gray-400">注册{user.regDays}天</span>
+                                        </div>
+                                        <span className="text-orange-500 font-medium truncate">组别: {user.teamGroupId || '无'}</span>
                                     </div>
                                 </div>
                             </div>
@@ -411,35 +498,35 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                                     {sortBy === 'earnings' ? (
                                         <>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className="text-[11px] font-black text-[#1E40AF]">¥{user.earnings.toFixed(2)}</span>
+                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayEarningsData[user.id] !== undefined ? (user.earnings > yesterdayEarningsData[user.id] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.id] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>¥{user.earnings.toFixed(2)}</span>
                                                 <span className="text-[9px] text-gray-400 font-medium">收益</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className="text-[11px] font-black text-gray-900">{user.watched}</span>
+                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayUserData[user.id] !== undefined ? (user.watched > yesterdayUserData[user.id] ? 'text-green-600' : user.watched < yesterdayUserData[user.id] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>{user.watched}</span>
                                                 <span className="text-[9px] text-gray-400 font-bold">次数</span>
                                             </div>
                                         </>
                                     ) : sortBy === 'watched' ? (
                                         <>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className="text-[11px] font-black text-[#1E40AF]">{user.watched}</span>
+                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayUserData[user.id] !== undefined ? (user.watched > yesterdayUserData[user.id] ? 'text-green-600' : user.watched < yesterdayUserData[user.id] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>{user.watched}</span>
                                                 <span className="text-[9px] text-gray-400 font-bold">次数</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className="text-[11px] font-black text-gray-500">¥{user.earnings.toFixed(2)}</span>
+                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayEarningsData[user.id] !== undefined ? (user.earnings > yesterdayEarningsData[user.id] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.id] ? 'text-red-500' : 'text-gray-500') : 'text-gray-500'}`}>¥{user.earnings.toFixed(2)}</span>
                                                 <span className="text-[9px] text-gray-400 font-medium">收益</span>
                                             </div>
                                         </>
                                     ) : (
                                         <>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className={`text-[11px] font-black ${isTeamLeader ? (user.watched > 0 ? ((user.earnings * 1000) / user.watched) >= 100 : false) : (user.ecpm >= 100) ? 'text-green-600' : 'text-red-500'}`}>
-                                                    {isTeamLeader ? (user.watched > 0 ? ((user.earnings * 1000) / user.watched).toFixed(2) : '0.00') : user.ecpm.toFixed(2)}
+                                                <span className={`text-[11px] font-black ${(user.watched > 0 ? ((user.earnings * 1000) / user.watched) >= 100 : false) ? 'text-green-600' : 'text-red-500'}`}>
+                                                    {(user.watched > 0 ? ((user.earnings * 1000) / user.watched) : 0).toFixed(2)}
                                                 </span>
-                                                <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">{isTeamLeader ? '平均金币' : 'eCPM'}</span>
+                                                <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">平均金币</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className="text-[11px] font-black text-gray-500">¥{user.earnings.toFixed(2)}</span>
+                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayEarningsData[user.id] !== undefined ? (user.earnings > yesterdayEarningsData[user.id] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.id] ? 'text-red-500' : 'text-gray-500') : 'text-gray-500'}`}>¥{user.earnings.toFixed(2)}</span>
                                                 <span className="text-[9px] text-gray-400 font-medium">收益</span>
                                             </div>
                                         </>
@@ -460,11 +547,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                                 <span className="text-[9px] text-gray-400 font-medium">设备:</span>
                                 <span className="text-[10px] font-bold text-gray-700">{user.deviceCount}</span>
                             </div>
-                            <div className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border ml-auto ${sortBy === (isTeamLeader ? 'agc' : 'ecpm') ? 'bg-blue-600 border-blue-600 shadow-md' : 'bg-blue-50 border-blue-200 shadow-sm'}`}>
-                                <Zap size={12} className={sortBy === (isTeamLeader ? 'agc' : 'ecpm') ? 'text-white' : 'text-orange-500'} />
-                                <span className={`text-[9px] font-medium uppercase tracking-tighter ${sortBy === (isTeamLeader ? 'agc' : 'ecpm') ? 'text-white/80' : 'text-gray-400'}`}>{isTeamLeader ? '平均金币:' : 'eCPM:'}</span>
-                                <span className={`text-[10px] font-black ${sortBy === (isTeamLeader ? 'agc' : 'ecpm') ? 'text-white' : (isTeamLeader ? (user.watched > 0 ? ((user.earnings * 1000) / user.watched) >= 100 : false) : (user.ecpm >= 100)) ? 'text-green-600' : 'text-red-500'}`}>
-                                    {isTeamLeader ? (user.watched > 0 ? ((user.earnings * 1000) / user.watched).toFixed(2) : '0.00') : user.ecpm.toFixed(2)}
+                            <div className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border ml-auto ${sortBy === 'agc' ? 'bg-blue-600 border-blue-600 shadow-md' : 'bg-blue-50 border-blue-200 shadow-sm'}`}>
+                                <Zap size={12} className={sortBy === 'agc' ? 'text-white' : 'text-orange-500'} />
+                                <span className={`text-[9px] font-medium uppercase tracking-tighter ${sortBy === 'agc' ? 'text-white/80' : 'text-gray-400'}`}>平均金币:</span>
+                                <span className={`text-[10px] font-black ${sortBy === 'agc' ? 'text-white' : (user.watched > 0 ? ((user.earnings * 1000) / user.watched) >= 100 : false) ? 'text-green-600' : 'text-red-500'}`}>
+                                    {(user.watched > 0 ? ((user.earnings * 1000) / user.watched) : 0).toFixed(2)}
                                 </span>
                             </div>
                         </div>

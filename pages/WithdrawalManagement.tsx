@@ -4,6 +4,7 @@ import {
   TrendingUp, DollarSign, Download
 } from 'lucide-react';
 import { request } from '../services/api';
+import { useSwipeBack } from '../hooks/useSwipeBack';
 
 interface WithdrawalRecord {
   _id: string;
@@ -28,6 +29,9 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
   const [records, setRecords] = useState<WithdrawalRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  
+  // 使用左滑返回hook
+  const swipeRef = useSwipeBack({ onBack });
   const [stats, setStats] = useState({
     total: 0,
     pending: 0,
@@ -173,7 +177,7 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
     : records.filter(r => r.status === statusFilter);
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB] animate-in slide-in-from-right duration-300">
+    <div ref={swipeRef} className="min-h-screen bg-[#F9FAFB] animate-in slide-in-from-right duration-300">
       <header className="sticky top-0 bg-white z-40 px-4 py-4 flex items-center border-b border-gray-100">
         <button onClick={onBack} className="p-2 -ml-2 text-gray-400 active:text-gray-900">
           <ChevronLeft size={24} />

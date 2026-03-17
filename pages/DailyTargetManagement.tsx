@@ -3,6 +3,7 @@ import {
   ChevronLeft, ChevronRight, Target, Save, X
 } from 'lucide-react';
 import { request } from '../services/api';
+import { useSwipeBack } from '../hooks/useSwipeBack';
 
 interface DailyTarget {
   date: string;
@@ -23,6 +24,9 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
   const [editAmount, setEditAmount] = useState(0);
   const [editBonus, setEditBonus] = useState(0);
   const [showEditModal, setShowEditModal] = useState(false);
+  
+  // 使用左滑返回hook
+  const swipeRef = useSwipeBack({ onBack });
 
   const getMonthKey = (date: Date) => {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -170,7 +174,7 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
   const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB] animate-in slide-in-from-right duration-300">
+    <div ref={swipeRef} className="min-h-screen bg-[#F9FAFB] animate-in slide-in-from-right duration-300">
       <header className="sticky top-0 bg-white z-40 px-4 py-4 flex items-center border-b border-gray-100">
         <button onClick={onBack} className="p-2 -ml-2 text-gray-400 active:text-gray-900">
           <ChevronLeft size={24} />
