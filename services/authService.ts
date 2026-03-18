@@ -12,15 +12,15 @@ export const authService = {
     
     // Process the response
     const user: AdminUser = {
-      id: data.admin.id,
-      username: data.admin.username,
-      role: data.admin.role as UserRole,
-      token: data.token,
+      id: data.admin?.id || '',
+      username: data.admin?.username || '',
+      role: data.admin?.role as UserRole || UserRole.NORMAL_ADMIN,
+      token: data.token || '',
       status: 'enabled',
-      commission: data.admin.commission,
-      teamName: data.admin.teamName,
-      teamGroupId: data.admin.teamGroupId,
-      groupName: data.admin.groupName
+      commission: data.admin?.commission || 0,
+      teamName: data.admin?.teamName || '',
+      teamGroupId: data.admin?.teamGroupId || '',
+      groupName: data.admin?.groupName || ''
     };
     
     this.saveSession(user, remember);
@@ -55,18 +55,9 @@ export const authService = {
 
   async updatePassword(userId: string, newPassword: string): Promise<void> {
     // Call the actual API
-    const token = localStorage.getItem('admin_token');
-    const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/update-password', {
+    await request<any>('/admin/update-password', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
       body: JSON.stringify({ userId, newPassword }),
     });
-    const result = await response.json();
-    if (!result.success) {
-      throw new Error(result.message || '密码修改失败');
-    }
   }
 };

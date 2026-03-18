@@ -66,7 +66,7 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
       setLoading(true);
       try {
         const token = localStorage.getItem('admin_token');
-        const response = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/team/${team.id}/members?range=${mode}`, {
+        const response = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/admin/team/members?teamId=${team.id}&mode=${mode}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -75,8 +75,8 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
         });
         const result = await response.json();
         if (result.success) {
-          console.log('Team members API response:', result.members);
-          setMembers(result.members || []);
+          console.log('Team members API response:', result.data?.members || result.members);
+          setMembers(result.data?.members || result.members || []);
         } else {
           throw new Error(result.message || '获取成员列表失败');
         }
@@ -550,8 +550,9 @@ const Team: React.FC = () => {
             })
           });
         } else {
-          const commissionRate = formData.commissionRate ? parseFloat(formData.commissionRate) / 100 : undefined;
-          await request<any>(`/admin/employee/group-leader/${editingAccount._id}`, {
+          const commissionRate = formData.commissionRate !== undefined && formData.commissionRate !== '' ? parseFloat(formData.commissionRate) / 100 : undefined;
+          const groupId = editingAccount.teamGroupId || editingAccount._id;
+          await request<any>(`/admin/employee/group-leader/${groupId}`, {
             method: 'PUT',
             body: JSON.stringify({
               groupName: formData.groupName,
@@ -577,7 +578,8 @@ const Team: React.FC = () => {
             method: 'DELETE'
           });
         } else {
-          await request<any>(`/admin/employee/group-leader/${deletingAccount._id}`, {
+          const groupId = deletingAccount.teamGroupId || deletingAccount._id;
+          await request<any>(`/admin/employee/group-leader/${groupId}`, {
             method: 'DELETE'
           });
         }
@@ -1026,7 +1028,7 @@ const Team: React.FC = () => {
                         }}
                         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
                       />
-                      <p className="text-[10px] text-gray-400 mt-1">组长分成比例，默认5%，最高不超过20%</p>
+                      <p className="text-[10px] text-blue-600 mt-1 mb-3">组长分成比例，默认5%，最高不超过20%</p>
                     </div>
                   </>
                 ) : (

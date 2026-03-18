@@ -32,7 +32,9 @@ interface NewUsersProps {
 
 const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
   const currentUser = useMemo(() => authService.getCurrentUser(), []);
+  console.log('currentUser:', currentUser);
   const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
+  console.log('isTeamLeader:', isTeamLeader);
   const isSuperAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
   
   const [loading, setLoading] = useState(true);
@@ -41,7 +43,21 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
   const [selectedTeam, setSelectedTeam] = useState('全部');
   const [onlineFilter, setOnlineFilter] = useState<'all' | 'online' | 'offline'>('all');
   const [users, setUsers] = useState<NewUser[]>([]);
-  const [todayNewUsers, setTodayNewUsers] = useState(0);
+  // 计算今日新增用户数（注册天数为1的用户）
+  const todayNewUsers = useMemo(() => {
+    const teamNameMap: Record<string, string> = {
+      'cuiding': '鼎盛战队',
+      'cuijie': '花好月圆战队',
+      'huangzhenhui': '四季发财战队'
+    };
+    const teamNameToMatch = currentUser?.teamName || teamNameMap[currentUser?.username || ''] || '';
+    
+    return users.filter(u => {
+      const isTodayNew = u.regDays <= 1;
+      const matchesTeamLeader = !isTeamLeader || (teamNameToMatch && u.superior === teamNameToMatch);
+      return isTodayNew && matchesTeamLeader;
+    }).length;
+  }, [users, isTeamLeader, currentUser?.teamName, currentUser?.username]);
   
   // 组件挂载时重置滚动位置到顶部
   useEffect(() => {
@@ -60,37 +76,94 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
     const startTime = performance.now();
     
     try {
-      // 构建请求URL
+      // 同时请求新人列表和今日详细数据
       const teamName = currentUser?.teamName || '';
-      let url = '/user/new-users?days=15';
+      const teamId = currentUser?.id || '';
+      console.log('currentUser:', currentUser);
+      console.log('teamName:', teamName);
+      console.log('teamId:', teamId);
+      console.log('isTeamLeader:', isTeamLeader);
+      
+      let newUsersUrl = '/user/new-users?days=15';
       
       // 团队长添加团队筛选参数
-      if (isTeamLeader && teamName) {
-        url += `&team=${encodeURIComponent(teamName)}`;
+      if (isTeamLeader) {
+        if (teamId) {
+          newUsersUrl += `&teamId=${encodeURIComponent(teamId)}`;
+        } else if (teamName) {
+          newUsersUrl += `&team=${encodeURIComponent(teamName)}`;
+        }
       }
       
-      const response = await request<any>(url, { method: 'GET' });
+      // 构建今日详细数据API URL（与首页全部用户一致）
+      const teamNameMap: Record<string, string> = {
+        'cuiding': '鼎盛战队',
+        'cuijie': '花好月圆战队',
+        'huangzhenhui': '四季发财战队'
+      };
+      const teamNameToMatch = currentUser?.teamName || teamNameMap[currentUser?.username || ''] || '';
+      let todayDataUrl = isTeamLeader 
+        ? `/admin/dashboard/users?range=today&team=${encodeURIComponent(teamNameToMatch)}&limit=1000`
+        : '/admin/dashboard/users?range=today&limit=1000';
+      
+      console.log('新人API请求URL:', newUsersUrl);
+      console.log('今日数据API请求URL:', todayDataUrl);
+      
+      // 并行请求两个API
+      const [newUsersResponse, todayDataResponse] = await Promise.all([
+        request<any>(newUsersUrl, { method: 'GET' }),
+        request<any>(todayDataUrl, { method: 'GET' }).catch(() => [])
+      ]);
       
       const apiTime = performance.now() - startTime;
-      console.log(`新人API请求时间: ${apiTime.toFixed(2)}ms`);
+      console.log(`API请求时间: ${apiTime.toFixed(2)}ms`);
+      console.log('新人API响应:', newUsersResponse);
+      console.log('今日数据API响应:', todayDataResponse);
       
-      const list = response?.data || response || [];
+      // 构建今日详细数据映射（用于匹配）
+      const todayDataMap: Record<string, any> = {};
+      if (Array.isArray(todayDataResponse)) {
+        todayDataResponse.forEach((user: any) => {
+          const userId = user.employeeId || user.userId || '';
+          if (userId) {
+            todayDataMap[userId] = user;
+          }
+        });
+      }
+      console.log('今日数据映射:', todayDataMap);
       
-      // 使用更高效的数据转换
+      // request函数会直接返回data字段的内容，所以response已经是用户数组
+      const list = Array.isArray(newUsersResponse) ? newUsersResponse : [];
+      console.log('list长度:', list.length);
+      
+      // 打印前5个用户，看看是否有5555用户
+      console.log('前5个用户:', list.slice(0, 5));
+      
+      // 检查5555用户是否在列表中
+      const user5555 = list.find(u => u.employeeId === '5555');
+      console.log('5555用户:', user5555);
+      
+      // 使用更高效的数据转换，并从今日详细数据中获取IP、设备、收益、次数
       const now = Date.now();
       const transformedUsers: NewUser[] = list.map((user: any) => {
         const registerTime = user.registerTime ? new Date(user.registerTime).getTime() : now;
+        const regDays = Math.ceil((now - registerTime) / (1000 * 60 * 60 * 24)) || 1;
+        const userId = user.employeeId || user.userId || '';
+        
+        // 从今日详细数据中获取IP、设备、收益、次数（与首页全部用户一致）
+        const todayData = todayDataMap[userId];
+        
         return {
-          id: user.employeeId || user.userId || '',
+          id: userId,
           userId: user.userId || '',
-          name: user.employeeId || user.userId || '',
+          name: user.name || user.nickname || user.realName || user.employeeId || user.userId || '',
           avatar: '',
-          watched: user.activityCount || 0,
-          earnings: (user.currentMonthGold || 0) / 1000,
-          ipCount: 1,
-          deviceCount: 1,
-          ecpm: 0,
-          regDays: Math.ceil((now - registerTime) / (1000 * 60 * 60 * 24)) || 1,
+          watched: todayData?.watched || user.activityCount || 0,
+          earnings: todayData ? (todayData.earnings || 0) / 1000 : (user.currentMonthGold || 0) / 1000,
+          ipCount: todayData?.ipCount || 1,
+          deviceCount: todayData?.deviceCount || 1,
+          ecpm: todayData?.ecpm || 0,
+          regDays: regDays,
           superior: user.teamName || user.teamLeaderName || '系统直属',
           isOnline: user.isOnline,
           groupName: user.groupName,
@@ -100,11 +173,21 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
         };
       });
       
-      setUsers(transformedUsers);
+      // 检查5555用户的regDays
+      const user5555Transformed = transformedUsers.find(u => u.id === '5555');
+      if (user5555Transformed) {
+        console.log('5555用户的regDays:', user5555Transformed.regDays);
+      }
       
-      // 计算今日新增
-      const todayCount = transformedUsers.filter(u => u.regDays <= 1).length;
-      setTodayNewUsers(todayCount);
+      // 去重：根据employeeId去重，避免重复的8202用户
+      const uniqueUsers = Array.from(new Map(transformedUsers.map(user => [user.id, user])).values());
+      console.log('去重后的用户数:', uniqueUsers.length);
+      console.log('去重后的用户列表:', uniqueUsers.map(u => u.id));
+      
+      console.log('转换后的用户数:', transformedUsers.length);
+      console.log('第一个用户:', transformedUsers[0]);
+      
+      setUsers(uniqueUsers);
       
       const totalTime = performance.now() - startTime;
       console.log(`新人数据总加载时间: ${totalTime.toFixed(2)}ms`);
@@ -114,9 +197,16 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
       // 回退到旧API
       try {
         const teamName = currentUser?.teamName || '';
-        const fallbackUrl = isTeamLeader && teamName
-          ? `/dashboard/users?range=today&team=${encodeURIComponent(teamName)}`
-          : '/dashboard/users?range=today';
+        const teamId = currentUser?.id || '';
+        let fallbackUrl = '/dashboard/users?range=today';
+        
+        if (isTeamLeader) {
+          if (teamName) {
+            fallbackUrl += `&team=${encodeURIComponent(teamName)}`;
+          } else if (teamId) {
+            fallbackUrl += `&teamId=${encodeURIComponent(teamId)}`;
+          }
+        }
         
         const fallbackResponse = await request<any>(fallbackUrl, { method: 'GET' });
         
@@ -124,7 +214,7 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
         const transformedUsers: NewUser[] = list.map((user: any) => ({
           id: user.employeeId || user.userId || '',
           userId: user.userId || '',
-          name: user.employeeId || user.userId || '',
+          name: user.name || user.nickname || user.realName || user.employeeId || user.userId || '',
           avatar: '',
           watched: user.watched || 0,
           earnings: (user.earnings || 0) / 1000,
@@ -137,40 +227,79 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
         
         setUsers(transformedUsers);
         
-        const todayCount = transformedUsers.filter(u => u.regDays <= 1).length;
-        setTodayNewUsers(todayCount);
-        
         console.log('旧API加载成功');
       } catch (fallbackError) {
         console.error('旧API也失败:', fallbackError);
         setUsers([]);
-        setTodayNewUsers(0);
       }
     } finally {
       setLoading(false);
     }
-  }, [isTeamLeader, currentUser?.teamName]);
+  }, [isTeamLeader, currentUser?.teamName, currentUser?.id]);
 
   useEffect(() => {
     fetchNewUsers();
   }, [fetchNewUsers]);
 
+  // 计算全部、已上线和未上线用户的数量
+  const userCounts = useMemo(() => {
+    const teamNameMap: Record<string, string> = {
+      'cuiding': '鼎盛战队',
+      'cuijie': '花好月圆战队',
+      'huangzhenhui': '四季发财战队'
+    };
+    const teamNameToMatch = currentUser?.teamName || teamNameMap[currentUser?.username || ''] || '';
+    
+    const baseFiltered = users.filter(u => {
+      const isNewUser = u.regDays <= 15;
+      const matchesSearch = u.id.includes(searchTerm) || u.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesTeam = selectedTeam === '全部' || u.superior === selectedTeam;
+      const matchesTeamLeader = !isTeamLeader || (teamNameToMatch && u.superior === teamNameToMatch);
+      return isNewUser && matchesSearch && matchesTeam && matchesTeamLeader;
+    });
+    
+    const all = baseFiltered.length;
+    const online = baseFiltered.filter(u => u.isOnline).length;
+    const offline = baseFiltered.filter(u => !u.isOnline || u.isOnline === undefined).length;
+    
+    return { all, online, offline };
+  }, [users, searchTerm, selectedTeam, isTeamLeader, currentUser?.teamName, currentUser?.username]);
+
   const sortedUsers = useMemo(() => {
-    const teamName = currentUser?.teamName || '';
-    return [...users]
+    // 检查users数组
+    console.log('users数组长度:', users.length);
+    console.log('users数组内容:', users.map(u => ({ id: u.id, regDays: u.regDays, superior: u.superior })));
+    
+    const filtered = [...users]
       .filter(u => {
         // 只显示注册15天以内的新人
         const isNewUser = u.regDays <= 15;
         const matchesSearch = u.id.includes(searchTerm) || u.name.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesTeam = selectedTeam === '全部' || u.superior === selectedTeam;
-        // 团队长只显示自己团队的用户
-        const matchesTeamLeader = !isTeamLeader || (teamName && u.superior === teamName);
         // 上线状态筛选
         const matchesOnlineFilter = 
           onlineFilter === 'all' || 
           (onlineFilter === 'online' && u.isOnline) || 
-          (onlineFilter === 'offline' && !u.isOnline);
-        return isNewUser && matchesSearch && matchesTeam && matchesTeamLeader && matchesOnlineFilter;
+          (onlineFilter === 'offline' && (u.isOnline === false || u.isOnline === undefined));
+        // 团队长只能看到自己团队的用户
+        // 直接通过superior字段过滤
+        // 当currentUserTeamName为空时，根据团队长username判断团队
+        console.log('团队长过滤信息:', { isTeamLeader, currentUserTeamName: currentUser?.teamName, userSuperior: u.superior, userId: u.id, currentUsername: currentUser?.username });
+        // 团队长username到团队名称的映射
+        const teamNameMap: Record<string, string> = {
+          'cuiding': '鼎盛战队',
+          'cuijie': '花好月圆战队',
+          'huangzhenhui': '四季发财战队'
+        };
+        const teamNameToMatch = currentUser?.teamName || teamNameMap[currentUser?.username || ''] || '';
+        const matchesTeamLeader = !isTeamLeader || (teamNameToMatch && u.superior === teamNameToMatch);
+        
+        // 检查5555和9527用户的过滤条件
+        if (u.id === '5555' || u.id === '9527') {
+          console.log(`${u.id}用户的过滤条件:`, { isNewUser, matchesSearch, matchesTeam, matchesOnlineFilter, matchesTeamLeader, superior: u.superior, userTeamName: currentUser?.teamName });
+        }
+        
+        return isNewUser && matchesSearch && matchesTeam && matchesOnlineFilter && matchesTeamLeader;
       })
       .sort((a, b) => {
         if (sortBy === 'regDays') {
@@ -183,6 +312,8 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
         }
         return b[sortBy as 'watched' | 'earnings'] - a[sortBy as 'watched' | 'earnings'];
       });
+    
+    return filtered;
   }, [users, sortBy, searchTerm, selectedTeam, onlineFilter, isTeamLeader, currentUser?.teamName]);
 
   if (loading) {
@@ -257,7 +388,7 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
                         : 'bg-white text-gray-500 border-gray-100 active:bg-gray-50'
                 }`}
             >
-                全部
+                全部 ({userCounts.all})
             </button>
             <button
                 onClick={() => setOnlineFilter('online')}
@@ -267,7 +398,7 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
                         : 'bg-white text-gray-500 border-gray-100 active:bg-gray-50'
                 }`}
             >
-                已上线
+                已上线 ({userCounts.online})
             </button>
             <button
                 onClick={() => setOnlineFilter('offline')}
@@ -277,7 +408,7 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
                         : 'bg-white text-gray-500 border-gray-100 active:bg-gray-50'
                 }`}
             >
-                未上线
+                未上线 ({userCounts.offline})
             </button>
         </div>
 
@@ -316,7 +447,11 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
                     <div 
                       key={user.id} 
                       className="p-4 space-y-3 active:bg-gray-50 transition-colors cursor-pointer"
-                      onClick={() => onSelectUser?.(user)}
+                      onClick={() => {
+                        // 不传递name字段，让UserDetail不显示姓名
+                        const { name, ...userWithoutName } = user;
+                        onSelectUser?.(userWithoutName);
+                      }}
                     >
                         <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-3 overflow-hidden">
@@ -346,14 +481,11 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
                                                     {user.isOnline ? '已上线' : '未上线'}
                                                 </span>
                                             )}
-                                            <span className="text-[10px] text-gray-400 font-medium tracking-tight">团队: {user.superior || '无'}</span>
                                         </div>
                                         {/* 显示组别信息 */}
-                                        {user.groupName && (
-                                            <div className="text-[9px] text-gray-500 mt-0.5">
-                                                组别: {user.groupName}
-                                            </div>
-                                        )}
+                                        <div className="text-[9px] text-gray-500 mt-0.5">
+                                            组别: {user.groupName || '无'}
+                                        </div>
                                         <div className="flex items-center text-[9px] font-bold text-indigo-500 mt-0.5">
                                             <Calendar size={10} className="mr-0.5" />
                                             注册 {user.regDays} 天

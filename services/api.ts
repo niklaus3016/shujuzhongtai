@@ -24,14 +24,22 @@ export async function request<T>(
     // 尝试不同的Base URL
     for (const baseUrl of BASE_URLS) {
       try {
+        console.log('开始API请求:', `${baseUrl}${endpoint}`);
+        console.log('请求头:', Object.fromEntries(headers.entries()));
+        console.log('请求体:', options.body);
+        
         const response = await fetch(`${baseUrl}${endpoint}`, {
           ...options,
           headers,
         });
 
+        console.log('API响应状态:', response.status);
+        console.log('API响应状态文本:', response.statusText);
+
         if (!response.ok) {
           try {
             const errorText = await response.text();
+            console.log('API错误响应:', errorText);
             const errorData = JSON.parse(errorText);
             throw new Error(errorData.message || `HTTP ${response.status}`);
           } catch (e) {
@@ -40,6 +48,7 @@ export async function request<T>(
         }
 
         const text = await response.text();
+        console.log('API响应文本:', text);
         
         let result;
         try {

@@ -20,6 +20,7 @@ interface ListUser {
   ecpm: number;
   superior?: string;
   teamName?: string;
+  groupName?: string;
 }
 
 interface UserListProps {
@@ -32,6 +33,7 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
   const [sortBy, setSortBy] = useState<'watched' | 'earnings' | 'agc'>('earnings');
   const [users, setUsers] = useState<ListUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showGroupInfo, setShowGroupInfo] = useState(true);
   
   // 使用左滑返回hook
   const swipeRef = useSwipeBack({ onBack: onBack || (() => {}) });
@@ -58,8 +60,8 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
       try {
         // 团队长只获取自己团队的用户，不限制数据数量
         const userUrl = isTeamLeader 
-          ? `/dashboard/users?range=today&team=${encodeURIComponent(teamName)}&limit=1000`
-          : `/dashboard/users?range=today&limit=1000`;
+          ? `/admin/dashboard/users?range=today&team=${encodeURIComponent(teamName)}&limit=1000`
+          : `/admin/dashboard/users?range=today&limit=1000`;
         
         console.log('用户数据 API 路径:', userUrl);
         
@@ -81,7 +83,8 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
           deviceCount: user.deviceCount || 1,
           ecpm: user.ecpm || 0,
           superior: user.superior || user.teamName || '系统直属',
-          teamName: user.teamName || user.superior || '系统直属'
+          teamName: user.teamName || user.superior || '系统直属',
+          groupName: user.groupName || ''
         }));
         
         // 团队长只显示自己团队的成员数据
@@ -101,8 +104,8 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
         // 同时获取昨日用户数据用于计算次数对比
         try {
           let yesterdayUserUrl = isTeamLeader 
-            ? `/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}&limit=1000`
-            : `/dashboard/users?range=yesterday&limit=1000`;
+            ? `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}&limit=1000`
+            : `/admin/dashboard/users?range=yesterday&limit=1000`;
           
           const yesterdayUserResponse = await request<any>(yesterdayUserUrl, {
             method: 'GET',
@@ -162,7 +165,7 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
             </button>
             )}
             <h1 className={`flex-1 font-bold text-gray-900 ${onBack ? 'text-center mr-8' : ''}`}>
-                全部活跃用户
+                全部用户
             </h1>
         </div>
 
@@ -204,11 +207,13 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
       </header>
 
       <div className="px-4 py-3 flex items-center justify-between text-gray-400">
-          <span className="text-[10px] font-bold uppercase tracking-widest">匹配结果: {filteredAndSortedUsers.length} 位用户</span>
-          <div className="flex items-center space-x-1">
-             <Filter size={12} />
-             <span className="text-[10px] font-bold uppercase">过滤: {searchTerm || '无'}</span>
-          </div>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">匹配结果: <span className="text-[#1E40AF] font-black text-[11px]">{filteredAndSortedUsers.length}</span> 位用户</span>
+          <button 
+            onClick={() => setShowGroupInfo(!showGroupInfo)}
+            className={`px-3 py-1 text-[10px] font-bold rounded-full transition-all ${showGroupInfo ? 'bg-[#1E40AF] text-white shadow-sm' : 'bg-gray-100 text-gray-600'}`}
+          >
+            {showGroupInfo ? '隐藏组别' : '显示组别'}
+          </button>
       </div>
 
       <div className="px-4 space-y-3">
@@ -240,7 +245,9 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
                                     )}
                                 </div>
                                 <div className="min-w-0">
-                                    <div className="text-sm font-bold text-gray-900 truncate">团队: {user.superior}</div>
+                                    {showGroupInfo && (
+                                      <div className="text-sm font-bold text-gray-900 truncate">组别: {user.groupName || '无'}</div>
+                                    )}
                                 </div>
                             </div>
                             

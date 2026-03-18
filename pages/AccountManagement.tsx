@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   ChevronLeft, UserPlus, Users, Search, ChevronRight,
   Shield, User, Crown, Star, ToggleLeft, ToggleRight, Trash2, Phone, MapPin, Users2, Edit2, ChevronDown
@@ -31,6 +31,7 @@ interface AccountManagementProps {
 const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [teamLeaders, setTeamLeaders] = useState<Account[]>([]);
+  const scrollPositionRef = useRef<number>(0);
   const [groups, setGroups] = useState<{ _id: string; groupName: string; teamLeaderId: string; teamName: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -92,11 +93,11 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       
       // 并行获取所有数据，提高加载速度
       const [teamResponse, employeeResponse] = await Promise.all([
-        request<any>('/account/list', { method: 'GET' }).catch(error => {
+        request<any>('/admin/account/list', { method: 'GET' }).catch(error => {
           console.error('Error fetching team accounts:', error);
           return null;
         }),
-        request<any>('/employee/list?pageSize=100', { method: 'GET' }).catch(error => {
+        request<any>('/admin/employee/list?pageSize=100', { method: 'GET' }).catch(error => {
           console.error('Error fetching employee accounts:', error);
           return null;
         })
@@ -186,6 +187,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
   useEffect(() => {
     fetchAccounts();
   }, []);
+
+
 
   const handleAddAccount = async () => {
     setError(null);
@@ -323,12 +326,13 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         const selectedGroup = groups.find(g => g._id === formData.groupId);
         const selectedTeam = teamLeaders.find(t => t._id === selectedGroup?.teamLeaderId);
         
-        await request<any>(`/employee/${editingAccount._id}`, {
+        await request<any>(`/admin/employee/${editingAccount._id}`, {
           method: 'PUT',
           body: JSON.stringify({
             realName: formData.realName,
             phone: formData.phone,
             region: formData.region,
+            employeeId: formData.employeeId,
             groupId: formData.groupId || editingAccount.groupId,
             groupName: selectedGroup?.groupName || editingAccount.groupName,
             teamName: selectedTeam?.teamName || editingAccount.teamName,
@@ -336,7 +340,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           })
         });
       } else {
-        await request<any>(`/account/${editingAccount._id}`, {
+        await request<any>(`/admin/account/${editingAccount._id}`, {
           method: 'PUT',
           body: JSON.stringify({
             teamName: formData.teamName,
@@ -376,11 +380,11 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     setSaving(true);
     try {
       if (deletingAccount.role === 'employee' || deletingAccount.employeeId) {
-        await request<any>(`/employee/${deletingAccount._id}`, {
+        await request<any>(`/admin/employee/${deletingAccount._id}`, {
           method: 'DELETE'
         });
       } else {
-        await request<any>(`/account/${deletingAccount._id}`, {
+        await request<any>(`/admin/account/${deletingAccount._id}`, {
           method: 'DELETE'
         });
       }
@@ -396,9 +400,24 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     }
   };
 
-  const handleToggleStatus = async (account: Account) => {
+  const handleToggleStatus = async (account: Account, event?: React.MouseEvent) => {
+    // 阻止默认行为和事件冒泡
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    
+    // 移除焦点，防止浏览器自动滚动
+    if (event?.currentTarget) {
+      (event.currentTarget as HTMLElement).blur();
+    }
+    
     try {
       const newStatus = account.status === 'active' ? 'inactive' : 'active';
+      
+      // 保存当前滚动位置到ref
+      scrollPositionRef.current = window.scrollY || document.documentElement.scrollTop;
+      console.log('保存滚动位置:', scrollPositionRef.current);
       
       if (account.role === 'employee' || account.employeeId) {
         await request<any>(`/employee/${account._id}/status`, {
@@ -412,7 +431,27 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         });
       }
       
-      fetchAccounts();
+      // 更新本地状态，不重新获取所有数据
+       setAccounts(prevAccounts => {
+         const newAccounts = prevAccounts.map(a => 
+           a._id === account._id ? { ...a, status: newStatus } : a
+         );
+         console.log('状态已更新，准备恢复滚动位置:', scrollPositionRef.current);
+         return newAccounts;
+       });
+       
+       // 使用多个setTimeout确保在DOM更新后恢复滚动位置
+       [0, 50, 100, 200, 300, 500].forEach(delay => {
+         setTimeout(() => {
+           if (scrollPositionRef.current > 0) {
+             window.scrollTo({ top: scrollPositionRef.current, behavior: 'auto' });
+             console.log(`已恢复滚动位置(${delay}ms):`, scrollPositionRef.current);
+             if (delay === 500) {
+               scrollPositionRef.current = 0;
+             }
+           }
+         }, delay);
+       });
     } catch (error: any) {
       console.error('Error toggling status:', error);
       alert(error.message || '切换状态失败');
@@ -441,16 +480,20 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     setShowDeleteModal(true);
   };
 
-  const [activeTab, setActiveTab] = useState<'team' | 'employee'>('team');
+  const [activeTab, setActiveTab] = useState<'team-leader' | 'group-leader' | 'employee'>('team-leader');
 
   // 过滤账号列表
   const filteredAccounts = useMemo(() => {
     let filtered = accounts;
     
     // 根据当前标签页过滤
-    if (activeTab === 'team') {
+    if (activeTab === 'team-leader') {
       filtered = accounts.filter(a => 
-        !a.employeeId && (a.role === 'NORMAL_ADMIN' || a.role === 'GROUP_LEADER' || a.role === 'group_leader')
+        !a.employeeId && a.role === 'NORMAL_ADMIN'
+      );
+    } else if (activeTab === 'group-leader') {
+      filtered = accounts.filter(a => 
+        !a.employeeId && (a.role === 'GROUP_LEADER' || a.role === 'group_leader')
       );
     } else {
       filtered = accounts.filter(a => a.employeeId);
@@ -467,13 +510,21 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       );
     }
     
+    console.log('过滤后的账号列表:', filtered);
     return filtered;
   }, [accounts, activeTab, searchKeyword]);
 
-  // 计算组长账号数量（包括团队长和组长）
+  // 计算团队长账号数量
   const teamLeaderCount = useMemo(() => {
     return accounts.filter(a => 
-      !a.employeeId && (a.role === 'NORMAL_ADMIN' || a.role === 'GROUP_LEADER' || a.role === 'group_leader')
+      !a.employeeId && a.role === 'NORMAL_ADMIN'
+    ).length;
+  }, [accounts]);
+
+  // 计算组长账号数量
+  const groupLeaderCount = useMemo(() => {
+    return accounts.filter(a => 
+      !a.employeeId && (a.role === 'GROUP_LEADER' || a.role === 'group_leader')
     ).length;
   }, [accounts]);
 
@@ -483,58 +534,71 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
   }, [accounts]);
 
   return (
-    <div ref={swipeRef} className="min-h-screen bg-gray-50">
+    <div ref={swipeRef} className="min-h-screen bg-[#F9FAFB]">
       {/* 头部 */}
-      <div className="bg-white px-4 py-3 flex items-center justify-between sticky top-0 z-10">
-        <div className="flex items-center gap-3">
+      <header className="sticky top-0 z-50 bg-white border-b border-gray-100 shadow-sm px-4 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <button 
+              onClick={onBack}
+              className="p-2 -ml-2 text-gray-400 active:text-gray-900 transition-colors"
+            >
+              <ChevronLeft size={24} />
+            </button>
+            <h1 className="text-xl font-bold text-gray-900 flex items-center">
+              <User className="text-[#1E40AF] mr-2" size={24} />
+              帐号管理
+            </h1>
+          </div>
           <button 
-            onClick={onBack}
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+            onClick={() => setShowAddModal(true)}
+            className="bg-[#1E40AF] text-white p-2 rounded-xl shadow-lg shadow-blue-100 active:scale-95 transition-all"
           >
-            <ChevronLeft className="w-6 h-6 text-gray-700" />
+            <UserPlus size={20} />
           </button>
-          <h1 className="text-xl font-bold text-gray-900">帐号管理</h1>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <UserPlus className="w-5 h-5" />
-        </button>
-      </div>
-
-      {/* 搜索栏 */}
-      <div className="px-4 py-3 bg-white border-b">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-          <input
-            type="text"
+        
+        {/* 搜索框 */}
+        <div className="relative mt-3">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+          <input 
+            type="text" 
             placeholder="搜索姓名、手机号、工号..."
+            className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-100 rounded-2xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all"
             value={searchKeyword}
             onChange={(e) => setSearchKeyword(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 bg-gray-100 border-0 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-      </div>
+      </header>
 
       {/* 标签页 */}
-      <div className="px-4 py-3 bg-white border-b flex gap-3">
+      <div className="px-4 py-3 bg-white border-b flex space-x-2">
         <button
-          onClick={() => setActiveTab('team')}
-          className={`flex-1 py-2.5 px-4 rounded-xl text-sm font-medium transition-colors ${
-            activeTab === 'team'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          onClick={() => setActiveTab('team-leader')}
+          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+            activeTab === 'team-leader'
+              ? 'bg-[#1E40AF] text-white'
+              : 'bg-white text-gray-500 border border-gray-100'
           }`}
         >
-          组长账号 ({teamLeaderCount})
+          团队长账号 ({teamLeaderCount})
+        </button>
+        <button
+          onClick={() => setActiveTab('group-leader')}
+          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+            activeTab === 'group-leader'
+              ? 'bg-[#1E40AF] text-white'
+              : 'bg-white text-gray-500 border border-gray-100'
+          }`}
+        >
+          组长账号 ({groupLeaderCount})
         </button>
         <button
           onClick={() => setActiveTab('employee')}
-          className={`flex-1 py-2.5 px-4 rounded-xl text-sm font-medium transition-colors ${
+          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
             activeTab === 'employee'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              ? 'bg-[#1E40AF] text-white'
+              : 'bg-white text-gray-500 border border-gray-100'
           }`}
         >
           员工账号 ({employeeCount})
@@ -544,122 +608,101 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       {/* 账号列表 */}
       <div className="p-4">
         {loading ? (
-          <div className="flex justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <div className="py-20 text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1E40AF] mx-auto mb-4"></div>
+            <p className="text-xs text-gray-400 font-bold">加载中...</p>
           </div>
         ) : filteredAccounts.length === 0 ? (
-          <div className="text-center py-12">
-            <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500">
-              {activeTab === 'team' ? '暂无组长账号' : '暂无员工账号'}
+          <div className="py-20 text-center">
+            <User className="mx-auto text-gray-200 mb-2" size={48} />
+            <p className="text-xs text-gray-400 font-bold">
+              {activeTab === 'team-leader' ? '暂无团队长账号' : activeTab === 'group-leader' ? '暂无组长账号' : '暂无员工账号'}
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3" style={{ overflowAnchor: 'none' }}>
             {filteredAccounts.map((account) => (
-              <div
-                key={account._id}
-                className="bg-white rounded-xl p-4 shadow-sm border border-gray-100"
-              >
+              <div key={account._id} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
                 <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                  <div className="flex items-center space-x-3 flex-1">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
                       account.role === 'NORMAL_ADMIN' 
                         ? 'bg-purple-100 text-purple-600'
                         : account.role === 'GROUP_LEADER' || account.role === 'group_leader'
-                        ? 'bg-blue-100 text-blue-600'
-                        : 'bg-green-100 text-green-600'
+                          ? 'bg-orange-100 text-orange-600'
+                          : 'bg-blue-100 text-blue-600'
                     }`}>
                       {account.role === 'NORMAL_ADMIN' ? (
-                        <Crown className="w-6 h-6" />
+                        <Crown size={20} />
                       ) : account.role === 'GROUP_LEADER' || account.role === 'group_leader' ? (
-                        <Star className="w-6 h-6" />
+                        <Star size={20} />
                       ) : (
-                        <User className="w-6 h-6" />
+                        <User size={20} />
                       )}
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-gray-900">
-                          {account.realName || account.username}
-                        </h3>
-                        {account.role === 'NORMAL_ADMIN' && (
-                          <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">
-                            团队长
-                          </span>
-                        )}
-                        {(account.role === 'GROUP_LEADER' || account.role === 'group_leader') && (
-                          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
-                            组长
-                          </span>
-                        )}
-                        {account.employeeId && (
-                          <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
-                            员工
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-1 space-y-0.5">
-                        {account.employeeId && (
-                          <p className="text-sm text-gray-500">工号: {account.employeeId}</p>
-                        )}
-                        {account.username && !account.employeeId && (
-                          <p className="text-sm text-gray-500">账号: {account.username}</p>
-                        )}
-                        {account.phone && (
-                          <p className="text-sm text-gray-500 flex items-center gap-1">
-                            <Phone className="w-3 h-3" />
-                            {account.phone}
-                          </p>
-                        )}
-                        {account.teamName && (
-                          <p className="text-sm text-gray-500 flex items-center gap-1">
-                            <Users2 className="w-3 h-3" />
-                            {account.teamName}
-                          </p>
-                        )}
-                        {account.groupName && (
-                          <p className="text-sm text-gray-500 flex items-center gap-1">
-                            <Shield className="w-3 h-3" />
-                            {account.groupName}
-                          </p>
-                        )}
-                        {account.region && (
-                          <p className="text-sm text-gray-500 flex items-center gap-1">
-                            <MapPin className="w-3 h-3" />
-                            {account.region}
-                          </p>
-                        )}
-                      </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-sm font-bold text-gray-900">
+                        {account.realName || account.username}
+                        {account.employeeId && <span className="ml-2 text-[#1E40AF]">({account.employeeId})</span>}
+                      </h3>
+                      {account.username && !account.employeeId && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          用户名：{account.username}
+                        </p>
+                      )}
+                      {account.phone && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          <Phone size={10} className="inline mr-1" />
+                          {account.phone}
+                        </p>
+                      )}
+                      {account.employeeId && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          工号：{account.employeeId}
+                        </p>
+                      )}
+                      {account.region && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          <MapPin size={10} className="inline mr-1" />
+                          {account.region}
+                        </p>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => openEditModal(account)}
-                      className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleToggleStatus(account)}
-                      className={`p-2 rounded-lg transition-colors ${
-                        account.status === 'active'
-                          ? 'text-green-600 hover:bg-green-50'
-                          : 'text-gray-400 hover:bg-gray-100'
-                      }`}
-                    >
-                      {account.status === 'active' ? (
-                        <ToggleRight className="w-6 h-6" />
-                      ) : (
-                        <ToggleLeft className="w-6 h-6" />
-                      )}
-                    </button>
-                    <button
-                      onClick={() => openDeleteModal(account)}
-                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                  <div className="flex flex-col items-end space-y-2">
+                    {account.createdAt && (
+                      <span className="text-[10px] text-gray-400">
+                        {new Date(account.createdAt).toLocaleDateString()}
+                      </span>
+                    )}
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => openEditModal(account)}
+                        className="p-2 text-gray-400 hover:text-[#1E40AF] transition-colors"
+                      >
+                        <Edit2 size={16} />
+                      </button>
+                      <button
+                        onClick={(e) => handleToggleStatus(account, e)}
+                        className={`p-2 rounded-lg transition-colors ${
+                          account.status === 'active'
+                            ? 'text-green-600 hover:bg-green-50'
+                            : 'text-gray-400 hover:bg-gray-100'
+                        }`}
+                      >
+                        {account.status === 'active' ? (
+                          <ToggleRight size={20} />
+                        ) : (
+                          <ToggleLeft size={20} />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => openDeleteModal(account)}
+                        className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -790,7 +833,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                         onChange={(e) => setFormData({...formData, parentId: e.target.value})}
                         className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
-                        <option value="">请选择组</option>
+                        <option value="">无</option>
                         {groups.map(group => (
                           <option key={group._id} value={group._id}>
                             {group.groupName} ({group.teamName})
@@ -951,23 +994,36 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
 
               <div className="space-y-4">
                 {(editingAccount.role === 'employee' || editingAccount.employeeId) && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      所属组
-                    </label>
-                    <select
-                      value={formData.groupId}
-                      onChange={(e) => setFormData({...formData, groupId: e.target.value})}
-                      className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">请选择组</option>
-                      {groups.map(group => (
-                        <option key={group._id} value={group._id}>
-                          {group.groupName} ({group.teamName})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        所属组
+                      </label>
+                      <select
+                        value={formData.groupId}
+                        onChange={(e) => setFormData({...formData, groupId: e.target.value})}
+                        className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">无</option>
+                        {groups.map(group => (
+                          <option key={group._id} value={group._id}>
+                            {group.groupName} ({group.teamName})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        工号
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.employeeId}
+                        onChange={(e) => setFormData({...formData, employeeId: e.target.value})}
+                        className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </>
                 )}
 
                 {(editingAccount.role === 'NORMAL_ADMIN' || editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader') && (

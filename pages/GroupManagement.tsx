@@ -4,6 +4,7 @@ import {
   ChevronRight, AlertCircle, Users2, Award, ChevronUp, ChevronDown
 } from 'lucide-react';
 import { request } from '../services/api';
+import { authService } from '../services/authService';
 import { AdminUser, UserRole } from '../types';
 
 interface Group {
@@ -37,11 +38,9 @@ const GroupManagement: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        // Fetch current user
-        const userResponse = await request<AdminUser>('/admin/me', {
-          method: 'GET'
-        });
-        setCurrentUser(userResponse);
+        // 使用 authService 获取当前用户信息
+        const user = authService.getCurrentUser();
+        setCurrentUser(user);
 
         // Fetch teams
         const teamsResponse = await request<{ id: string; name: string }[]>('/team/list', {
@@ -49,59 +48,69 @@ const GroupManagement: React.FC = () => {
         });
         setTeams(teamsResponse);
 
-        // Fetch groups
-        let groupsResponse;
-        if (userResponse.role === UserRole.NORMAL_ADMIN && userResponse.teamName) {
+        // Fetch groups - 使用 /admin/employee/group-leaders 接口
+        let groupsResponse: Group[] = [];
+        
+        if (user.role === UserRole.NORMAL_ADMIN) {
           // Team leaders only see their own teams' groups
-          const team = teamsResponse.find(t => t.name === userResponse.teamName);
-          if (team) {
-            try {
-              groupsResponse = await request<Group[]>(`/group/list?teamId=${team.id}`, {
-                method: 'GET'
-              });
-              
-              // 如果API返回空数据，使用模拟数据
-              if (!groupsResponse || groupsResponse.length === 0) {
-                console.log('No groups found, using mock data');
-                groupsResponse = [
-                  { id: 'G001', name: '一组', teamId: team.id, teamName: team.name, createdAt: new Date().toISOString(), memberCount: 0, todayActive: 0, monthlyActive: 0, todayRevenue: 0, monthlyRevenue: 0, commission: 0.05 },
-                  { id: 'G002', name: '二组', teamId: team.id, teamName: team.name, createdAt: new Date().toISOString(), memberCount: 0, todayActive: 0, monthlyActive: 0, todayRevenue: 0, monthlyRevenue: 0, commission: 0.05 },
-                  { id: 'G003', name: '三组', teamId: team.id, teamName: team.name, createdAt: new Date().toISOString(), memberCount: 0, todayActive: 0, monthlyActive: 0, todayRevenue: 0, monthlyRevenue: 0, commission: 0.05 },
-                ];
-              }
-            } catch (apiError) {
-              console.error('Error fetching groups:', apiError);
-              // API错误时使用模拟数据
-              groupsResponse = [
-                { id: 'G001', name: '一组', teamId: team.id, teamName: team.name, createdAt: new Date().toISOString(), memberCount: 2, todayActive: 1, todayRevenue: 56.42, monthlyRevenue: 711.71, todayAdCount: 467, avgEcpm: 296.73, yesterdayRevenue: 331.45, commission: 0.05 },
-                { id: 'G002', name: '二组', teamId: team.id, teamName: team.name, createdAt: new Date().toISOString(), memberCount: 11, todayActive: 8, todayRevenue: 25.46, monthlyRevenue: 936.98, todayAdCount: 261, avgEcpm: 239.94, yesterdayRevenue: 456.78, commission: 0.05 },
-                { id: 'G003', name: '三组', teamId: team.id, teamName: team.name, createdAt: new Date().toISOString(), memberCount: 5, todayActive: 3, todayRevenue: 18.25, monthlyRevenue: 456.32, todayAdCount: 156, avgEcpm: 198.45, yesterdayRevenue: 22.36, commission: 0.05 },
-              ];
-            }
-          } else {
-            // 找不到团队时使用模拟数据
-            groupsResponse = [
-              { id: 'G001', name: '一组', teamId: 'T001', teamName: userResponse.teamName, createdAt: new Date().toISOString(), memberCount: 2, todayActive: 1, todayRevenue: 56.42, monthlyRevenue: 711.71, todayAdCount: 467, avgEcpm: 296.73, yesterdayRevenue: 331.45, commission: 0.05 },
-              { id: 'G002', name: '二组', teamId: 'T001', teamName: userResponse.teamName, createdAt: new Date().toISOString(), memberCount: 11, todayActive: 8, todayRevenue: 25.46, monthlyRevenue: 936.98, todayAdCount: 261, avgEcpm: 239.94, yesterdayRevenue: 456.78, commission: 0.05 },
-              { id: 'G003', name: '三组', teamId: 'T001', teamName: userResponse.teamName, createdAt: new Date().toISOString(), memberCount: 5, todayActive: 3, todayRevenue: 18.25, monthlyRevenue: 456.32, todayAdCount: 156, avgEcpm: 198.45, yesterdayRevenue: 22.36, commission: 0.05 },
-            ];
-          }
-        } else {
-          // Super admins see all groups
           try {
-            groupsResponse = await request<Group[]>('/group/list', {
+            const groupLeadersData = await request<{ data?: any[] } | any[]>(`/admin/employee/group-leaders?teamId=${user.id}`, {
               method: 'GET'
             });
+            
+            // 转换数据格式
+            const dataArray = Array.isArray(groupLeadersData) ? groupLeadersData : (groupLeadersData?.data || []);
+            groupsResponse = dataArray.map((g: any) => ({
+              id: g._id || g.groupId,
+              name: g.groupName,
+              teamId: g.teamId,
+              teamName: user.teamName,
+              createdAt: g.createdAt || new Date().toISOString(),
+              memberCount: g.memberCount || 0,
+              todayActive: g.todayActive || 0,
+              todayRevenue: g.todayRevenue || 0,
+              monthlyRevenue: g.monthlyRevenue || 0,
+              todayAdCount: g.todayAdCount || 0,
+              avgEcpm: g.avgEcpm || 0,
+              yesterdayRevenue: g.yesterdayRevenue || 0,
+              commission: g.commission || 0.05
+            }));
           } catch (apiError) {
             console.error('Error fetching groups:', apiError);
-            // API错误时使用模拟数据
-            groupsResponse = [
-              { id: 'G001', name: '一组', teamId: 'T001', teamName: '鼎盛战队', createdAt: new Date().toISOString(), memberCount: 2, todayActive: 1, todayRevenue: 56.42, monthlyRevenue: 711.71, todayAdCount: 467, avgEcpm: 296.73, yesterdayRevenue: 331.45, commission: 0.05 },
-              { id: 'G002', name: '二组', teamId: 'T001', teamName: '鼎盛战队', createdAt: new Date().toISOString(), memberCount: 11, todayActive: 8, todayRevenue: 25.46, monthlyRevenue: 936.98, todayAdCount: 261, avgEcpm: 239.94, yesterdayRevenue: 456.78, commission: 0.05 },
-              { id: 'G003', name: '三组', teamId: 'T001', teamName: '鼎盛战队', createdAt: new Date().toISOString(), memberCount: 5, todayActive: 3, todayRevenue: 18.25, monthlyRevenue: 456.32, todayAdCount: 156, avgEcpm: 198.45, yesterdayRevenue: 22.36, commission: 0.05 },
-            ];
           }
+        } else {
+          // Super admins - 获取所有团队的组
+          // 遍历所有团队获取组列表
+          const allGroups: Group[] = [];
+          for (const team of teamsResponse) {
+            try {
+              const groupLeadersData = await request<{ data?: any[] } | any[]>(`/admin/employee/group-leaders?teamId=${team.id}`, {
+                method: 'GET'
+              });
+              const dataArray = Array.isArray(groupLeadersData) ? groupLeadersData : (groupLeadersData?.data || []);
+              const teamGroups = dataArray.map((g: any) => ({
+                id: g._id || g.groupId,
+                name: g.groupName,
+                teamId: team.id,
+                teamName: team.name,
+                createdAt: g.createdAt || new Date().toISOString(),
+                memberCount: g.memberCount || 0,
+                todayActive: g.todayActive || 0,
+                todayRevenue: g.todayRevenue || 0,
+                monthlyRevenue: g.monthlyRevenue || 0,
+                todayAdCount: g.todayAdCount || 0,
+                avgEcpm: g.avgEcpm || 0,
+                yesterdayRevenue: g.yesterdayRevenue || 0,
+                commission: g.commission || 0.05
+              }));
+              allGroups.push(...teamGroups);
+            } catch (err) {
+              console.error(`Error fetching groups for team ${team.name}:`, err);
+            }
+          }
+          groupsResponse = allGroups;
         }
+        
         setGroups(groupsResponse);
       } catch (error) {
         console.error('Error fetching data:', error);

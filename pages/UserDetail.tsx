@@ -27,6 +27,7 @@ interface UserDetailProps {
     deviceCount: number;
     ecpm: number;
     superior?: string;
+    groupName?: string;
   };
   onBack: () => void;
 }
@@ -39,32 +40,47 @@ const UserDetail: React.FC<UserDetailProps> = ({ user, onBack }) => {
   // 使用左滑返回hook
   const swipeRef = useSwipeBack({ onBack });
 
+  // 组件挂载时滚动到顶部
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
   useEffect(() => {
     const fetchEarnings = async () => {
       setLoading(true);
       try {
-        const response = await request<any>(`/user/${user.userId}/earnings`, {
-          method: 'GET',
-          headers: new Headers({
-            'Content-Type': 'application/json'
-          })
-        });
+        // 优先使用userId（后端内部ID），如果没有则使用id（employeeId）
+        const userIdToFetch = user.userId || user.id;
+        console.log('获取收益详情，userId:', userIdToFetch, 'user.userId:', user.userId, 'user.id:', user.id);
+        
+        const response = await request<any>(`/admin/user/${userIdToFetch}/earnings`, {
+            method: 'GET',
+            headers: new Headers({
+              'Content-Type': 'application/json'
+            })
+          });
+        
+        console.log('收益详情API响应:', response);
 
-        setTotalEarnings(response.totalEarnings || 0);
+        // 从response.data中获取数据
+        const responseData = response.data || response;
+        console.log('解析后的数据:', responseData);
+
+        setTotalEarnings(responseData.totalEarnings || 0);
 
         const data: MonthlySummary[] = [];
 
-        if (response.currentMonth) {
+        if (responseData.currentMonth) {
           data.push({
-            month: response.currentMonth.month,
+            month: responseData.currentMonth.month,
             isCurrent: true,
-            totalEarnings: response.currentMonth.totalEarnings,
-            days: response.currentMonth.days || []
+            totalEarnings: responseData.currentMonth.totalEarnings,
+            days: responseData.currentMonth.days || []
           });
         }
 
-        if (response.historyMonths && response.historyMonths.length > 0) {
-          response.historyMonths.forEach((month: any) => {
+        if (responseData.historyMonths && responseData.historyMonths.length > 0) {
+          responseData.historyMonths.forEach((month: any) => {
             data.push({
               month: month.month,
               isCurrent: false,
@@ -96,11 +112,15 @@ const UserDetail: React.FC<UserDetailProps> = ({ user, onBack }) => {
       <div className="p-6 pb-2">
         <div className="flex items-center space-x-4 mb-4">
           <div>
-            <h2 className="text-xl font-black text-gray-900 leading-tight">ID: {user.id}</h2>
-            <div className="mt-1 space-y-0.5">
-              <p className="text-[11px] text-gray-400 font-bold flex items-center">
-                <span className="bg-gray-100 px-1 rounded mr-1">上级</span>
-                <span className="text-gray-600">{user.superior || '无'}</span>
+            <h2 className="text-xl font-black text-gray-900 leading-tight">ID: {user.id}{user.name ? ` (${user.name})` : ''}</h2>
+            <div className="mt-1 flex items-center space-x-3">
+              <p className="text-[11px] font-bold flex items-center">
+                <span className="bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded mr-1">团队</span>
+                <span className="text-blue-600">{user.superior || '无'}</span>
+              </p>
+              <p className="text-[11px] font-bold flex items-center">
+                <span className="bg-orange-50 text-orange-600 px-1.5 py-0.5 rounded mr-1">组别</span>
+                <span className="text-orange-600">{user.groupName || '无'}</span>
               </p>
             </div>
           </div>

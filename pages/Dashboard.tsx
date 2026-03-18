@@ -24,6 +24,7 @@ interface DashboardUser {
   superior?: string;
   teamName?: string;
   teamGroupId?: string;
+  groupName?: string;
   regDays: number;
 }
 
@@ -94,33 +95,80 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
     }
     // 不清空之前的数据，避免闪屏
     try {
+      console.log('开始获取数据，currentUser:', currentUser);
+      console.log('isTeamLeader:', isTeamLeader);
+      console.log('isGroupLeader:', isGroupLeader);
+      console.log('showKPIDashboard:', showKPIDashboard);
+      console.log('timeRange:', timeRange);
+      
       const rangeParam = timeRangeMap[timeRange];
+      console.log('rangeParam:', rangeParam);
+
+      // 并行获取KPI数据和用户数据，提高加载速度
+      const promises: Promise<any>[] = [];
 
       // 只要不是团队长和组长，就获取KPI数据
       if (showKPIDashboard) {
-        const kpiResponse = await request<any>(`/admin/dashboard/kpi?range=${rangeParam}`, {
-          method: 'GET'
-        });
-
-        // 调试：打印API返回的完整数据
-        console.log('KPI API Response for range', rangeParam, ':', kpiResponse);
-        console.log('Active Users:', kpiResponse.activeUsers);
-        console.log('All KPI Response keys:', Object.keys(kpiResponse));
-        console.log('Profit Margin Growth:', kpiResponse.profitMarginGrowth);
-        console.log('Revenue Growth:', kpiResponse.revenueGrowth);
-        console.log('Coins Growth:', kpiResponse.coinsGrowth);
+        const kpiUrl = `/admin/dashboard/kpi?range=${rangeParam}`;
+        console.log('KPI API URL:', kpiUrl);
+        promises.push(request<any>(kpiUrl, { method: 'GET' }));
 
         // 如果是今日数据，同时获取昨日数据用于计算增长率
         if (timeRange === TimeRange.TODAY) {
-          try {
-            const yesterdayResponse = await request<any>(`/admin/dashboard/kpi?range=yesterday`, {
-              method: 'GET'
-            });
-            setYesterdayKpiData(yesterdayResponse);
-            console.log('Yesterday KPI Data:', yesterdayResponse);
-          } catch (error) {
-            console.error('Error fetching yesterday KPI data:', error);
-          }
+          const yesterdayKpiUrl = `/admin/dashboard/kpi?range=yesterday`;
+          console.log('昨日KPI API URL:', yesterdayKpiUrl);
+          promises.push(request<any>(yesterdayKpiUrl, { method: 'GET' }));
+        }
+      }
+      console.log('添加到promises的请求数量:', promises.length);
+
+      // 构建用户数据URL
+      let userUrl = `/admin/dashboard/users?range=${rangeParam}&limit=30`;
+      if (isTeamLeader) {
+        const teamName = currentUser?.teamName || '鼎盛战队';
+        userUrl = `/admin/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}&limit=30`;
+      } else if (isGroupLeader) {
+        const teamGroupId = currentUser?.teamGroupId;
+        userUrl = `/admin/dashboard/users?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}&limit=30`;
+      }
+      console.log('用户API URL:', userUrl);
+      promises.push(request<any[]>(userUrl, { method: 'GET' }));
+
+      // 如果是今日数据，同时获取昨日用户数据用于计算次数对比
+      if (timeRange === TimeRange.TODAY) {
+        let yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&limit=30`;
+        if (isTeamLeader) {
+          const teamName = currentUser?.teamName || '鼎盛战队';
+          yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}&limit=30`;
+        } else if (isGroupLeader) {
+          const teamGroupId = currentUser?.teamGroupId;
+          yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&group=${encodeURIComponent(teamGroupId || '')}&limit=30`;
+        }
+        console.log('昨日用户API URL:', yesterdayUserUrl);
+        promises.push(request<any[]>(yesterdayUserUrl, { method: 'GET' }));
+      }
+
+      // 并行执行所有请求
+      console.log('开始执行API请求:', promises.length);
+      const results = await Promise.all(promises);
+      console.log('API请求完成，结果数量:', results.length);
+      console.log('API请求结果:', results);
+
+      // 处理KPI数据
+      if (showKPIDashboard) {
+        console.log('处理KPI数据开始，results长度:', results.length);
+        console.log('results内容:', results);
+        const kpiResponse = results[0];
+        console.log('KPI响应数据:', kpiResponse);
+
+        // 如果是今日数据，获取昨日数据
+        let yesterdayKpiResponse = null;
+        if (timeRange === TimeRange.TODAY && results.length > 1) {
+          yesterdayKpiResponse = results[1];
+          console.log('昨日KPI响应数据:', yesterdayKpiResponse);
+          setYesterdayKpiData(yesterdayKpiResponse);
+        } else if (timeRange === TimeRange.TODAY) {
+          console.log('时间范围是今日，但results长度不足，无法获取昨日数据');
         }
 
         // Time prefix for dynamic titles
@@ -132,23 +180,47 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         };
         const timePrefix = timePrefixMap[timeRange];
         const showGrowth = timeRange === TimeRange.TODAY || timeRange === TimeRange.THIS_MONTH;
+        console.log('showGrowth:', showGrowth);
 
         // Transform KPI data to match frontend format
         const userShare = Number(kpiResponse.coins || 0) / 1000;
         const platformCost = userShare * 0.2;
-        
+
         // 计算利润率
         const todayProfitMargin = kpiResponse.revenue > 0 ? ((Number(kpiResponse.revenue || 0) - userShare - platformCost) / Number(kpiResponse.revenue) * 100) : 0;
-        
+
         // 计算利润率增长率（今日 - 昨日）
         let profitMarginGrowth = 0;
-        if (timeRange === TimeRange.TODAY && yesterdayKpiData) {
-          const yesterdayUserShare = Number(yesterdayKpiData.coins || 0) / 1000;
+        if (timeRange === TimeRange.TODAY && yesterdayKpiResponse) {
+          const yesterdayUserShare = Number(yesterdayKpiResponse.coins || 0) / 1000;
           const yesterdayPlatformCost = yesterdayUserShare * 0.2;
-          const yesterdayProfitMargin = yesterdayKpiData.revenue > 0 ? ((Number(yesterdayKpiData.revenue || 0) - yesterdayUserShare - yesterdayPlatformCost) / Number(yesterdayKpiData.revenue) * 100) : 0;
+          const yesterdayProfitMargin = yesterdayKpiResponse.revenue > 0 ? ((Number(yesterdayKpiResponse.revenue || 0) - yesterdayUserShare - yesterdayPlatformCost) / Number(yesterdayKpiResponse.revenue) * 100) : 0;
           profitMarginGrowth = todayProfitMargin - yesterdayProfitMargin;
         }
-        
+
+        // 计算活跃用户增长率（今日 - 昨日）
+        let activeUsersGrowth = 0;
+        console.log('计算活跃用户增长率开始:');
+        console.log('timeRange:', timeRange);
+        console.log('yesterdayKpiResponse:', yesterdayKpiResponse);
+        console.log('kpiResponse.activeUsers:', kpiResponse.activeUsers);
+        if (timeRange === TimeRange.TODAY && yesterdayKpiResponse) {
+          const todayActiveUsers = Number(kpiResponse.activeUsers || 0);
+          const yesterdayActiveUsers = Number(yesterdayKpiResponse.activeUsers || 0);
+          console.log('今日活跃用户:', todayActiveUsers);
+          console.log('昨日活跃用户:', yesterdayActiveUsers);
+          if (yesterdayActiveUsers > 0) {
+            activeUsersGrowth = ((todayActiveUsers - yesterdayActiveUsers) / yesterdayActiveUsers) * 100;
+            console.log('计算的增长率:', activeUsersGrowth);
+          } else if (todayActiveUsers > 0) {
+            activeUsersGrowth = 100; // 昨日为0，今日有数据，增长率100%
+            console.log('昨日为0，今日有数据，增长率设为100%');
+          }
+        } else {
+          console.log('不计算增长率的原因:', { timeRange, hasYesterdayData: !!yesterdayKpiResponse });
+        }
+        console.log('最终活跃用户增长率:', activeUsersGrowth);
+
         const transformedKpis = [
           { title: `${timePrefix}利润`, value: `¥${(Number(kpiResponse.revenue || 0) - userShare - platformCost).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: BarChart3, color: 'text-indigo-600', bg: 'bg-indigo-50' },
           { title: `${timePrefix}利润率`, value: `${todayProfitMargin.toFixed(2)}%`, growth: showGrowth ? `${profitMarginGrowth > 0 ? '+' : ''}${profitMarginGrowth.toFixed(2)}%` : '', isUp: profitMarginGrowth > 0, icon: Percent, color: 'text-pink-600', bg: 'bg-pink-50' },
@@ -157,58 +229,42 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
           { title: '广告总曝光', value: kpiResponse.impressions?.toLocaleString() || '0', growth: showGrowth ? `${kpiResponse.impressionsGrowth > 0 ? '+' : ''}${kpiResponse.impressionsGrowth || 0}%` : '', isUp: kpiResponse.impressionsGrowth > 0, icon: Eye, color: 'text-blue-600', bg: 'bg-blue-50' },
           { title: '团队分成', value: `¥${(Number(kpiResponse.coins || 0) / 1000 * 0.2).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.coinsGrowth > 0 ? '+' : ''}${kpiResponse.coinsGrowth || 0}%` : '', isUp: kpiResponse.coinsGrowth > 0, icon: Users, color: 'text-purple-600', bg: 'bg-purple-50' },
           { title: `${timePrefix}平均 eCPM`, value: `${kpiResponse.ecpm || 0}`, growth: showGrowth ? `${kpiResponse.ecpmGrowth > 0 ? '+' : ''}${kpiResponse.ecpmGrowth || 0}%` : '', isUp: kpiResponse.ecpmGrowth > 0, icon: Zap, color: 'text-yellow-600', bg: 'bg-yellow-50' },
-          { title: `${timePrefix}活跃用户`, value: kpiResponse.activeUsers?.toLocaleString() || '0', growth: showGrowth ? `${kpiResponse.activeUsersGrowth > 0 ? '+' : ''}${kpiResponse.activeUsersGrowth || 0}%` : '', isUp: kpiResponse.activeUsersGrowth > 0, icon: Users, color: 'text-cyan-600', bg: 'bg-cyan-50' },
+          { title: `${timePrefix}活跃用户`, value: kpiResponse.activeUsers?.toLocaleString() || '0', growth: showGrowth ? `${activeUsersGrowth > 0 ? '+' : ''}${activeUsersGrowth.toFixed(2)}%` : '', isUp: activeUsersGrowth > 0, icon: Users, color: 'text-cyan-600', bg: 'bg-cyan-50' },
         ];
 
+        console.log('转换后的KPI数据:', transformedKpis);
         setKpiData(transformedKpis);
       }
 
-      // Fetch user data - 团队长只获取自己团队的用户，组长只获取自己组的用户
-      let userUrl = `/admin/dashboard/users?range=${rangeParam}&limit=30`;
-      if (isTeamLeader) {
-        const teamName = currentUser?.teamName || '鼎盛战队';
-        userUrl = `/admin/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}&limit=30`;
-      } else if (isGroupLeader) {
-        const teamGroupId = currentUser?.teamGroupId;
-        userUrl = `/admin/dashboard/users?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}&limit=30`;
-      }
-      
-      const userResponse = await request<any[]>(userUrl, {
-        method: 'GET'
-      });
+      // 处理用户数据
+      const userResponseIndex = showKPIDashboard ? (timeRange === TimeRange.TODAY ? 2 : 1) : 0;
+      const userResponse = results[userResponseIndex];
+      console.log('用户响应数据:', userResponse);
 
-      // 如果是今日数据，同时获取昨日用户数据用于计算次数对比
+      // 如果是今日数据，获取昨日用户数据
       if (timeRange === TimeRange.TODAY) {
-        try {
-          let yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&limit=30`;
-          if (isTeamLeader) {
-            const teamName = currentUser?.teamName || '鼎盛战队';
-            yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}&limit=30`;
-          } else if (isGroupLeader) {
-            const teamGroupId = currentUser?.teamGroupId;
-            yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&group=${encodeURIComponent(teamGroupId || '')}&limit=30`;
-          }
-          const yesterdayUserResponse = await request<any[]>(yesterdayUserUrl, {
-            method: 'GET'
-          });
-          // 构建用户ID到次数和收益的映射
-          const yesterdayUserMap: Record<string, number> = {};
-          const yesterdayEarningsMap: Record<string, number> = {};
+        const yesterdayUserResponseIndex = showKPIDashboard ? 3 : 1;
+        const yesterdayUserResponse = results[yesterdayUserResponseIndex];
+        console.log('昨日用户响应数据:', yesterdayUserResponse);
+        // 构建用户ID到次数和收益的映射
+        const yesterdayUserMap: Record<string, number> = {};
+        const yesterdayEarningsMap: Record<string, number> = {};
+        if (Array.isArray(yesterdayUserResponse)) {
           yesterdayUserResponse.forEach((user: any) => {
             const userId = user.employeeId || user.userId || '';
             yesterdayUserMap[userId] = user.watched || 0;
             yesterdayEarningsMap[userId] = (user.earnings || 0) / 1000;
           });
-          yesterdayUserDataRef.current = yesterdayUserMap;
-          setYesterdayUserData(yesterdayUserMap);
-          setYesterdayEarningsData(yesterdayEarningsMap);
-        } catch (error) {
-          console.error('Error fetching yesterday user data:', error);
         }
+        yesterdayUserDataRef.current = yesterdayUserMap;
+        setYesterdayUserData(yesterdayUserMap);
+        setYesterdayEarningsData(yesterdayEarningsMap);
       }
 
       // Transform user data to match frontend format
-      const transformedUsers: DashboardUser[] = userResponse.map((user: any) => ({
+      const userArray = Array.isArray(userResponse) ? userResponse : [];
+      console.log('用户数组:', userArray);
+      const transformedUsers: DashboardUser[] = userArray.map((user: any) => ({
         id: user.employeeId || user.userId || '',
         userId: user.userId || '',
         name: user.realName || user.realname || user.name || user.username || user.userName || user.employeeId || user.userId || '',
@@ -222,33 +278,33 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         superior: user.superior || user.teamName || '系统直属',
         teamName: user.teamName || user.superior || '系统直属',
         teamGroupId: user.teamGroupId || user.groupId || '',
+        groupName: user.groupName || '',
         regDays: user.regDays || 1
       }));
 
+      console.log('转换后的用户数据:', transformedUsers);
+
       // 团队长只显示自己团队的成员数据，组长只显示自己组的成员数据
       let filteredUsers = transformedUsers;
-      console.log('过滤前用户数:', transformedUsers.length);
-      console.log('当前用户:', currentUser);
-      console.log('是否团队长:', isTeamLeader);
-      console.log('是否组长:', isGroupLeader);
       
       if (isTeamLeader) {
         const teamName = currentUser?.teamName || '鼎盛战队';
-        console.log('团队长团队名称:', teamName);
+        console.log('团队名称:', teamName);
         filteredUsers = transformedUsers.filter(user => {
           const userTeam = user.teamName || user.superior || '系统直属';
-          console.log(`用户 ${user.userId || user.id}: teamName=${user.teamName}, superior=${user.superior}, 匹配=${userTeam === teamName}`);
           return userTeam === teamName;
         });
+        console.log('过滤后的用户数据:', filteredUsers);
       } else if (isGroupLeader) {
         const teamGroupId = currentUser?.teamGroupId;
-        console.log('组长组别ID:', teamGroupId);
+        console.log('组ID:', teamGroupId);
         filteredUsers = transformedUsers.filter(user => {
           return user.teamGroupId === teamGroupId;
         });
+        console.log('过滤后的用户数据:', filteredUsers);
       }
       
-      console.log('过滤后用户数:', filteredUsers.length);
+      console.log('最终用户数据:', filteredUsers);
       setUserData(filteredUsers);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -258,8 +314,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
     } finally {
       setLoading(false);
       setRefreshing(false);
-      // 恢复滚动位置
-      if (scrollPositionRef.current > 0) {
+      // 切换时间范围时滚动到顶部
+      if (!isRefresh) {
+        setTimeout(() => {
+          window.scrollTo(0, 0);
+        }, 50);
+      } else if (scrollPositionRef.current > 0) {
+        // 刷新时恢复滚动位置
         setTimeout(() => {
           window.scrollTo(0, scrollPositionRef.current);
         }, 50);
@@ -488,7 +549,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                                             <span className="text-gray-300">•</span>
                                             <span className="text-gray-400">注册{user.regDays}天</span>
                                         </div>
-                                        <span className="text-orange-500 font-medium truncate">组别: {user.teamGroupId || '无'}</span>
+                                        <span className="text-orange-500 font-medium truncate">组别: {user.groupName || user.teamGroupId || '无'}</span>
                                     </div>
                                 </div>
                             </div>
@@ -563,7 +624,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
               onClick={onViewAllUsers}
               className="w-full py-3 bg-gray-50 text-[11px] font-bold text-gray-500 hover:text-[#1E40AF] border-t border-gray-50 transition-colors"
             >
-                查看全部活跃用户
+                查看全部用户
             </button>
         </div>
       </div>

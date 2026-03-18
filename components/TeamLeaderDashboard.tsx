@@ -4,6 +4,7 @@ import {
   TrendingUp, TrendingDown, Clock
 } from 'lucide-react';
 import { authService } from '../services/authService';
+import { request } from '../services/api';
 import { UserRole } from '../types';
 
 interface TeamLeaderDashboardProps {
@@ -23,9 +24,15 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
   const fetchData = useCallback(async () => {
     setLoading(true);
 
+    let responseData: any = null;
+    let showGrowth = false;
+    let userShare = 0;
+    let averageCoins = 0;
+    let teamLeaderEarnings = 0;
+    let activeUsersCount = 0;
+    let totalUsersCount = 0;
+
     try {
-      console.log('开始获取团队数据:', { currentUser, timeRange });
-      
       if (!currentUser) {
         throw new Error('用户未登录');
       }
@@ -35,45 +42,25 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
       //   throw new Error('团队名称不存在');
       // }
 
-      // 直接使用完整的 API 路径，包含 /admin 前缀
-      const token = localStorage.getItem('admin_token');
-      console.log('Token:', token ? '存在' : '不存在');
-      
-      // 直接使用用户选择的时间范围
-      const formattedTimeRange = timeRange;
-      console.log('格式化后的时间范围:', formattedTimeRange);
+      // 处理时间范围
+      const formattedTimeRange = timeRange === 'this_week' ? 'week' : timeRange === 'this_month' ? 'month' : timeRange;
+      console.log('处理后的时间范围:', formattedTimeRange);
       
       // 使用正确的 API 路径 - KPI 接口
       const teamName = currentUser?.teamName || '鼎盛战队';
-      const apiUrl = `https://wfqmaepvjkdd.sealoshzh.site/api/admin/dashboard/kpi?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}`;
+      const apiUrl = `/admin/dashboard/kpi?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}`;
       
-      const response = await fetch(apiUrl, {
-        method: 'GET',
-        headers: new Headers({
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      try {
+        const result = await request<any>(apiUrl, {
+          method: 'GET'
+        });
+        responseData = result;
+        console.log('KPI API返回数据:', responseData);
+      } catch (error) {
+        console.error('获取KPI数据失败:', error);
+        // 即使KPI数据获取失败，也继续获取其他数据
+        responseData = {};
       }
-
-      const result = await response.json();
-      
-      // 即使 result.success 为 false，也尝试获取数据
-      // if (!result.success) {
-      //   throw new Error(result.message || '请求失败');
-      // }
-
-      const responseData = result.data || result;
-      console.log('处理后的数据:', responseData);
-      console.log('增长率数据:', {
-        coinsGrowth: responseData?.coinsGrowth,
-        impressionsGrowth: responseData?.impressionsGrowth,
-        ecpmGrowth: responseData?.ecpmGrowth,
-        activeUsers: responseData?.activeUsers
-      });
 
       // 时间前缀
       const timePrefixMap: Record<string, string> = {
@@ -86,44 +73,61 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
       };
       const timePrefix = timePrefixMap[timeRange];
       // 只在今日显示增长率，其他时间范围不显示
-      const showGrowth = timeRange === 'today';
-      console.log('时间范围:', timeRange, '显示增长率:', showGrowth);
+      showGrowth = timeRange === 'today';
 
       // 计算团队分成（用户分成的20%）
-      const userShare = Number(responseData?.coins || 0) / 1000;
+      userShare = Number(responseData?.coins || 0) / 1000;
       
       // 计算单条平均金币 = (团队用户收益 * 1000) / 广告总曝光
-      const averageCoins = responseData?.impressions > 0 ? (userShare * 1000) / Number(responseData?.impressions) : 0;
-      console.log('单条平均金币:', averageCoins);
+      averageCoins = responseData?.impressions > 0 ? (userShare * 1000) / Number(responseData?.impressions) : 0;
 
       // 获取用户列表来计算活跃用户数
-      let teamLeaderEarnings = 0;
-      let activeUsersCount = 0;
-      let totalUsersCount = 0;
-      
       try {
-        // 直接使用团队名称对应的组ID（临时解决方案）
-        const groupsData: any[] = [
-          {
-            _id: '69b983ac05e593e7e7e4b431',
-            groupName: '我是测试'
+        // 从后端API获取团队的组列表
+        let groupsData: any[] = [];
+        try {
+          const teams = await request<{ id: string; leader: string }[]>('/team/list', {
+            method: 'GET'
+          });
+          console.log('团队列表API返回:', teams);
+          const team = teams.find(t => t.leader === teamName);
+          if (team) {
+            console.log('找到团队:', team);
+            const groups = await request<any[]>(`/group/list?teamId=${team.id}`, {
+              method: 'GET'
+            });
+            console.log('组列表API返回:', groups);
+            groupsData = groups || [];
+            console.log('从API获取的组数据:', groupsData);
+          } else {
+            console.log('找不到团队:', teamName);
+            // 如果找不到团队，使用默认组数据
+            groupsData = [
+              {
+                _id: '69b983ac05e593e7e7e4b431',
+                groupName: '我是测试'
+              }
+            ];
           }
-        ];
-        console.log('使用默认组数据:', groupsData);
-        
+        } catch (error) {
+          console.error('获取组列表失败:', error);
+          // API错误时使用默认组数据
+          groupsData = [
+            {
+              _id: '69b983ac05e593e7e7e4b431',
+              groupName: '我是测试'
+            }
+          ];
+          console.log('使用默认组数据:', groupsData);
+        }
+
         // 获取用户列表来计算活跃用户数
-        const userUrl = `/dashboard/users?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}`;
-        const userResponse = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/admin${userUrl}`, {
-          method: 'GET',
-          headers: new Headers({
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          })
-        });
-        
-        if (userResponse.ok) {
-          const userResult = await userResponse.json();
-          const users = userResult.data || userResult || [];
+        const userUrl = `/admin/dashboard/users?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}&limit=100`;
+        try {
+          const userResult = await request<any[]>(userUrl, {
+            method: 'GET'
+          });
+          const users = Array.isArray(userResult) ? userResult : [];
           
           console.log('团队名称:', teamName);
           console.log('请求的URL:', userUrl);
@@ -141,51 +145,48 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
           // 计算活跃用户数：有收益或观看次数的用户（只计算本团队的用户）
           activeUsersCount = filteredUsers.filter((user: any) => (user.watched > 0 || user.earnings > 0)).length;
           console.log('活跃用户数:', activeUsersCount);
+        } catch (error) {
+          console.error('获取用户列表失败:', error);
         }
-        
+
         // 调用后端API获取团队组长收益（根据提成比例变更历史准确计算）
-        // 遍历所有组，获取每个组的组长提成收益
+        // 并行获取所有组的提成数据，提高加载速度
         console.log('开始获取团队组长收益，组列表:', groupsData);
-        for (const group of groupsData) {
+
+        // 创建所有组的提成API请求
+        const commissionPromises = groupsData.map(async (group) => {
           if (group._id || group.id) {
             const groupId = group._id || group.id;
-            const fullUrl = `https://wfqmaepvjkdd.sealoshzh.site/api/admin/group-leader-commission/${groupId}?range=${formattedTimeRange}&limit=100`;
-            console.log(`请求组 ${group.groupName} 的提成数据，URL:`, fullUrl);
+            const groupName = group.groupName || group.name || '未知组';
+            const commissionUrl = `/admin/group-leader-commission/${groupId}?range=${formattedTimeRange}`;
+            console.log(`请求组 ${groupName} 的提成数据，URL:`, commissionUrl);
             
             try {
-              const commissionResponse = await fetch(fullUrl, {
-                method: 'GET',
-                headers: new Headers({
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`
-                })
+              const commissionData = await request<any>(commissionUrl, {
+                method: 'GET'
               });
-              
-              console.log(`组 ${group.groupName} API响应状态:`, commissionResponse.status);
-              
-              if (commissionResponse.ok) {
-                const commissionResult = await commissionResponse.json();
-                console.log(`组 ${group.groupName} API返回数据:`, commissionResult);
-                const commissionData = commissionResult.data || commissionResult;
-                // 累加每个组的总提成
-                if (commissionData && commissionData.totalCommission) {
-                  teamLeaderEarnings += commissionData.totalCommission;
-                  console.log(`组 ${group.groupName}: 组长提成=${commissionData.totalCommission}`);
-                } else {
-                  console.log(`组 ${group.groupName}: 没有totalCommission字段，数据:`, commissionData);
-                }
-              } else {
-                const errorText = await commissionResponse.text();
-                console.error(`组 ${group.groupName} API请求失败:`, errorText);
-              }
+              console.log(`组 ${groupName} API返回数据:`, commissionData);
+              // 返回每个组的提成数据，request函数已经处理了data字段的提取
+              const totalCommission = commissionData?.totalCommission || 0;
+              console.log(`组 ${groupName}: 组长提成=${totalCommission}`);
+              return totalCommission;
             } catch (err) {
-              console.error(`组 ${group.groupName} API请求异常:`, err);
+              console.error(`组 ${groupName} API请求异常:`, err);
+              return 0;
             }
           } else {
             console.log('组没有ID:', group);
+            return 0;
           }
-        }
-        
+        });
+
+        // 并行执行所有请求
+        const commissionResults = await Promise.all(commissionPromises);
+
+        // 累加所有组的总提成
+        teamLeaderEarnings = commissionResults.reduce((total, commission) => total + commission, 0);
+        console.log('团队组长总收益:', teamLeaderEarnings);
+
         console.log('团队组长收益总计（从后端API获取）:', teamLeaderEarnings);
       } catch (error) {
         console.error('获取数据失败:', error);
@@ -216,25 +217,21 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
           bg: 'bg-orange-50'
         },
         {
-          title: '团队组长收益',
-          value: `¥${teamLeaderEarnings.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
-          subValue: userShare > 0 ? `${((teamLeaderEarnings / userShare) * 100).toFixed(2)}%` : '0%',
-          growth: showGrowth ? `${responseData?.coinsGrowth > 0 ? '+' : ''}${responseData?.coinsGrowth || 0}%` : '',
-          isUp: responseData?.coinsGrowth > 0,
-          icon: BarChart3,
-          color: 'text-indigo-600',
-          bg: 'bg-indigo-50'
-        },
-        {
-          title: '今日活跃用户',
-          value: activeUsersCount.toLocaleString(),
-          subValue: `(${totalUsersCount})`,
-          growth: showGrowth ? `${responseData?.activeUsersGrowth > 0 ? '+' : ''}${responseData?.activeUsersGrowth || 0}%` : '',
-          isUp: responseData?.activeUsersGrowth > 0,
-          icon: TrendingUp,
-          color: 'text-emerald-600',
-          bg: 'bg-emerald-50'
-        },
+            title: '团队组长收益',
+            value: `¥${teamLeaderEarnings.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
+            subValue: userShare > 0 ? `${((teamLeaderEarnings / userShare) * 100).toFixed(2)}%` : '0%',
+            icon: BarChart3,
+            color: 'text-indigo-600',
+            bg: 'bg-indigo-50'
+          },
+          {
+            title: '今日活跃用户',
+            value: activeUsersCount.toLocaleString(),
+            subValue: totalUsersCount.toString(),
+            icon: TrendingUp,
+            color: 'text-emerald-600',
+            bg: 'bg-emerald-50'
+          },
         {
           title: '广告总曝光',
           value: responseData?.impressions?.toLocaleString() || '0',
@@ -266,7 +263,7 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
     } finally {
       setLoading(false);
     }
-  }, [timeRange, currentUser]); // 移除 onRefresh 依赖
+  }, [timeRange, currentUser]);
 
   useEffect(() => {
     fetchData();

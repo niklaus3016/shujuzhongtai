@@ -4,8 +4,8 @@ interface RetryOptions {
 }
 
 const defaultRetryOptions: RetryOptions = {
-  maxRetries: 3,
-  baseDelay: 1000
+  maxRetries: 1,
+  baseDelay: 500
 };
 
 export async function retryFetch<T>(
