@@ -383,29 +383,60 @@ const Team: React.FC = () => {
         console.log('Team.tsx - 当前用户:', currentUser);
         console.log('Team.tsx - 团队名称:', currentUser.teamName);
         
-        // 获取组长账号
-        const groupAccounts = await request<any[]>('/group-leader/list', { method: 'GET' });
-        console.log('Team.tsx - 所有组长账号:', groupAccounts);
+        // 获取当前用户的 teamId
+        const teamId = currentUser.id;
+        console.log('Team.tsx - 团队ID:', teamId);
+        
+        // 获取组长列表（使用新API）
+        const groupLeadersResponse = await request<any>(`/admin/employee/group-leaders?teamId=${teamId}`, { 
+          method: 'GET'
+        });
+        const groupLeaders = Array.isArray(groupLeadersResponse) ? groupLeadersResponse : (groupLeadersResponse?.data || []);
+        console.log('Team.tsx - 组长列表:', groupLeaders);
         
         // 获取员工账号
-        const employeeAccounts = await request<any[]>('/employee/list?pageSize=100', { method: 'GET' });
-        console.log('Team.tsx - 所有员工账号:', employeeAccounts);
+        const employeeAccounts = await request<any>('/admin/employee/list?pageSize=100', { method: 'GET' });
+        const employees = Array.isArray(employeeAccounts) ? employeeAccounts : (employeeAccounts?.data || []);
+        console.log('Team.tsx - 所有员工账号:', employees);
         
-        // 获取组列表
-        const groupsData = await request<any[]>('/team-group/list', { method: 'GET' });
-        const filteredGroups = groupsData.filter((g: any) => g.teamName === currentUser.teamName);
-        setGroups(filteredGroups);
-        console.log('Team.tsx - 组列表:', filteredGroups);
-        
-        // 过滤出本团队的账号
+        // 过滤出本团队的员工
         const teamName = currentUser.teamName || '';
-        const filteredGroupsAccounts = groupAccounts.filter((acc: any) => acc.teamName === teamName);
-        const filteredEmployees = employeeAccounts.filter((acc: any) => acc.parentName === teamName);
+        const userId = currentUser.id || '';
+        // 过滤条件：员工的父级ID等于当前用户的ID，或者员工的父级名称等于当前用户的团队名称
+        const filteredEmployees = employees.filter((acc: any) => 
+          acc.parentId === userId || acc.parentName === teamName
+        );
         
-        console.log('Team.tsx - 过滤后的组长账号:', filteredGroupsAccounts);
         console.log('Team.tsx - 过滤后的员工账号:', filteredEmployees);
         
-        setAccounts([...filteredGroupsAccounts, ...filteredEmployees]);
+        // 从组长数据中提取组信息
+        const groupsMap = new Map();
+        groupLeaders.forEach((leader: any) => {
+          if (leader._id && leader.groupName) {
+            groupsMap.set(leader._id, {
+              _id: leader._id,
+              groupName: leader.groupName,
+              teamName: teamName
+            });
+          }
+        });
+        setGroups(Array.from(groupsMap.values()));
+        
+        // 转换组长数据为账号格式
+        const formattedGroupLeaders = groupLeaders.map((leader: any) => ({
+          _id: leader.groupLeaderId || leader._id,
+          realName: leader.groupLeaderName || '未知组长',
+          username: leader.groupLeaderName || '未知组长',
+          role: 'GROUP_LEADER',
+          status: 'enabled',
+          groupName: leader.groupName,
+          teamGroupId: leader._id,
+          commission: leader.commission,
+          memberCount: leader.memberCount
+        }));
+        
+        // 合并组长和员工账号
+        setAccounts([...formattedGroupLeaders, ...filteredEmployees]);
       } catch (error) {
         console.error('Error fetching accounts:', error);
         setAccounts([]);
@@ -419,17 +450,19 @@ const Team: React.FC = () => {
     }, []);
     
     const accountCounts = {
-      group: accounts.filter(a => a.role === 'GROUP_LEADER' || (a.teamGroupId || a.groupName)).length,
-      employee: accounts.filter(a => a.role === 'EMPLOYEE').length
+      group: accounts.filter(a => !a.employeeId && a.groupName).length,
+      employee: accounts.filter(a => a.employeeId).length
     };
     
     const filteredAccounts = accounts.filter(a => {
       if (accountType === 'group') {
-        return (a.role === 'GROUP_LEADER' || (a.teamGroupId || a.groupName)) && 
-               (a.realName?.toLowerCase().includes(searchKeyword.toLowerCase()) || 
+        // 组长账号：没有employeeId且有groupName
+        return !a.employeeId && a.groupName && 
+               (a.groupLeaderName?.toLowerCase().includes(searchKeyword.toLowerCase()) || 
                 a.groupName?.toLowerCase().includes(searchKeyword.toLowerCase()));
       } else {
-        return a.role === 'EMPLOYEE' && 
+        // 员工账号：有employeeId
+        return a.employeeId && 
                (a.realName?.toLowerCase().includes(searchKeyword.toLowerCase()) || 
                 a.employeeId?.toLowerCase().includes(searchKeyword.toLowerCase()) ||
                 a.phone?.toLowerCase().includes(searchKeyword.toLowerCase()));
@@ -438,16 +471,16 @@ const Team: React.FC = () => {
     
     const toggleAccountStatus = async (account: any) => {
       try {
-        const currentEnabled = account.status === 'enabled' || account.status === '1';
+        const currentEnabled = account.status === 'enabled' || account.status === '1' || !account.status; // 没有status字段时默认为启用
         const newStatus = currentEnabled ? 'disabled' : 'enabled';
         
         if (account.role === 'EMPLOYEE') {
-          await request<any>(`/employee/${account._id}/status`, {
+          await request<any>(`/admin/employee/${account._id}/status`, {
             method: 'PUT',
             body: JSON.stringify({ status: newStatus })
           });
         } else {
-          await request<any>(`/admin/group-leader/${account._id}`, {
+          await request<any>(`/admin/employee/group-leader/${account._id}`, {
             method: 'PUT',
             body: JSON.stringify({ status: newStatus })
           });
@@ -470,7 +503,7 @@ const Team: React.FC = () => {
           username: '',
           password: '',
           employeeId: account.employeeId || '',
-          groupId: account.groupId || '',
+          groupId: account.teamGroupId || '',
           groupName: account.groupName || '',
           commissionRate: ''
         });
@@ -502,7 +535,9 @@ const Team: React.FC = () => {
       
       try {
         if (editingAccount.role === 'EMPLOYEE') {
-          await request<any>(`/employee/${editingAccount._id}`, {
+          // 查找选中的组信息
+          const selectedGroup = groups.find(g => g._id === formData.groupId);
+          await request<any>(`/admin/employee/${editingAccount._id}`, {
             method: 'PUT',
             body: JSON.stringify({
               parentId: currentUser.id,
@@ -510,20 +545,15 @@ const Team: React.FC = () => {
               phone: formData.phone,
               region: formData.region,
               employeeId: formData.employeeId,
-              groupId: formData.groupId
+              groupId: formData.groupId,
+              groupName: selectedGroup?.groupName || ''
             })
           });
         } else {
           const commissionRate = formData.commissionRate ? parseFloat(formData.commissionRate) / 100 : undefined;
-          await request<any>(`/admin/group-leader/${editingAccount._id}`, {
+          await request<any>(`/admin/employee/group-leader/${editingAccount._id}`, {
             method: 'PUT',
             body: JSON.stringify({
-              realName: formData.realName,
-              phone: formData.phone,
-              region: formData.region,
-              username: formData.username,
-              password: formData.password || undefined,
-              teamGroupId: formData.groupId,
               groupName: formData.groupName,
               ...(commissionRate !== undefined && { commission: commissionRate })
             })
@@ -543,11 +573,11 @@ const Team: React.FC = () => {
       
       try {
         if (deletingAccount.role === 'EMPLOYEE') {
-          await request<any>(`/employee/${deletingAccount._id}`, {
+          await request<any>(`/admin/employee/${deletingAccount._id}`, {
             method: 'DELETE'
           });
         } else {
-          await request<any>(`/admin/group-leader/${deletingAccount._id}`, {
+          await request<any>(`/admin/employee/group-leader/${deletingAccount._id}`, {
             method: 'DELETE'
           });
         }
@@ -578,34 +608,24 @@ const Team: React.FC = () => {
       setSaving(true);
       try {
         if (addType === 'group') {
+          // 创建组长账号
           const commissionRate = formData.commissionRate ? parseFloat(formData.commissionRate) / 100 : 0.05;
           
-          // 第一步：先创建组
-          const groupResult = await request<any>('/admin/team-group/add', {
+          await request<any>('/admin/employee/group-leader/add', {
             method: 'POST',
             body: JSON.stringify({
               teamLeaderId: currentUser.id,
-              teamName: currentUser.teamName,
+              teamName: currentUser.teamName || '鼎盛战队',
               groupName: formData.groupName,
-              commission: commissionRate
-            })
-          });
-          
-          // 第二步：创建组长，使用刚创建的组ID
-          await request<any>('/admin/group-leader/add', {
-            method: 'POST',
-            body: JSON.stringify({
+              commission: commissionRate,
               username: formData.username,
               password: formData.password,
               realName: formData.realName,
-              teamName: currentUser.teamName,
-              teamGroupId: groupResult._id,
-              groupName: formData.groupName,
-              commission: commissionRate
+              phone: formData.phone
             })
           });
         } else {
-          await request<any>('/employee/create', {
+          await request<any>('/admin/employee/create', {
             method: 'POST',
             body: JSON.stringify({
               parentId: currentUser.id,
@@ -708,7 +728,7 @@ const Team: React.FC = () => {
                             {account.phone && <span>{account.phone}</span>}
                           </p>
                           <p className="text-[10px] text-gray-400 mt-0.5">
-                            组别：{account.groupName || '无'}
+                            组别：{groups.find(g => g._id === account.teamGroupId)?.groupName || account.groupName || '无'}
                           </p>
                           <p className="text-[10px] text-gray-400 mt-0.5">
                             地区：{account.region || '无'}
@@ -750,14 +770,14 @@ const Team: React.FC = () => {
                       >
                         <Trash2 size={16} />
                       </button>
-                      <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${(account.status === 'enabled' || account.status === '1') ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'}`}>
-                        {(account.status === 'enabled' || account.status === '1') ? '启用' : '禁用'}
+                      <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${(account.status === 'enabled' || account.status === '1' || !account.status) ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'}`}>
+                        {(account.status === 'enabled' || account.status === '1' || !account.status) ? '启用' : '禁用'}
                       </span>
                       <button
                         onClick={() => toggleAccountStatus(account)}
-                        className={`w-10 h-6 rounded-full p-0.5 transition-all ${(account.status === 'enabled' || account.status === '1') ? 'bg-green-500' : 'bg-gray-300'}`}
+                        className={`w-10 h-6 rounded-full p-0.5 transition-all ${(account.status === 'enabled' || account.status === '1' || !account.status) ? 'bg-green-500' : 'bg-gray-300'}`}
                       >
-                        <div className={`w-5 h-5 rounded-full bg-white shadow-sm transition-all ${(account.status === 'enabled' || account.status === '1') ? 'translate-x-4' : 'translate-x-0'}`}></div>
+                        <div className={`w-5 h-5 rounded-full bg-white shadow-sm transition-all ${(account.status === 'enabled' || account.status === '1' || !account.status) ? 'translate-x-4' : 'translate-x-0'}`}></div>
                       </button>
                     </div>
                   </div>
@@ -848,14 +868,23 @@ const Team: React.FC = () => {
                         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
                       />
                     </div>
+
                     <div>
-                      <label className="text-xs font-bold text-gray-700 block mb-1">员工号</label>
-                      <input
-                        type="text"
-                        value={formData.employeeId}
-                        onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
-                      />
+                      <label className="text-xs font-bold text-gray-700 block mb-1">所属小组 <span className="text-gray-400">(可选)</span></label>
+                      <div className="relative">
+                        <select
+                          value={formData.groupId}
+                          onChange={(e) => setFormData({ ...formData, groupId: e.target.value })}
+                          className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 appearance-none"
+                        >
+                          <option value="">无</option>
+                          {groups.map((group: any) => (
+                            <option key={group._id} value={group._id}>
+                              {group.groupName}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   </>
                 )}

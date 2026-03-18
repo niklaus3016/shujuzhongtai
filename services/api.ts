@@ -2,7 +2,7 @@ import { ApiResponse } from '../types';
 import { retryFetch } from '../utils/retryFetch';
 
 const BASE_URLS = [
-  'https://wfqmaepvjkdd.sealoshzh.site/api/admin',
+  'https://wfqmaepvjkdd.sealoshzh.site/api',
   'https://wfqmaepvjkdd.sealoshzh.site/api'
 ];
 
@@ -30,7 +30,13 @@ export async function request<T>(
         });
 
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+          try {
+            const errorText = await response.text();
+            const errorData = JSON.parse(errorText);
+            throw new Error(errorData.message || `HTTP ${response.status}`);
+          } catch (e) {
+            throw new Error(`HTTP ${response.status}`);
+          }
         }
 
         const text = await response.text();

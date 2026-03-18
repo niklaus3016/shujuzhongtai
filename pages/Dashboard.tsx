@@ -98,7 +98,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
 
       // 只要不是团队长和组长，就获取KPI数据
       if (showKPIDashboard) {
-        const kpiResponse = await request<any>(`/dashboard/kpi?range=${rangeParam}`, {
+        const kpiResponse = await request<any>(`/admin/dashboard/kpi?range=${rangeParam}`, {
           method: 'GET'
         });
 
@@ -113,7 +113,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         // 如果是今日数据，同时获取昨日数据用于计算增长率
         if (timeRange === TimeRange.TODAY) {
           try {
-            const yesterdayResponse = await request<any>(`/dashboard/kpi?range=yesterday`, {
+            const yesterdayResponse = await request<any>(`/admin/dashboard/kpi?range=yesterday`, {
               method: 'GET'
             });
             setYesterdayKpiData(yesterdayResponse);
@@ -164,13 +164,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       }
 
       // Fetch user data - 团队长只获取自己团队的用户，组长只获取自己组的用户
-      let userUrl = `/dashboard/users?range=${rangeParam}&limit=30`;
+      let userUrl = `/admin/dashboard/users?range=${rangeParam}&limit=30`;
       if (isTeamLeader) {
         const teamName = currentUser?.teamName || '鼎盛战队';
-        userUrl = `/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}&limit=30`;
+        userUrl = `/admin/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}&limit=30`;
       } else if (isGroupLeader) {
         const teamGroupId = currentUser?.teamGroupId;
-        userUrl = `/dashboard/users?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}&limit=30`;
+        userUrl = `/admin/dashboard/users?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}&limit=30`;
       }
       
       const userResponse = await request<any[]>(userUrl, {
@@ -180,13 +180,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       // 如果是今日数据，同时获取昨日用户数据用于计算次数对比
       if (timeRange === TimeRange.TODAY) {
         try {
-          let yesterdayUserUrl = `/dashboard/users?range=yesterday&limit=30`;
+          let yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&limit=30`;
           if (isTeamLeader) {
             const teamName = currentUser?.teamName || '鼎盛战队';
-            yesterdayUserUrl = `/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}&limit=30`;
+            yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}&limit=30`;
           } else if (isGroupLeader) {
             const teamGroupId = currentUser?.teamGroupId;
-            yesterdayUserUrl = `/dashboard/users?range=yesterday&group=${encodeURIComponent(teamGroupId || '')}&limit=30`;
+            yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&group=${encodeURIComponent(teamGroupId || '')}&limit=30`;
           }
           const yesterdayUserResponse = await request<any[]>(yesterdayUserUrl, {
             method: 'GET'

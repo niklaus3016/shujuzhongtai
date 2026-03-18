@@ -91,38 +91,27 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
 
       // 计算团队分成（用户分成的20%）
       const userShare = Number(responseData?.coins || 0) / 1000;
-      const teamShare = userShare * 0.2;
       
       // 计算单条平均金币 = (团队用户收益 * 1000) / 广告总曝光
       const averageCoins = responseData?.impressions > 0 ? (userShare * 1000) / Number(responseData?.impressions) : 0;
       console.log('单条平均金币:', averageCoins);
 
-      // 获取用户列表来计算团队组长收益和活跃用户数
+      // 获取用户列表来计算活跃用户数
       let teamLeaderEarnings = 0;
       let activeUsersCount = 0;
       let totalUsersCount = 0;
-      let groupsData: any[] = [];
+      
       try {
-        // 先获取组列表，获取每个组的分成比例
-        const groupsUrl = '/group/list';
-        const groupsResponse = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/admin${groupsUrl}`, {
-          method: 'GET',
-          headers: new Headers({
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          })
-        });
+        // 直接使用团队名称对应的组ID（临时解决方案）
+        const groupsData: any[] = [
+          {
+            _id: '69b983ac05e593e7e7e4b431',
+            groupName: '我是测试'
+          }
+        ];
+        console.log('使用默认组数据:', groupsData);
         
-        if (groupsResponse.ok) {
-          const groupsResult = await groupsResponse.json();
-          groupsData = groupsResult.data || groupsResult || [];
-          console.log('组列表:', groupsData);
-          // 检查每个组的ID字段
-          groupsData.forEach((group: any) => {
-            console.log(`组: _id=${group._id}, id=${group.id}, groupName=${group.groupName}, commission=${group.commission}`);
-          });
-        }
-        
+        // 获取用户列表来计算活跃用户数
         const userUrl = `/dashboard/users?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}`;
         const userResponse = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/admin${userUrl}`, {
           method: 'GET',
@@ -139,12 +128,6 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
           console.log('团队名称:', teamName);
           console.log('请求的URL:', userUrl);
           console.log('用户列表总数:', users.length);
-          console.log('用户列表:', users);
-          
-          // 检查每个用户的组ID字段
-          users.forEach((user: any) => {
-            console.log(`用户 ${user.userId || user.employeeId}: groupId=${user.groupId}, teamGroupId=${user.teamGroupId}, groupName=${user.groupName}`);
-          });
           
           // 团队长只计算自己团队的用户
           const filteredUsers = users.filter((user: any) => {
@@ -155,41 +138,61 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
           console.log('过滤后用户数:', filteredUsers.length);
           console.log('团队总用户数:', totalUsersCount);
           
-          // 构建组名称到分成比例的映射（因为用户数据中有groupName但没有groupId）
-          const groupCommissionMap: Record<string, number> = {};
-          groupsData.forEach((group: any) => {
-            if (group.groupName && group.commission !== undefined) {
-              groupCommissionMap[group.groupName] = group.commission;
-              console.log(`组 ${group.groupName}: 分成比例=${group.commission}`);
-            }
-          });
-          
           // 计算活跃用户数：有收益或观看次数的用户（只计算本团队的用户）
           activeUsersCount = filteredUsers.filter((user: any) => (user.watched > 0 || user.earnings > 0)).length;
           console.log('活跃用户数:', activeUsersCount);
-          console.log('活跃用户详情:', filteredUsers.filter((user: any) => (user.watched > 0 || user.earnings > 0)).map((u: any) => ({ id: u.userId || u.employeeId, watched: u.watched, earnings: u.earnings })));
-          
-          // 计算团队组长收益：每个用户如果有组长（有组别），则该用户收益的提成比例归组长（只计算本团队的用户）
-          teamLeaderEarnings = filteredUsers.reduce((total: number, user: any) => {
-            const userEarnings = (user.earnings || 0) / 1000;
-            // 获取用户的组名称（groupName）
-            const userGroupName = user.groupName || '';
-            // 如果用户有组长（groupName不为空），则计算组长收益
-            const hasLeader = userGroupName && userGroupName !== '' && userGroupName !== '无';
-            // 从组数据中获取分成比例，如果没有则使用默认值5%
-            const leaderCommissionRate = hasLeader ? (groupCommissionMap[userGroupName] || 0.05) : 0;
-            const leaderEarnings = hasLeader ? userEarnings * leaderCommissionRate : 0;
-            if (hasLeader) {
-              console.log(`用户 ${user.userId || user.employeeId}: 收益=${userEarnings}, 组别名称=${userGroupName}, 组长分成比例=${leaderCommissionRate}, 组长收益=${leaderEarnings}`);
-            }
-            return total + leaderEarnings;
-          }, 0);
-          
-          console.log('团队组长收益总计:', teamLeaderEarnings);
         }
+        
+        // 调用后端API获取团队组长收益（根据提成比例变更历史准确计算）
+        // 遍历所有组，获取每个组的组长提成收益
+        console.log('开始获取团队组长收益，组列表:', groupsData);
+        for (const group of groupsData) {
+          if (group._id || group.id) {
+            const groupId = group._id || group.id;
+            const fullUrl = `https://wfqmaepvjkdd.sealoshzh.site/api/admin/group-leader-commission/${groupId}?range=${formattedTimeRange}&limit=100`;
+            console.log(`请求组 ${group.groupName} 的提成数据，URL:`, fullUrl);
+            
+            try {
+              const commissionResponse = await fetch(fullUrl, {
+                method: 'GET',
+                headers: new Headers({
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+                })
+              });
+              
+              console.log(`组 ${group.groupName} API响应状态:`, commissionResponse.status);
+              
+              if (commissionResponse.ok) {
+                const commissionResult = await commissionResponse.json();
+                console.log(`组 ${group.groupName} API返回数据:`, commissionResult);
+                const commissionData = commissionResult.data || commissionResult;
+                // 累加每个组的总提成
+                if (commissionData && commissionData.totalCommission) {
+                  teamLeaderEarnings += commissionData.totalCommission;
+                  console.log(`组 ${group.groupName}: 组长提成=${commissionData.totalCommission}`);
+                } else {
+                  console.log(`组 ${group.groupName}: 没有totalCommission字段，数据:`, commissionData);
+                }
+              } else {
+                const errorText = await commissionResponse.text();
+                console.error(`组 ${group.groupName} API请求失败:`, errorText);
+              }
+            } catch (err) {
+              console.error(`组 ${group.groupName} API请求异常:`, err);
+            }
+          } else {
+            console.log('组没有ID:', group);
+          }
+        }
+        
+        console.log('团队组长收益总计（从后端API获取）:', teamLeaderEarnings);
       } catch (error) {
-        console.error('获取用户列表失败:', error);
+        console.error('获取数据失败:', error);
       }
+
+      // 计算团队提成收益 = 用户分成的25% - 团队组长收益
+      const teamShare = userShare * 0.25 - teamLeaderEarnings;
 
       // 转换KPI数据为前端格式
       const transformedKpis = [

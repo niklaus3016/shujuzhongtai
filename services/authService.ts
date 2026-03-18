@@ -5,22 +5,22 @@ import { request } from './api';
 export const authService = {
   async login(username: string, password: string, remember: boolean): Promise<AdminUser> {
     // Call the actual API
-    const data = await request<{ user: AdminUser; token: string }>('/login', {
+    const data = await request<{ admin: AdminUser; token: string }>('/admin/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     });
     
     // Process the response
     const user: AdminUser = {
-      id: data.user.id,
-      username: data.user.username,
-      role: data.user.role as UserRole,
+      id: data.admin.id,
+      username: data.admin.username,
+      role: data.admin.role as UserRole,
       token: data.token,
       status: 'enabled',
-      commission: data.user.commission,
-      teamName: data.user.teamName,
-      teamGroupId: data.user.teamGroupId,
-      groupName: data.user.groupName
+      commission: data.admin.commission,
+      teamName: data.admin.teamName,
+      teamGroupId: data.admin.teamGroupId,
+      groupName: data.admin.groupName
     };
     
     this.saveSession(user, remember);
