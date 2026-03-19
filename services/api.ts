@@ -1,9 +1,10 @@
 import { ApiResponse } from '../types';
 import { retryFetch } from '../utils/retryFetch';
 
-// 使用相对路径，通过nginx代理访问API
+// 使用相对路径和完整路径，确保开发和生产环境都能正常访问
 const BASE_URLS = [
-  '/api'
+  '/api',
+  'https://wfqmaepvjkdd.sealoshzh.site'
 ];
 
 export async function request<T>(
