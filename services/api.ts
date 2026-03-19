@@ -1,9 +1,9 @@
 import { ApiResponse } from '../types';
 import { retryFetch } from '../utils/retryFetch';
 
+// 使用相对路径，通过nginx代理访问API
 const BASE_URLS = [
-  'https://wfqmaepvjkdd.sealoshzh.site/api',
-  'https://wfqmaepvjkdd.sealoshzh.site/api'
+  '/api'
 ];
 
 export async function request<T>(
