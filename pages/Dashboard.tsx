@@ -55,6 +55,25 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
   // 只要不是团队长和组长，就显示数据看板（包括超级管理员和普通管理员）
   const showKPIDashboard = !isTeamLeader && !isGroupLeader;
   
+  // 团队名称映射表
+  const teamNameMap: Record<string, string> = {
+    'cuiding': '鼎盛战队',
+    'cuijie': '花好月圆战队',
+    'huangzhenhui': '四季发财战队'
+    // 可以根据需要添加更多映射
+  };
+  
+  // 获取用户对应的团队名称
+  const getUserTeamName = () => {
+    if (currentUser?.teamName) {
+      return currentUser.teamName;
+    }
+    if (currentUser?.username && teamNameMap[currentUser.username]) {
+      return teamNameMap[currentUser.username];
+    }
+    return '团队';
+  };
+  
   const [timeRange, setTimeRange] = useState<TimeRange>(TimeRange.TODAY);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -125,7 +144,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       // 构建用户数据URL
       let userUrl = `/admin/dashboard/users?range=${rangeParam}&limit=30`;
       if (isTeamLeader) {
-        const teamName = currentUser?.teamName || '鼎盛战队';
+        const teamName = getUserTeamName();
         userUrl = `/admin/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}&limit=30`;
       } else if (isGroupLeader) {
         const teamGroupId = currentUser?.teamGroupId;
@@ -138,7 +157,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       if (timeRange === TimeRange.TODAY) {
         let yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&limit=30`;
         if (isTeamLeader) {
-          const teamName = currentUser?.teamName || '鼎盛战队';
+          const teamName = getUserTeamName();
           yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}&limit=30`;
         } else if (isGroupLeader) {
           const teamGroupId = currentUser?.teamGroupId;
@@ -288,7 +307,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       let filteredUsers = transformedUsers;
       
       if (isTeamLeader) {
-        const teamName = currentUser?.teamName || '鼎盛战队';
+        const teamName = getUserTeamName();
         console.log('团队名称:', teamName);
         filteredUsers = transformedUsers.filter(user => {
           const userTeam = user.teamName || user.superior || '系统直属';

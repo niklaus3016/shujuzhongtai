@@ -267,7 +267,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         const todayEarnings = Math.max(0, todayTeamCoins * 0.25 - teamLeaderEarnings);
         const monthEarnings = Math.max(0, monthTeamCoins * 0.25 - teamLeaderEarnings);
         const lastMonthEarnings = Math.max(0, lastMonthTeamCoins * 0.25); // 上月收益直接使用团队金币 * 25%，不减去团队组长收益
-        const totalEarnings = Math.max(0, totalTeamCoins * 0.25 - teamLeaderEarnings);
+        const totalEarnings = Math.max(0, totalTeamCoins * 0.25); // 累计收益直接使用团队金币 * 25%，不减去团队组长收益
         
         console.log('Calculated earnings:', { todayEarnings, monthEarnings, lastMonthEarnings, totalEarnings });
         

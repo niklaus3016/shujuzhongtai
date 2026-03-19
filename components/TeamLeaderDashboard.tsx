@@ -20,6 +20,25 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
   
   // 使用 useMemo 缓存 currentUser，避免每次渲染都返回新对象
   const currentUser = useMemo(() => authService.getCurrentUser(), []);
+  
+  // 团队名称映射表
+  const teamNameMap: Record<string, string> = {
+    'cuiding': '鼎盛战队',
+    'cuijie': '花好月圆战队',
+    'huangzhenhui': '四季发财战队'
+    // 可以根据需要添加更多映射
+  };
+  
+  // 获取用户对应的团队名称
+  const getUserTeamName = () => {
+    if (currentUser?.teamName) {
+      return currentUser.teamName;
+    }
+    if (currentUser?.username && teamNameMap[currentUser.username]) {
+      return teamNameMap[currentUser.username];
+    }
+    return '团队';
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -47,7 +66,7 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
       console.log('处理后的时间范围:', formattedTimeRange);
       
       // 使用正确的 API 路径 - KPI 接口
-      const teamName = currentUser?.teamName || '鼎盛战队';
+      const teamName = getUserTeamName();
       const apiUrl = `/admin/dashboard/kpi?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}`;
       
       try {
