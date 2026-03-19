@@ -4,7 +4,7 @@ import { retryFetch } from '../utils/retryFetch';
 // 使用相对路径和完整路径，确保开发和生产环境都能正常访问
 const BASE_URLS = [
   '/api',
-  'https://wfqmaepvjkdd.sealoshzh.site'
+  'https://wfqmaepvjkdd.sealoshzh.site/api'
 ];
 
 export async function request<T>(
