@@ -81,73 +81,88 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
       // 计算单条平均金币 = (团队用户收益 * 1000) / 广告总曝光
       averageCoins = responseData?.impressions > 0 ? (userShare * 1000) / Number(responseData?.impressions) : 0;
 
-      // 获取用户列表来计算活跃用户数
+      // 并行获取所有需要的数据，提高加载速度
       try {
-        // 从后端API获取团队的组列表
+        // 并行执行API请求
+        const [teamsResult, userResult, employeeResult] = await Promise.all([
+          request<{ id: string; leader: string }[]>('/team/list', { method: 'GET' }).catch(error => {
+            console.error('获取团队列表失败:', error);
+            return [];
+          }),
+          request<any[]>(`/admin/dashboard/users?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}&limit=100`).catch(error => {
+            console.error('获取用户列表失败:', error);
+            return [];
+          }),
+          request<any>('/admin/employee/list?pageSize=100', { method: 'GET' }).catch(error => {
+            console.error('获取员工账号列表失败:', error);
+            return { data: [] };
+          })
+        ]);
+
+        // 处理团队和组数据
         let groupsData: any[] = [];
-        try {
-          const teams = await request<{ id: string; leader: string }[]>('/team/list', {
-            method: 'GET'
-          });
-          console.log('团队列表API返回:', teams);
-          const team = teams.find(t => t.leader === teamName);
-          if (team) {
-            console.log('找到团队:', team);
+        const teams = Array.isArray(teamsResult) ? teamsResult : [];
+        console.log('团队列表API返回:', teams);
+        const team = teams.find(t => t.leader === teamName);
+        if (team) {
+          console.log('找到团队:', team);
+          try {
             const groups = await request<any[]>(`/group/list?teamId=${team.id}`, {
               method: 'GET'
             });
             console.log('组列表API返回:', groups);
             groupsData = groups || [];
             console.log('从API获取的组数据:', groupsData);
-          } else {
-            console.log('找不到团队:', teamName);
-            // 如果找不到团队，使用默认组数据
+          } catch (error) {
+            console.error('获取组列表失败:', error);
+            // API错误时使用默认组数据
             groupsData = [
               {
                 _id: '69b983ac05e593e7e7e4b431',
                 groupName: '我是测试'
               }
             ];
+            console.log('使用默认组数据:', groupsData);
           }
-        } catch (error) {
-          console.error('获取组列表失败:', error);
-          // API错误时使用默认组数据
+        } else {
+          console.log('找不到团队:', teamName);
+          // 如果找不到团队，使用默认组数据
           groupsData = [
             {
               _id: '69b983ac05e593e7e7e4b431',
               groupName: '我是测试'
             }
           ];
-          console.log('使用默认组数据:', groupsData);
         }
 
-        // 获取用户列表来计算活跃用户数
-        const userUrl = `/admin/dashboard/users?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}&limit=100`;
-        try {
-          const userResult = await request<any[]>(userUrl, {
-            method: 'GET'
-          });
-          const users = Array.isArray(userResult) ? userResult : [];
-          
-          console.log('团队名称:', teamName);
-          console.log('请求的URL:', userUrl);
-          console.log('用户列表总数:', users.length);
-          
-          // 团队长只计算自己团队的用户
-          const filteredUsers = users.filter((user: any) => {
-            const userTeam = user.teamName || user.superior || '系统直属';
-            return userTeam === teamName;
-          });
-          totalUsersCount = users.length;
-          console.log('过滤后用户数:', filteredUsers.length);
-          console.log('团队总用户数:', totalUsersCount);
-          
-          // 计算活跃用户数：有收益或观看次数的用户（只计算本团队的用户）
-          activeUsersCount = filteredUsers.filter((user: any) => (user.watched > 0 || user.earnings > 0)).length;
-          console.log('活跃用户数:', activeUsersCount);
-        } catch (error) {
-          console.error('获取用户列表失败:', error);
-        }
+        // 处理用户数据，计算活跃用户数
+        const users = Array.isArray(userResult) ? userResult : [];
+        console.log('团队名称:', teamName);
+        console.log('用户列表总数:', users.length);
+        
+        // 团队长只计算自己团队的用户
+        const filteredUsers = users.filter((user: any) => {
+          const userTeam = user.teamName || user.superior || '系统直属';
+          return userTeam === teamName;
+        });
+        console.log('过滤后用户数:', filteredUsers.length);
+        
+        // 计算活跃用户数：有收益或观看次数的用户（只计算本团队的用户）
+        activeUsersCount = filteredUsers.filter((user: any) => (user.watched > 0 || user.earnings > 0)).length;
+        console.log('活跃用户数:', activeUsersCount);
+
+        // 处理员工账号数据，计算已启用的员工账号数量
+        const employees = Array.isArray(employeeResult) ? employeeResult : (employeeResult?.data || []);
+        
+        // 过滤出本团队的员工且状态为active
+        const teamEmployees = employees.filter((emp: any) => {
+          const empTeam = emp.parentName || emp.teamName || emp.superior || '';
+          const isActive = emp.status === 'active' || emp.status === 'enabled' || !emp.status;
+          return empTeam === teamName && isActive;
+        });
+        
+        totalUsersCount = teamEmployees.length;
+        console.log('账号管理中的员工账号数量（已启用）:', totalUsersCount);
 
         // 调用后端API获取团队组长收益（根据提成比例变更历史准确计算）
         // 并行获取所有组的提成数据，提高加载速度

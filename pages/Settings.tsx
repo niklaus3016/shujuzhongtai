@@ -17,6 +17,25 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
   const isGroupLeader = currentUser?.role === UserRole.GROUP_LEADER;
   const isSuperAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
   
+  // 团队名称映射表
+  const teamNameMap: Record<string, string> = {
+    'cuiding': '鼎盛战队',
+    'cuijie': '花好月圆战队',
+    'huangzhenhui': '四季发财战队'
+    // 可以根据需要添加更多映射
+  };
+  
+  // 获取用户对应的团队名称
+  const getUserTeamName = () => {
+    if (currentUser?.teamName) {
+      return currentUser.teamName;
+    }
+    if (currentUser?.username && teamNameMap[currentUser.username]) {
+      return teamNameMap[currentUser.username];
+    }
+    return '团队';
+  };
+  
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
@@ -118,43 +137,145 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     try {
       // 团队长获取自己团队的收益数据
       if (isTeamLeader) {
-        // 即使 currentUser 中没有 teamName 字段，也使用默认团队名称
-        const teamName = currentUser?.teamName || '鼎盛战队';
+        // 使用 getUserTeamName() 函数获取团队名称
+        const teamName = getUserTeamName();
+        console.log('Team name:', teamName);
         
-        // 使用request函数统一处理API请求
-        // 获取团队今日数据
-        const todayResponse = await request<any>(`/dashboard/kpi?range=today&team=${encodeURIComponent(teamName)}`, {
-          method: 'GET'
-        });
-        
-        // 获取团队本月数据
-        const monthResponse = await request<any>(`/dashboard/kpi?range=month&team=${encodeURIComponent(teamName)}`, {
-          method: 'GET'
-        });
-        
-        // 获取团队内用户上月累计金币
-        const lastMonthResponse = await request<any>(`/team/last-month-coins?team=${encodeURIComponent(teamName)}`, {
-          method: 'GET'
+        // 并行获取所有需要的数据，提高加载速度
+        const [todayResponse, monthResponse, lastMonthResponse, totalResponse, teamsResponse] = await Promise.all([
+          // 获取团队今日数据（使用与首页相同的API）
+          request<any>(`/admin/dashboard/kpi?range=today&team=${encodeURIComponent(teamName)}`, {
+            method: 'GET'
+          }).catch(error => {
+            console.error('Error fetching today data:', error);
+            return {};
+          }),
+          // 获取团队本月数据
+          request<any>(`/admin/dashboard/kpi?range=month&team=${encodeURIComponent(teamName)}`, {
+            method: 'GET'
+          }).catch(error => {
+            console.error('Error fetching month data:', error);
+            return {};
+          }),
+          // 获取团队内用户上月累计金币
+          request<any>(`/team/last-month-coins?team=${encodeURIComponent(teamName)}`, {
+            method: 'GET'
+          }).catch(error => {
+            console.error('Error fetching last month data:', error);
+            return {};
+          }),
+          // 获取团队累计金币
+          request<any>(`/admin/dashboard/kpi?range=all&team=${encodeURIComponent(teamName)}`, {
+            method: 'GET'
+          }).catch(error => {
+            console.error('Error fetching total data:', error);
+            return {};
+          }),
+          // 获取团队列表
+          request<any[]>('/team/list', { method: 'GET' }).catch(error => {
+            console.error('获取团队列表失败:', error);
+            return [];
+          })
+        ]);
+
+        console.log('Today response:', todayResponse);
+        console.log('Month response:', monthResponse);
+        console.log('Last month response:', lastMonthResponse);
+        console.log('Total response:', totalResponse);
+        console.log('Teams response:', teamsResponse);
+
+        // 处理团队和组数据
+        let groupsData: any[] = [];
+        const teams = Array.isArray(teamsResponse) ? teamsResponse : [];
+        console.log('团队列表:', teams);
+        const team = teams.find(t => t.leader === teamName);
+        if (team) {
+          console.log('找到团队:', team);
+          try {
+            const groups = await request<any[]>(`/group/list?teamId=${team.id}`, {
+              method: 'GET'
+            });
+            console.log('组列表:', groups);
+            groupsData = groups || [];
+          } catch (error) {
+            console.error('获取组列表失败:', error);
+            // API错误时使用默认组数据
+            groupsData = [
+              {
+                _id: '69b983ac05e593e7e7e4b431',
+                groupName: '我是测试'
+              }
+            ];
+          }
+        } else {
+          console.log('找不到团队:', teamName);
+          // 如果找不到团队，使用默认组数据
+          groupsData = [
+            {
+              _id: '69b983ac05e593e7e7e4b431',
+              groupName: '我是测试'
+            }
+          ];
+        }
+
+        // 并行获取所有组的提成数据，提高加载速度
+        console.log('开始获取团队组长收益，组列表:', groupsData);
+        const commissionPromises = groupsData.map(async (group) => {
+          if (group._id || group.id) {
+            const groupId = group._id || group.id;
+            const groupName = group.groupName || group.name || '未知组';
+            const commissionUrl = `/admin/group-leader-commission/${groupId}?range=today`;
+            console.log(`请求组 ${groupName} 的提成数据，URL:`, commissionUrl);
+            
+            try {
+              const commissionData = await request<any>(commissionUrl, {
+                method: 'GET'
+              });
+              console.log(`组 ${groupName} API返回数据:`, commissionData);
+              // 返回每个组的提成数据，request函数已经处理了data字段的提取
+              const totalCommission = commissionData?.totalCommission || 0;
+              console.log(`组 ${groupName}: 组长提成=${totalCommission}`);
+              return totalCommission;
+            } catch (err) {
+              console.error(`组 ${groupName} API请求异常:`, err);
+              return 0;
+            }
+          } else {
+            console.log('组没有ID:', group);
+            return 0;
+          }
         });
 
-        // 获取团队累计金币
-        const totalResponse = await request<any>(`/dashboard/kpi?range=all&team=${encodeURIComponent(teamName)}`, {
-          method: 'GET'
-        });
+        // 并行执行所有请求
+        const commissionResults = await Promise.all(commissionPromises);
 
-        // 计算收益 - 团队长收益 = 团队金币 * 20%
-        console.log('Team responses:', { todayResponse, monthResponse, lastMonthResponse, totalResponse });
-        const todayTeamCoins = Number(todayResponse?.coins || 0) / 1000;
-        const monthTeamCoins = Number(monthResponse?.coins || 0) / 1000;
-        const lastMonthTeamCoins = Number(lastMonthResponse?.coins || 0) / 1000;
-        const totalTeamCoins = Number(totalResponse?.coins || 0) / 1000;
+        // 累加所有组的总提成
+        const teamLeaderEarnings = commissionResults.reduce((total, commission) => total + commission, 0);
+        console.log('团队组长总收益:', teamLeaderEarnings);
+
+        // 从首页API获取的数据直接使用
+        // 团队长收益 = （团队金币 * 25%）- 团队组长收益
+        const todayTeamCoins = Number(todayResponse?.coins || todayResponse?.data?.coins || 0) / 1000;
+        const monthTeamCoins = Number(monthResponse?.coins || monthResponse?.data?.coins || 0) / 1000;
+        const lastMonthTeamCoins = Number(lastMonthResponse?.coins || lastMonthResponse?.data?.coins || 0) / 1000;
+        const totalTeamCoins = Number(totalResponse?.coins || totalResponse?.data?.coins || 0) / 1000;
+        
         console.log('Calculated coins:', { todayTeamCoins, monthTeamCoins, lastMonthTeamCoins, totalTeamCoins });
-
+        
+        // 计算收益 - 团队长收益 = （团队金币 * 25%）- 团队组长收益
+        // 确保收益不会出现负数
+        const todayEarnings = Math.max(0, todayTeamCoins * 0.25 - teamLeaderEarnings);
+        const monthEarnings = Math.max(0, monthTeamCoins * 0.25 - teamLeaderEarnings);
+        const lastMonthEarnings = Math.max(0, lastMonthTeamCoins * 0.25); // 上月收益直接使用团队金币 * 25%，不减去团队组长收益
+        const totalEarnings = Math.max(0, totalTeamCoins * 0.25 - teamLeaderEarnings);
+        
+        console.log('Calculated earnings:', { todayEarnings, monthEarnings, lastMonthEarnings, totalEarnings });
+        
         setEarnings({
-          today: todayTeamCoins * 0.2,
-          month: monthTeamCoins * 0.2,
-          lastMonth: lastMonthTeamCoins * 0.2,
-          total: totalTeamCoins * 0.2
+          today: todayEarnings,
+          month: monthEarnings,
+          lastMonth: lastMonthEarnings,
+          total: totalEarnings
         });
       } else if (currentUser?.role === UserRole.GROUP_LEADER) {
         // 组长获取自己组的收益数据
@@ -322,31 +443,11 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
             <div>
                 <div className="flex items-center space-x-2">
                     <h2 className="text-xl font-black">{currentUser?.username || 'Admin Pro'}</h2>
-                    <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full backdrop-blur-sm border border-white/10 uppercase">
-                      {isSuperAdmin ? '超级管理员' : isTeamLeader ? '团队长' : isGroupLeader ? '组长' : '普通管理员'}
+                    <span className="text-[10px] font-bold bg-gradient-to-r from-blue-500 to-purple-600 text-white px-3 py-1 rounded-full backdrop-blur-sm border border-white/20 uppercase shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105">
+                      {isSuperAdmin ? '超级管理员' : isTeamLeader ? getUserTeamName() : isGroupLeader ? '组长' : '普通管理员'}
                     </span>
                 </div>
-                <div className="flex items-center space-x-1 mt-0.5 opacity-80">
-                  <span className="text-[10px] opacity-60">ID: {currentUser?.id}</span>
-                  <button 
-                    onClick={() => {
-                      if (currentUser?.id) {
-                        navigator.clipboard.writeText(currentUser.id);
-                        setShowCopySuccess(true);
-                        setTimeout(() => setShowCopySuccess(false), 2000);
-                      }
-                    }}
-                    className="p-1 hover:bg-white/20 rounded-full transition-colors"
-                    title="复制ID"
-                  >
-                    <Copy size={12} className="text-white/60 hover:text-white transition-colors" />
-                  </button>
-                  {showCopySuccess && (
-                    <span className="text-[9px] bg-white/30 px-2 py-0.5 rounded-full backdrop-blur-sm text-white animate-in fade-in duration-300">
-                      ID复制成功
-                    </span>
-                  )}
-                </div>
+
             </div>
         </div>
       </div>

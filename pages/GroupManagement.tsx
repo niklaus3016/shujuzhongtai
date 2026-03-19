@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import {
-  Plus, Search, X, Edit2, Trash2, Loader2,
-  ChevronRight, AlertCircle, Users2, Award, ChevronUp, ChevronDown
+import { 
+  Plus, Search, X, Edit2, Trash2, Loader2, 
+  ChevronRight, ChevronLeft, AlertCircle, Users2, Award, ChevronUp, ChevronDown
 } from 'lucide-react';
 import { request } from '../services/api';
 import { authService } from '../services/authService';
@@ -19,15 +19,240 @@ interface Group {
   todayRevenue?: number;
   monthlyRevenue?: number;
   todayAdCount?: number;
+  yesterdayAdCount?: number;
   avgEcpm?: number;
   yesterdayRevenue?: number;
   commission?: number;
+  groupLeaderId?: string;
+  groupLeaderName?: string;
 }
+
+interface GroupMember {
+  id: string;
+  name: string;
+  avatar: string;
+  todayWatched: number;
+  todayEarnings: number;
+  status: '在线' | '离线';
+}
+
+const GroupMemberDetail: React.FC<{ group: Group; onBack: () => void }> = ({ group, onBack }) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [members, setMembers] = useState<GroupMember[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sortBy, setSortBy] = useState<'watched' | 'earnings'>('earnings');
+
+  useEffect(() => {
+    const fetchMembers = async () => {
+      setLoading(true);
+      try {
+        console.log('Group ID:', group.id);
+        console.log('Group name:', group.name);
+        const token = localStorage.getItem('admin_token');
+        console.log('Token exists:', !!token);
+        
+        // 尝试使用用户列表API，然后过滤出属于该组的成员
+        console.log('Trying users API...');
+        const response = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/admin/dashboard/users?range=today&limit=100`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        console.log('Users API Response Status:', response.status);
+        const result = await response.json();
+        console.log('Users API Response:', result);
+        
+        if (result.success) {
+          const users = result.data || result || [];
+          console.log('All users:', users.length);
+          
+          // 过滤出属于该组的成员
+          // 只匹配真正属于该组的用户
+          const groupMembers = users.filter((user: any) => {
+            // 尝试多种可能的字段匹配
+            const matchesGroupName = user.groupName === group.name;
+            const matchesGroupId = user.teamGroupId === group.id;
+            const matchesEmployeeId = user.employeeId === group.groupLeaderId;
+            
+            console.log('User:', user.employeeId || user.id, 'groupName:', user.groupName, 'teamGroupId:', user.teamGroupId, 'employeeId:', user.employeeId);
+            console.log('Matches:', { matchesGroupName, matchesGroupId, matchesEmployeeId });
+            
+            // 只返回真正匹配的用户
+            return matchesGroupName || matchesGroupId || matchesEmployeeId;
+          });
+          
+          console.log('Filtered group members:', groupMembers.length);
+          console.log('Group members details:', groupMembers);
+          
+          // 转换用户数据为GroupMember格式
+          const formattedMembers = groupMembers.map((user: any) => ({
+            id: user.employeeId || user.id || user.userId,
+            name: user.realName || user.realname || user.name || user.username || user.userName || user.userId || user.employeeId || '',
+            avatar: user.avatar || '',
+            todayWatched: user.watched || 0,
+            todayEarnings: (user.earnings || 0) / 1000,
+            status: (user.watched || 0) > 0 ? '在线' : '离线'
+          }));
+          
+          console.log('Formatted members with correct earnings:', formattedMembers);
+          
+          console.log('Formatted members:', formattedMembers);
+          
+          setMembers(formattedMembers);
+        } else {
+          throw new Error(result.message || '获取用户列表失败');
+        }
+      } catch (error) {
+        console.error('Error fetching members:', error);
+        setMembers([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMembers();
+  }, [group.id, group.name, group.teamName]);
+
+  // Sort by selected criteria and filter by search term
+  const sortedAndFilteredMembers = useMemo(() => {
+    return members
+      .filter(m => m.name.includes(searchTerm) || m.id.includes(searchTerm))
+      .sort((a, b) => {
+        if (sortBy === 'watched') {
+          return b.todayWatched - a.todayWatched; // High to Low
+        } else { // earnings
+          return b.todayEarnings - a.todayEarnings; // High to Low
+        }
+      });
+  }, [members, searchTerm, sortBy]);
+
+  return (
+    <div className="min-h-screen bg-[#F9FAFB] animate-in slide-in-from-right duration-300">
+      <header className="sticky top-0 bg-white z-50 px-4 py-4 border-b border-gray-100 shadow-sm">
+        <div className="flex items-center mb-4">
+          <button onClick={onBack} className="p-2 -ml-2 text-gray-400 active:text-gray-900 transition-colors">
+            <ChevronLeft size={24} />
+          </button>
+          <div className="flex-1 ml-2">
+            <h1 className="text-lg font-bold text-gray-900">{group.name} 小组成员</h1>
+            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">
+              共 {group.memberCount} 位成员 • 今日活跃率 {Math.round(((group.todayActive || 0) / (group.memberCount || 1)) * 100)}%
+            </p>
+          </div>
+        </div>
+        
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+          <input 
+            type="text" 
+            placeholder="搜索成员姓名或 ID..."
+            className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-100 rounded-2xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+        
+        <div className="flex bg-gray-100 p-1 rounded-xl mt-3">
+          <button
+            onClick={() => setSortBy('earnings')}
+            className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${sortBy === 'earnings' ? 'bg-white text-[#1E40AF] shadow-sm' : 'text-gray-500'}`}
+          >
+            按收益
+          </button>
+          <button
+            onClick={() => setSortBy('watched')}
+            className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${sortBy === 'watched' ? 'bg-white text-[#1E40AF] shadow-sm' : 'text-gray-500'}`}
+          >
+            按次数
+          </button>
+        </div>
+      </header>
+
+      <div className="p-4 space-y-3">
+        {sortedAndFilteredMembers.map((member) => (
+          <div key={member.id} className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="relative">
+                  <div className={`w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-sm font-bold text-gray-500`}>
+                    {member.id}
+                  </div>
+                  <div className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${member.status === '在线' ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-gray-900">{member.name}</div>
+                </div>
+              </div>
+              <div className="text-right">
+                {sortBy === 'earnings' ? (
+                  <>
+                    <div className="text-xs font-black text-[#1E40AF]">
+                      ¥ {Number(member.todayEarnings).toFixed(2)}
+                    </div>
+                    <div className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">
+                      今日预计收益
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-xs font-black text-[#1E40AF]">
+                      {member.todayWatched.toLocaleString()}
+                    </div>
+                    <div className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">
+                      今日观看次数
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className="bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-100/50">
+                <div className="text-[8px] text-gray-400 font-bold uppercase mb-0.5">
+                  观看次数
+                </div>
+                <div className="text-[11px] font-black text-gray-700">
+                  {member.todayWatched.toLocaleString()}
+                </div>
+              </div>
+              <div className="bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-100/50">
+                <div className="text-[8px] text-gray-400 font-bold uppercase mb-0.5">
+                  个人平均金币
+                </div>
+                <div className={`text-[11px] font-black ${(member.todayEarnings * 1000 / (member.todayWatched || 1)) >= 100 ? 'text-green-600' : 'text-red-500'}`}>
+                  {(member.todayEarnings * 1000 / (member.todayWatched || 1)).toFixed(2)}
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div className="py-20 text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1E40AF] mx-auto mb-4"></div>
+            <p className="text-xs text-gray-400 font-bold">加载中...</p>
+          </div>
+        )}
+
+        {!loading && sortedAndFilteredMembers.length === 0 && (
+          <div className="py-20 text-center">
+            <Search className="mx-auto text-gray-200 mb-2" size={48} />
+            <p className="text-xs text-gray-400 font-bold">未找到符合条件的成员</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const GroupManagement: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [sortBy, setSortBy] = useState<'today' | 'month'>('today');
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   
   // Groups data
   const [groups, setGroups] = useState<Group[]>([]);
@@ -162,6 +387,15 @@ const GroupManagement: React.FC = () => {
     return filteredGroups.reduce((sum, group) => sum + (group.memberCount || 0), 0);
   }, [filteredGroups]);
 
+  if (selectedGroup) {
+    return (
+      <GroupMemberDetail 
+        group={selectedGroup} 
+        onBack={() => setSelectedGroup(null)} 
+      />
+    );
+  }
+
   return (
     <div className="pb-24 animate-in fade-in duration-300">
       <header className="sticky top-0 bg-white z-40 px-4 py-3 border-b border-gray-100 shadow-sm">
@@ -241,7 +475,7 @@ const GroupManagement: React.FC = () => {
                       </div>
                   </div>
                   <div className="text-right">
-                      <div className="text-sm font-bold text-gray-900">¥{group.todayRevenue?.toFixed(2) || '0.00'}</div>
+                      <div className={`text-sm font-bold ${group.yesterdayRevenue ? (group.todayRevenue || 0) > group.yesterdayRevenue ? 'text-green-600' : (group.todayRevenue || 0) < group.yesterdayRevenue ? 'text-red-500' : 'text-gray-900' : 'text-gray-900'}`}>¥{group.todayRevenue?.toFixed(2) || '0.00'}</div>
                       <div className="text-xs text-gray-400 font-medium">
                         今日小组总收益
                       </div>
@@ -254,24 +488,19 @@ const GroupManagement: React.FC = () => {
                       <div className="text-sm font-bold text-gray-900">{group.memberCount || 0}</div>
                   </div>
                   <div className="bg-gray-50 p-3 rounded-xl">
-                      <div className="text-xs text-gray-400 font-medium mb-1">今日广告次数</div>
-                      <div className="text-sm font-bold text-gray-900">{group.todayAdCount || 0}</div>
+                      <div className="text-xs text-gray-400 font-medium mb-1">广告总次数</div>
+                      <div className={`text-sm font-bold ${group.yesterdayAdCount ? (group.todayAdCount || 0) > group.yesterdayAdCount ? 'text-green-600' : (group.todayAdCount || 0) < group.yesterdayAdCount ? 'text-red-500' : 'text-gray-900' : 'text-gray-900'}`}>{group.todayAdCount || 0}</div>
                   </div>
                   <div className="bg-gray-50 p-3 rounded-xl">
-                      <div className="text-xs text-gray-400 font-medium mb-1">平均ECPM</div>
-                      <div className="text-sm font-bold text-green-500">{group.avgEcpm?.toFixed(2) || '0.00'}</div>
+                      <div className="text-xs text-gray-400 font-medium mb-1">平均金币</div>
+                      <div className={`text-sm font-bold ${(((group.todayRevenue || 0) * 1000) / (group.todayAdCount || 1)) >= 100 ? 'text-green-600' : 'text-red-500'}`}>{(((group.todayRevenue || 0) * 1000) / (group.todayAdCount || 1)).toFixed(2)}</div>
                   </div>
               </div>
 
               <div className="bg-gray-50 p-3 rounded-xl">
                   <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-1">
-                          <div className="w-4 h-4 rounded-full bg-blue-100 flex items-center justify-center">
-                              <ChevronUp size={12} className="text-blue-500" />
-                          </div>
-                          <div className="text-xs text-gray-600 font-medium">本月小组累计总收益</div>
-                      </div>
-                      <div className="text-sm font-bold text-blue-600">¥{group.monthlyRevenue?.toFixed(2) || '0.00'}</div>
+                      <div className="text-xs text-gray-600 font-medium">本月小组累计总收益</div>
+                      <div className="text-sm font-bold text-blue-700">¥{group.monthlyRevenue?.toFixed(2) || '0.00'}</div>
                   </div>
               </div>
 
@@ -285,9 +514,9 @@ const GroupManagement: React.FC = () => {
                       </div>
                   </div>
                   <button
-                    className="text-xs font-bold text-blue-600 hover:text-blue-700 transition-colors flex items-center space-x-1"
+                    className="text-xs font-bold text-blue-700 hover:text-blue-800 transition-colors flex items-center space-x-1"
                     onClick={() => {
-                      // 查看详情功能
+                      setSelectedGroup(group);
                     }}
                   >
                     查看今日成员详情 <ChevronRight size={14} />

@@ -43,6 +43,10 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
   const [selectedTeam, setSelectedTeam] = useState('全部');
   const [onlineFilter, setOnlineFilter] = useState<'all' | 'online' | 'offline'>('all');
   const [users, setUsers] = useState<NewUser[]>([]);
+  // 添加昨日用户数据，用于计算次数对比
+  const [yesterdayUserData, setYesterdayUserData] = useState<Record<string, number>>({});
+  // 添加昨日用户收益数据，用于计算收益对比
+  const [yesterdayEarningsData, setYesterdayEarningsData] = useState<Record<string, number>>({});
   // 计算今日新增用户数（注册天数为1的用户）
   const todayNewUsers = useMemo(() => {
     const teamNameMap: Record<string, string> = {
@@ -109,16 +113,23 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
       console.log('新人API请求URL:', newUsersUrl);
       console.log('今日数据API请求URL:', todayDataUrl);
       
-      // 并行请求两个API
-      const [newUsersResponse, todayDataResponse] = await Promise.all([
+      // 构建昨日详细数据API URL（与首页全部用户一致）
+      const yesterdayDataUrl = isTeamLeader 
+        ? `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamNameToMatch)}&limit=1000`
+        : '/admin/dashboard/users?range=yesterday&limit=1000';
+      
+      // 并行请求API
+      const [newUsersResponse, todayDataResponse, yesterdayDataResponse] = await Promise.all([
         request<any>(newUsersUrl, { method: 'GET' }),
-        request<any>(todayDataUrl, { method: 'GET' }).catch(() => [])
+        request<any>(todayDataUrl, { method: 'GET' }).catch(() => []),
+        request<any>(yesterdayDataUrl, { method: 'GET' }).catch(() => [])
       ]);
       
       const apiTime = performance.now() - startTime;
       console.log(`API请求时间: ${apiTime.toFixed(2)}ms`);
       console.log('新人API响应:', newUsersResponse);
       console.log('今日数据API响应:', todayDataResponse);
+      console.log('今日数据API响应长度:', todayDataResponse.length);
       
       // 构建今日详细数据映射（用于匹配）
       const todayDataMap: Record<string, any> = {};
@@ -131,6 +142,37 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
         });
       }
       console.log('今日数据映射:', todayDataMap);
+      console.log('今日数据映射长度:', Object.keys(todayDataMap).length);
+      
+      // 检查今日数据中的字段
+      if (Array.isArray(todayDataResponse) && todayDataResponse.length > 0) {
+        console.log('今日数据第一个用户的字段:', Object.keys(todayDataResponse[0]));
+        console.log('今日数据第一个用户:', todayDataResponse[0]);
+      }
+      
+      // 处理昨日数据响应，构建昨日用户数据映射
+      const yesterdayUserDataMap: Record<string, number> = {};
+      const yesterdayEarningsDataMap: Record<string, number> = {};
+      if (Array.isArray(yesterdayDataResponse)) {
+        console.log('昨日数据API响应长度:', yesterdayDataResponse.length);
+        if (yesterdayDataResponse.length > 0) {
+          console.log('昨日数据第一个用户的字段:', Object.keys(yesterdayDataResponse[0]));
+          console.log('昨日数据第一个用户:', yesterdayDataResponse[0]);
+        }
+        yesterdayDataResponse.forEach((user: any) => {
+          const userId = user.employeeId || user.userId || '';
+          if (userId) {
+            yesterdayUserDataMap[userId] = user.watched || 0;
+            yesterdayEarningsDataMap[userId] = (user.earnings || 0) / 1000;
+          }
+        });
+      }
+      console.log('昨日用户数据映射:', yesterdayUserDataMap);
+      console.log('昨日用户收益数据映射:', yesterdayEarningsDataMap);
+      
+      // 更新昨日用户数据状态
+      setYesterdayUserData(yesterdayUserDataMap);
+      setYesterdayEarningsData(yesterdayEarningsDataMap);
       
       // request函数会直接返回data字段的内容，所以response已经是用户数组
       const list = Array.isArray(newUsersResponse) ? newUsersResponse : [];
@@ -144,10 +186,10 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
       console.log('5555用户:', user5555);
       
       // 使用更高效的数据转换，并从今日详细数据中获取IP、设备、收益、次数
-      const now = Date.now();
+      const currentTime = Date.now();
       const transformedUsers: NewUser[] = list.map((user: any) => {
-        const registerTime = user.registerTime ? new Date(user.registerTime).getTime() : now;
-        const regDays = Math.ceil((now - registerTime) / (1000 * 60 * 60 * 24)) || 1;
+        const registerTime = user.registerTime ? new Date(user.registerTime).getTime() : currentTime;
+        const regDays = Math.ceil((currentTime - registerTime) / (1000 * 60 * 60 * 24)) || 1;
         const userId = user.employeeId || user.userId || '';
         
         // 从今日详细数据中获取IP、设备、收益、次数（与首页全部用户一致）
@@ -158,14 +200,14 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
           userId: user.userId || '',
           name: user.name || user.nickname || user.realName || user.employeeId || user.userId || '',
           avatar: '',
-          watched: todayData?.watched || user.activityCount || 0,
-          earnings: todayData ? (todayData.earnings || 0) / 1000 : (user.currentMonthGold || 0) / 1000,
+          watched: todayData?.watched || 0,
+          earnings: todayData ? (todayData.earnings || 0) / 1000 : 0,
           ipCount: todayData?.ipCount || 1,
           deviceCount: todayData?.deviceCount || 1,
           ecpm: todayData?.ecpm || 0,
           regDays: regDays,
           superior: user.teamName || user.teamLeaderName || '系统直属',
-          isOnline: user.isOnline,
+          isOnline: (todayData?.watched || 0) > 0,
           groupName: user.groupName,
           groupLeaderName: user.groupLeaderName,
           lastActiveTime: user.lastActiveTime,
@@ -183,6 +225,7 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
       const uniqueUsers = Array.from(new Map(transformedUsers.map(user => [user.id, user])).values());
       console.log('去重后的用户数:', uniqueUsers.length);
       console.log('去重后的用户列表:', uniqueUsers.map(u => u.id));
+      console.log('用户上线状态:', uniqueUsers.map(u => ({ id: u.id, isOnline: u.isOnline })));
       
       console.log('转换后的用户数:', transformedUsers.length);
       console.log('第一个用户:', transformedUsers[0]);
@@ -504,22 +547,22 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
                                     {sortBy === 'earnings' ? (
                                         <>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className="text-[11px] font-black text-[#1E40AF]">¥{user.earnings.toFixed(2)}</span>
+                                                <span className={`text-[11px] font-black ${yesterdayEarningsData[user.id] !== undefined ? (user.earnings > yesterdayEarningsData[user.id] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.id] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>¥{user.earnings.toFixed(2)}</span>
                                                 <span className="text-[9px] text-gray-400 font-medium">收益</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className="text-[11px] font-black text-gray-900">{user.watched}</span>
+                                                <span className={`text-[11px] font-black ${yesterdayUserData[user.id] !== undefined ? (user.watched > yesterdayUserData[user.id] ? 'text-green-600' : user.watched < yesterdayUserData[user.id] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>{user.watched}</span>
                                                 <span className="text-[9px] text-gray-400 font-bold">次数</span>
                                             </div>
                                         </>
                                     ) : sortBy === 'watched' ? (
                                         <>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className="text-[11px] font-black text-[#1E40AF]">{user.watched}</span>
+                                                <span className={`text-[11px] font-black ${yesterdayUserData[user.id] !== undefined ? (user.watched > yesterdayUserData[user.id] ? 'text-green-600' : user.watched < yesterdayUserData[user.id] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>{user.watched}</span>
                                                 <span className="text-[9px] text-gray-400 font-bold">次数</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className="text-[11px] font-black text-gray-500">¥{user.earnings.toFixed(2)}</span>
+                                                <span className={`text-[11px] font-black ${yesterdayEarningsData[user.id] !== undefined ? (user.earnings > yesterdayEarningsData[user.id] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.id] ? 'text-red-500' : 'text-gray-500') : 'text-gray-500'}`}>¥{user.earnings.toFixed(2)}</span>
                                                 <span className="text-[9px] text-gray-400 font-medium">收益</span>
                                             </div>
                                         </>
@@ -530,7 +573,7 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
                                                 <span className="text-[9px] text-gray-400 font-medium">注册</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className="text-[11px] font-black text-gray-900">¥{user.earnings.toFixed(2)}</span>
+                                                <span className={`text-[11px] font-black ${yesterdayEarningsData[user.id] !== undefined ? (user.earnings > yesterdayEarningsData[user.id] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.id] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>¥{user.earnings.toFixed(2)}</span>
                                                 <span className="text-[9px] text-gray-400 font-bold">收益</span>
                                             </div>
                                         </>
@@ -541,7 +584,7 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
                                                 <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">平均金币</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className="text-[11px] font-black text-gray-500">¥{user.earnings.toFixed(2)}</span>
+                                                <span className={`text-[11px] font-black ${yesterdayEarningsData[user.id] !== undefined ? (user.earnings > yesterdayEarningsData[user.id] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.id] ? 'text-red-500' : 'text-gray-500') : 'text-gray-500'}`}>¥{user.earnings.toFixed(2)}</span>
                                                 <span className="text-[9px] text-gray-400 font-medium">收益</span>
                                             </div>
                                         </>
