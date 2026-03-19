@@ -61,27 +61,65 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
   // 使用左滑返回hook
   const swipeRef = useSwipeBack({ onBack });
 
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     const fetchMembers = async () => {
       setLoading(true);
+      setError(null);
       try {
-        const token = localStorage.getItem('admin_token');
-        const response = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/admin/team/members?teamId=${team.id}&mode=${mode}`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
+        // 使用用户列表API，然后过滤出属于该团队的成员
+        console.log('Team ID:', team.id);
+        console.log('Team leader:', team.leader);
+        
+        const result = await request<any>('/admin/dashboard/users?range=today&limit=1000', {
+          method: 'GET'
         });
-        const result = await response.json();
-        if (result.success) {
-          console.log('Team members API response:', result.data?.members || result.members);
-          setMembers(result.data?.members || result.members || []);
+        console.log('Users API response:', result);
+        
+        if (result.data || Array.isArray(result)) {
+          const users = result.data || result || [];
+          console.log('All users:', users.length);
+          
+          // 过滤出属于该团队的成员
+          const teamMembers = users.filter((user: any) => {
+            // 尝试多种可能的字段匹配
+            const matchesTeamName = user.parentName === team.leader;
+            const matchesTeamId = user.teamId === team.id;
+            const matchesSuperior = user.superior === team.leader;
+            
+            console.log('User:', user.employeeId || user.id, 'parentName:', user.parentName, 'teamId:', user.teamId, 'superior:', user.superior);
+            console.log('Matches:', { matchesTeamName, matchesTeamId, matchesSuperior });
+            
+            // 返回匹配的用户
+            return matchesTeamName || matchesTeamId || matchesSuperior;
+          });
+          
+          console.log('Filtered team members:', teamMembers.length);
+          console.log('Team members details:', teamMembers);
+          
+          // 转换用户数据为MemberInfo格式
+          const formattedMembers = teamMembers.map((user: any) => ({
+            id: user.employeeId || user.id || user.userId,
+            name: user.realName || user.realname || user.name || user.username || user.userName || user.userId || user.employeeId || '',
+            avatar: user.avatar || '',
+            todayWatched: user.watched || 0,
+            monthlyWatched: user.monthlyWatched || 0,
+            todayEarnings: (user.earnings || 0) / 1000,
+            monthlyEarnings: (user.monthlyEarnings || 0) / 1000,
+            todayEcpm: user.ecpm || 0,
+            monthlyEcpm: user.monthlyEcpm || 0,
+            status: (user.watched || 0) > 0 ? '在线' : '离线'
+          }));
+          
+          console.log('Formatted members:', formattedMembers);
+          setMembers(formattedMembers);
         } else {
-          throw new Error(result.message || '获取成员列表失败');
+          throw new Error('获取用户列表失败');
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error fetching members:', error);
+        setError(error.message || '获取成员列表失败');
         setMembers([]);
       } finally {
         setLoading(false);
@@ -89,7 +127,7 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
     };
 
     fetchMembers();
-  }, [team.id, mode]);
+  }, [team.id, team.leader, mode]);
 
   // Sort by selected criteria and filter by search term
   const sortedAndFilteredMembers = useMemo(() => {
@@ -116,6 +154,11 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
       });
   }, [members, searchTerm, mode, sortBy]);
 
+  // 计算实际的成员数量和活跃率
+  const actualMemberCount = members.length;
+  const activeMembers = members.filter(m => m.status === '在线').length;
+  const actualActiveRate = actualMemberCount > 0 ? `${Math.round((activeMembers / actualMemberCount) * 100)}%` : '0%';
+
   return (
     <div ref={swipeRef} className="min-h-screen bg-[#F9FAFB] animate-in slide-in-from-right duration-300">
       <header className="sticky top-0 bg-white z-50 px-4 py-4 border-b border-gray-100 shadow-sm">
@@ -126,7 +169,7 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
           <div className="flex-1 ml-2">
             <h1 className="text-lg font-bold text-gray-900">{team.leader} 团队成员</h1>
             <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">
-              共 {team.memberCount} 位成员 • {mode === 'today' ? '今日' : '本月'}活跃率 {activeRate}
+              共 {actualMemberCount} 位成员 • {mode === 'today' ? '今日' : '本月'}活跃率 {actualActiveRate}
             </p>
           </div>
         </div>
@@ -239,7 +282,43 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
           </div>
         )}
 
-        {!loading && sortedAndFilteredMembers.length === 0 && (
+        {error && (
+          <div className="py-20 text-center">
+            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
+              <X size={32} className="text-red-400" />
+            </div>
+            <p className="text-xs text-red-500 font-bold mb-2">获取成员列表失败</p>
+            <p className="text-xs text-gray-400 max-w-xs mx-auto">{error}</p>
+            <button 
+              onClick={() => {
+                setError(null);
+                setLoading(true);
+                const token = localStorage.getItem('admin_token');
+                console.log('Current token:', token);
+                fetch(`/api/admin/team/members?teamId=${team.id}&mode=${mode}`, {
+                  method: 'GET',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                  }
+                }).then(response => response.json()).then(result => {
+                  console.log('API response:', result);
+                  setMembers(result.data?.members || result.members || result || []);
+                }).catch(err => {
+                  console.error('Error:', err);
+                  setError(err.message || '获取成员列表失败');
+                }).finally(() => {
+                  setLoading(false);
+                });
+              }}
+              className="mt-4 px-4 py-2 bg-[#1E40AF] text-white text-xs font-bold rounded-xl"
+            >
+              重试
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && sortedAndFilteredMembers.length === 0 && (
           <div className="py-20 text-center">
             <Search className="mx-auto text-gray-200 mb-2" size={48} />
             <p className="text-xs text-gray-400 font-bold">未找到符合条件的成员</p>
@@ -265,50 +344,50 @@ const Team: React.FC = () => {
   const fetchTeams = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/team/list', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        }
+      const result = await request<any>('/team/list', {
+        method: 'GET'
       });
-      const result = await response.json();
-      const teamsData = result.data || [];
+      const teamsData = result.data || result || [];
       
       // 获取所有用户列表来计算实际用户数（排除禁用的用户）
       try {
-        const token = localStorage.getItem('admin_token');
-        const userResponse = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/admin/dashboard/users?range=today', {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
+        // 使用不同的 API 路径获取所有用户，而不仅仅是今天活跃的用户
+        const userResult = await request<any>('/admin/employee/list?pageSize=1000', {
+          method: 'GET'
         });
-        if (userResponse.ok) {
-          const userResult = await userResponse.json();
-          const users = userResult.data || userResult || [];
-          console.log('Team.tsx - 所有用户列表:', users);
-          console.log('Team.tsx - 用户总数:', users.length);
-          console.log('Team.tsx - 用户状态示例:', users.slice(0, 5).map((u: any) => ({ id: u.userId || u.employeeId, status: u.status, parentName: u.parentName })));
-          
-          // 过滤掉禁用的用户
-          const enabledUsers = users.filter((user: any) => user.status !== 'disabled' && user.status !== '禁用');
-          setAllUsers(enabledUsers);
-          console.log('Team.tsx - 启用的用户数:', enabledUsers.length);
-          
-          // 更新每个团队的memberCount
-          const updatedTeams = teamsData.map((team: TeamItem) => {
-            const teamUsers = enabledUsers.filter((user: any) => {
-              const userTeam = user.parentName || user.teamName || user.superior || '系统直属';
-              return userTeam === team.leader;
+        const users = userResult.data || userResult || [];
+        console.log('Team.tsx - 所有用户列表:', users);
+        console.log('Team.tsx - 用户总数:', users.length);
+        console.log('Team.tsx - 用户状态示例:', users.slice(0, 5).map((u: any) => ({ id: u._id || u.userId || u.employeeId, status: u.status, parentName: u.parentName, teamName: u.teamName, superior: u.superior })));
+        
+        // 过滤掉禁用的用户
+        const enabledUsers = users.filter((user: any) => user.status !== 'disabled' && user.status !== '禁用');
+        setAllUsers(enabledUsers);
+        console.log('Team.tsx - 启用的用户数:', enabledUsers.length);
+        
+        // 更新每个团队的memberCount
+        const updatedTeams = teamsData.map((team: TeamItem) => {
+          const teamUsers = enabledUsers.filter((user: any) => {
+            // 尝试多种可能的字段匹配
+            const matchesParentName = user.parentName === team.leader;
+            const matchesTeamName = user.teamName === team.leader;
+            const matchesSuperior = user.superior === team.leader;
+            const matchesParentId = user.parentId === team.id;
+            
+            console.log(`Team.tsx - 团队 ${team.leader} (ID: ${team.id}): 用户过滤条件`, {
+              matchesParentName,
+              matchesTeamName,
+              matchesSuperior,
+              matchesParentId
             });
-            console.log(`Team.tsx - 团队 ${team.leader}: 用户数=${teamUsers.length}`);
-            return { ...team, memberCount: teamUsers.length };
+            
+            // 返回匹配的用户
+            return matchesParentName || matchesTeamName || matchesSuperior || matchesParentId;
           });
-          setTeams(updatedTeams);
-        } else {
-          setTeams(teamsData);
-        }
+          console.log(`Team.tsx - 团队 ${team.leader}: 用户数=${teamUsers.length}`);
+          return { ...team, memberCount: teamUsers.length };
+        });
+        setTeams(updatedTeams);
       } catch (error) {
         console.error('获取用户列表失败:', error);
         setTeams(teamsData);

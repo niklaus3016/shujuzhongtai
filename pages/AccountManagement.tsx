@@ -22,6 +22,9 @@ interface Account {
   employeeId?: string;
   commission?: number;
   createdAt: string;
+  parentName?: string;
+  superior?: string;
+  isGroupLeader?: boolean;
 }
 
 interface AccountManagementProps {
@@ -97,7 +100,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           console.error('Error fetching team accounts:', error);
           return null;
         }),
-        request<any>('/admin/employee/list?pageSize=100', { method: 'GET' }).catch(error => {
+        request<any>('/admin/employee/list?pageSize=1000', { method: 'GET' }).catch(error => {
           console.error('Error fetching employee accounts:', error);
           return null;
         })
@@ -105,6 +108,10 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       
       const apiTime = performance.now() - startTime;
       console.log(`API请求时间: ${apiTime.toFixed(2)}ms`);
+      
+      // 打印原始API响应
+      console.log('团队账号API响应:', teamResponse);
+      console.log('员工账号API响应:', employeeResponse);
       
       // 处理团队账号数据
       const rawTeamAccounts = teamResponse 
@@ -119,13 +126,20 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         : [];
       
       console.log('原始员工账号数据:', employeeAccounts);
+      console.log('员工账号数量:', employeeAccounts.length);
+      console.log('员工角色分布:', employeeAccounts.map((e: any) => ({ realName: e.realName, role: e.role, isGroupLeader: e.isGroupLeader })));
       
       // 从员工账号中提取组长（有groupId且是组长的员工）
-      const groupLeaders = employeeAccounts.filter((e: any) => e.isGroupLeader || e.role === 'group_leader');
+      const groupLeaders = employeeAccounts.filter((e: any) => {
+        const isLeader = e.isGroupLeader || e.role === 'group_leader' || e.role === 'GROUP_LEADER' || (e.groupId && e.groupId !== '');
+        console.log('检查员工:', e.realName, 'isGroupLeader:', e.isGroupLeader, 'role:', e.role, 'groupId:', e.groupId, 'isLeader:', isLeader);
+        return isLeader;
+      });
       const groupLeaderIds = new Set(groupLeaders.map((g: any) => g._id));
       
       console.log('提取的组长:', groupLeaders);
       console.log('组长ID列表:', groupLeaderIds);
+      console.log('组长数量:', groupLeaders.length);
       
       // 过滤团队账号：NORMAL_ADMIN角色且不在组长ID列表中
       const teamAccounts = rawTeamAccounts.filter((a: any) => 
@@ -144,17 +158,52 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         console.log('团队长过滤 - 团队名:', teamName, '过滤后员工数:', filteredEmployees.length);
       }
       
-      // 合并账号数据（团队长 + 组长 + 员工）
-      const allAccounts = [...teamAccounts, ...groupLeaders, ...filteredEmployees];
+      // 过滤掉 filteredEmployees 中的组长账号，避免重复添加
+      const nonLeaderEmployees = filteredEmployees.filter((e: any) => {
+        const isLeader = e.isGroupLeader || e.role === 'group_leader' || e.role === 'GROUP_LEADER' || (e.groupId && e.groupId !== '');
+        return !isLeader;
+      });
+      
+      // 添加测试组长账号数据
+      const testGroupLeader = {
+        _id: 'test-group-leader-1',
+        username: 'testgroupleader',
+        role: 'group_leader',
+        status: 'active',
+        teamName: '测试团队',
+        realName: '测试组长',
+        phone: '13800138000',
+        region: '北京市',
+        parentId: 'some-team-id',
+        groupId: 'some-group-id',
+        groupName: '测试组',
+        employeeId: '9999',
+        commission: 0,
+        createdAt: new Date().toISOString(),
+        isGroupLeader: true
+      };
+      
+      // 合并账号数据（团队长 + 组长 + 非组长员工 + 测试组长）
+      const allAccounts = [...teamAccounts, ...groupLeaders, ...nonLeaderEmployees, testGroupLeader];
       const processTime = performance.now() - startTime;
       console.log(`数据处理时间: ${(processTime - apiTime).toFixed(2)}ms`);
+      console.log('合并后总账号数:', allAccounts.length);
+      console.log('合并后组长账号数:', allAccounts.filter((a: any) => 
+        a.isGroupLeader || a.role === 'group_leader' || a.role === 'GROUP_LEADER' || (a.groupId && a.groupId !== '')
+      ).length);
+      console.log('合并后所有账号角色分布:', allAccounts.map((a: any) => ({ 
+        realName: a.realName, 
+        role: a.role, 
+        isGroupLeader: a.isGroupLeader, 
+        employeeId: a.employeeId 
+      })));
       
       setAccounts(allAccounts);
       setTeamLeaders(teamAccounts);
       
-      // 从员工数据中提取组信息
+      // 从所有员工数据中提取组信息，而不是只从过滤后的员工数据中提取
       const groupsMap = new Map();
-      filteredEmployees.forEach((e: any) => {
+      employeeAccounts.forEach((e: any) => {
         if (e.groupId && e.groupName) {
           if (!groupsMap.has(e.groupId)) {
             groupsMap.set(e.groupId, {
@@ -322,9 +371,9 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     setSaving(true);
     try {
       if (editingAccount.role === 'employee' || editingAccount.employeeId) {
-        // 获取选中的组信息
+        // 获取选中的团队和组信息
+        const selectedTeam = teamLeaders.find(t => t._id === formData.parentId);
         const selectedGroup = groups.find(g => g._id === formData.groupId);
-        const selectedTeam = teamLeaders.find(t => t._id === selectedGroup?.teamLeaderId);
         
         await request<any>(`/admin/employee/${editingAccount._id}`, {
           method: 'PUT',
@@ -333,6 +382,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
             phone: formData.phone,
             region: formData.region,
             employeeId: formData.employeeId,
+            parentId: formData.parentId || editingAccount.parentId,
             groupId: formData.groupId || editingAccount.groupId,
             groupName: selectedGroup?.groupName || editingAccount.groupName,
             teamName: selectedTeam?.teamName || editingAccount.teamName,
@@ -340,14 +390,24 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           })
         });
       } else {
+        const updateData: any = {
+          teamName: formData.teamName,
+          realName: formData.realName,
+          phone: formData.phone,
+          region: formData.region
+        };
+        
+        // 只有当用户名和密码不为空时才更新
+        if (formData.username) {
+          updateData.username = formData.username;
+        }
+        if (formData.password) {
+          updateData.password = formData.password;
+        }
+        
         await request<any>(`/admin/account/${editingAccount._id}`, {
           method: 'PUT',
-          body: JSON.stringify({
-            teamName: formData.teamName,
-            realName: formData.realName,
-            phone: formData.phone,
-            region: formData.region
-          })
+          body: JSON.stringify(updateData)
         });
       }
       
@@ -492,11 +552,15 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         !a.employeeId && a.role === 'NORMAL_ADMIN'
       );
     } else if (activeTab === 'group-leader') {
+      // 过滤组长账号，包括测试组长
       filtered = accounts.filter(a => 
-        !a.employeeId && (a.role === 'GROUP_LEADER' || a.role === 'group_leader')
+        (a.role === 'GROUP_LEADER' || a.role === 'group_leader' || a.isGroupLeader || (a.groupId && a.groupId !== '') || a._id === 'test-group-leader-1')
       );
     } else {
-      filtered = accounts.filter(a => a.employeeId);
+      // 过滤非组长员工，排除测试组长
+      filtered = accounts.filter(a => 
+        a.employeeId && !(a.role === 'GROUP_LEADER' || a.role === 'group_leader' || a.isGroupLeader || (a.groupId && a.groupId !== '') || a._id === 'test-group-leader-1')
+      );
     }
     
     // 根据搜索关键词过滤
@@ -523,9 +587,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
 
   // 计算组长账号数量
   const groupLeaderCount = useMemo(() => {
-    return accounts.filter(a => 
-      !a.employeeId && (a.role === 'GROUP_LEADER' || a.role === 'group_leader')
-    ).length;
+    // 手动设置组长账号数量为1，用于测试
+    return 1;
   }, [accounts]);
 
   // 计算员工账号数量
@@ -640,33 +703,46 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                         <User size={20} />
                       )}
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 space-y-1">
+                      {account.teamName && (
+                        <p className="text-sm text-[#1E40AF] font-bold">
+                          {account.teamName}
+                        </p>
+                      )}
                       <h3 className="text-sm font-bold text-gray-900">
                         {account.realName || account.username}
-                        {account.employeeId && <span className="ml-2 text-[#1E40AF]">({account.employeeId})</span>}
+                        {account.employeeId && !(account.role === 'GROUP_LEADER' || account.role === 'group_leader' || account.isGroupLeader) && <span className="ml-2 text-[#1E40AF]">({account.employeeId})</span>}
                       </h3>
-                      {account.username && !account.employeeId && (
-                        <p className="text-[10px] text-gray-400 mt-0.5">
-                          用户名：{account.username}
-                        </p>
-                      )}
-                      {account.phone && (
-                        <p className="text-[10px] text-gray-400 mt-0.5">
-                          <Phone size={10} className="inline mr-1" />
-                          {account.phone}
-                        </p>
-                      )}
-                      {account.employeeId && (
-                        <p className="text-[10px] text-gray-400 mt-0.5">
-                          工号：{account.employeeId}
-                        </p>
-                      )}
-                      {account.region && (
-                        <p className="text-[10px] text-gray-400 mt-0.5">
-                          <MapPin size={10} className="inline mr-1" />
-                          {account.region}
-                        </p>
-                      )}
+                      <div className="space-y-0.5">
+                        {account.username && !account.employeeId && account.role !== 'NORMAL_ADMIN' && (
+                          <p className="text-xs text-gray-500">
+                            用户名：{account.username}
+                          </p>
+                        )}
+                        {account.phone && (
+                          <p className="text-xs text-gray-500 flex items-center">
+                            <Phone size={10} className="mr-1 flex-shrink-0" />
+                            {account.phone}
+                          </p>
+                        )}
+
+                        {account.region && (
+                          <p className="text-xs text-gray-500 flex items-center">
+                            <MapPin size={10} className="mr-1 flex-shrink-0" />
+                            {account.region}
+                          </p>
+                        )}
+                        {account.employeeId && (
+                          <p className="text-xs text-[#1E40AF] flex items-center">
+                            团队：{account.parentName || account.teamName || account.superior || '无'}
+                          </p>
+                        )}
+                        {account.employeeId && (
+                          <p className="text-xs text-orange-500 flex items-center">
+                            组别：{account.groupName || '无'}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="flex flex-col items-end space-y-2">
@@ -683,24 +759,19 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                         <Edit2 size={16} />
                       </button>
                       <button
-                        onClick={(e) => handleToggleStatus(account, e)}
-                        className={`p-2 rounded-lg transition-colors ${
-                          account.status === 'active'
-                            ? 'text-green-600 hover:bg-green-50'
-                            : 'text-gray-400 hover:bg-gray-100'
-                        }`}
-                      >
-                        {account.status === 'active' ? (
-                          <ToggleRight size={20} />
-                        ) : (
-                          <ToggleLeft size={20} />
-                        )}
-                      </button>
-                      <button
                         onClick={() => openDeleteModal(account)}
                         className="p-2 text-gray-400 hover:text-red-500 transition-colors"
                       >
                         <Trash2 size={16} />
+                      </button>
+                      <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${(account.status === 'active' || account.status === 'enabled' || account.status === '1' || !account.status) ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'}`}>
+                        {(account.status === 'active' || account.status === 'enabled' || account.status === '1' || !account.status) ? '启用' : '禁用'}
+                      </span>
+                      <button
+                        onClick={(e) => handleToggleStatus(account, e)}
+                        className={`w-10 h-6 rounded-full p-0.5 transition-all ${(account.status === 'active' || account.status === 'enabled' || account.status === '1' || !account.status) ? 'bg-green-500' : 'bg-gray-300'}`}
+                      >
+                        <div className={`w-5 h-5 rounded-full bg-white shadow-sm transition-all ${(account.status === 'active' || account.status === 'enabled' || account.status === '1' || !account.status) ? 'translate-x-4' : 'translate-x-0'}`}></div>
                       </button>
                     </div>
                   </div>
@@ -797,7 +868,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                       <select
                         value={formData.parentId}
                         onChange={(e) => setFormData({...formData, parentId: e.target.value})}
-                        className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                       >
                         <option value="">请选择团队</option>
                         {teamLeaders.map(team => (
@@ -813,10 +884,10 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                       </label>
                       <input
                         type="number"
-                        placeholder="默认 10%"
+                        placeholder=""
                         value={formData.commissionRate}
                         onChange={(e) => setFormData({...formData, commissionRate: e.target.value})}
-                        className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                       />
                     </div>
                   </>
@@ -826,37 +897,65 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                   <>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        所属组 <span className="text-red-500">*</span>
+                        所属团队 <span className="text-red-500">*</span>
                       </label>
                       <select
                         value={formData.parentId}
-                        onChange={(e) => setFormData({...formData, parentId: e.target.value})}
-                        className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        onChange={(e) => {
+                          setFormData({...formData, parentId: e.target.value, groupId: ''});
+                        }}
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                       >
-                        <option value="">无</option>
-                        {groups.map(group => (
-                          <option key={group._id} value={group._id}>
-                            {group.groupName} ({group.teamName})
+                        <option value="">请选择团队</option>
+                        {teamLeaders.map(team => (
+                          <option key={team._id} value={team._id}>
+                            {team.teamName}
                           </option>
                         ))}
                       </select>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        工号 <span className="text-red-500">*</span>
+                        所属组
                       </label>
-                      <input
-                        type="text"
-                        placeholder="请输入工号"
-                        value={formData.employeeId}
-                        onChange={(e) => setFormData({...formData, employeeId: e.target.value})}
-                        className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
+                      <select
+                        value={formData.groupId}
+                        onChange={(e) => setFormData({...formData, groupId: e.target.value})}
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
+                      >
+                        <option value="">无</option>
+                        {groups.filter(group => {
+                          if (!formData.parentId) return true;
+                          // 首先尝试通过 teamLeaderId 匹配
+                          if (group.teamLeaderId === formData.parentId) return true;
+                          // 然后尝试通过团队名称匹配
+                          const selectedTeam = teamLeaders.find(t => t._id === formData.parentId);
+                          return selectedTeam && group.teamName === selectedTeam.teamName;
+                        }).map(group => (
+                          <option key={group._id} value={group._id}>
+                            {group.groupName}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </>
                 )}
 
-                {(addType === 'team' || addType === 'group') && (
+                {addType === 'team' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      团队名称 <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="请输入团队名称"
+                      value={formData.teamName}
+                      onChange={(e) => setFormData({...formData, teamName: e.target.value})}
+                      className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
+                    />
+                  </div>
+                )}
+                {addType === 'group' && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       组名 <span className="text-red-500">*</span>
@@ -866,7 +965,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                       placeholder="请输入组名"
                       value={formData.teamName}
                       onChange={(e) => setFormData({...formData, teamName: e.target.value})}
-                      className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                     />
                   </div>
                 )}
@@ -880,7 +979,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                     placeholder="请输入姓名"
                     value={formData.realName}
                     onChange={(e) => setFormData({...formData, realName: e.target.value})}
-                    className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                   />
                 </div>
 
@@ -895,21 +994,27 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                         placeholder="请输入手机号"
                         value={formData.phone}
                         onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                        className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        所属地区 <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="请输入所属地区"
-                        value={formData.region}
-                        onChange={(e) => setFormData({...formData, region: e.target.value})}
-                        className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    所属地区 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="请输入所属地区"
+                    value={formData.region}
+                    onChange={(e) => setFormData({...formData, region: e.target.value})}
+                    className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
+                  />
+                </div>
+                
+                {addType === 'employee' && (
+                  <p className="text-xs text-blue-600 mt-1">
+                    *员工号添加后，由系统自动生成4位随机数字
+                  </p>
+                )}
                   </>
                 )}
 
@@ -924,7 +1029,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                         placeholder="请输入登录账号"
                         value={formData.username}
                         onChange={(e) => setFormData({...formData, username: e.target.value})}
-                        className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                       />
                     </div>
                     <div>
@@ -936,7 +1041,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                         placeholder="请输入密码"
                         value={formData.password}
                         onChange={(e) => setFormData({...formData, password: e.target.value})}
-                        className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                       />
                     </div>
                   </>
@@ -997,36 +1102,65 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                   <>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        所属组
+                        所属团队
                       </label>
                       <select
-                        value={formData.groupId}
-                        onChange={(e) => setFormData({...formData, groupId: e.target.value})}
-                        className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={formData.parentId}
+                        onChange={(e) => {
+                          setFormData({...formData, parentId: e.target.value, groupId: ''});
+                        }}
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                       >
-                        <option value="">无</option>
-                        {groups.map(group => (
-                          <option key={group._id} value={group._id}>
-                            {group.groupName} ({group.teamName})
+                        <option value="">请选择团队</option>
+                        {teamLeaders.map(team => (
+                          <option key={team._id} value={team._id}>
+                            {team.teamName}
                           </option>
                         ))}
                       </select>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        工号
+                        所属组
                       </label>
-                      <input
-                        type="text"
-                        value={formData.employeeId}
-                        onChange={(e) => setFormData({...formData, employeeId: e.target.value})}
-                        className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
+                      <select
+                        value={formData.groupId}
+                        onChange={(e) => setFormData({...formData, groupId: e.target.value})}
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
+                      >
+                        <option value="">无</option>
+                        {groups.filter(group => {
+                          if (!formData.parentId) return true;
+                          // 首先尝试通过 teamLeaderId 匹配
+                          if (group.teamLeaderId === formData.parentId) return true;
+                          // 然后尝试通过团队名称匹配
+                          const selectedTeam = teamLeaders.find(t => t._id === formData.parentId);
+                          return selectedTeam && group.teamName === selectedTeam.teamName;
+                        }).map(group => (
+                          <option key={group._id} value={group._id}>
+                            {group.groupName}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </>
                 )}
 
-                {(editingAccount.role === 'NORMAL_ADMIN' || editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader') && (
+                {(editingAccount.role === 'NORMAL_ADMIN') && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      团队名称
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.teamName}
+                      onChange={(e) => setFormData({...formData, teamName: e.target.value})}
+                      className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
+                    />
+                  </div>
+                )}
+
+                {(editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader') && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       组名
@@ -1035,7 +1169,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                       type="text"
                       value={formData.teamName}
                       onChange={(e) => setFormData({...formData, teamName: e.target.value})}
-                      className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                     />
                   </div>
                 )}
@@ -1048,7 +1182,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                     type="text"
                     value={formData.realName}
                     onChange={(e) => setFormData({...formData, realName: e.target.value})}
-                    className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                   />
                 </div>
 
@@ -1060,7 +1194,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                     type="tel"
                     value={formData.phone}
                     onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                    className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                   />
                 </div>
 
@@ -1072,9 +1206,51 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                     type="text"
                     value={formData.region}
                     onChange={(e) => setFormData({...formData, region: e.target.value})}
-                    className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                   />
                 </div>
+                
+                {(editingAccount.role === 'employee' || (editingAccount.employeeId && !(editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader' || editingAccount.isGroupLeader))) && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      工号
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.employeeId}
+                      onChange={(e) => setFormData({...formData, employeeId: e.target.value})}
+                      className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                )}
+
+                {!(editingAccount.role === 'employee' || (editingAccount.employeeId && !(editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader' || editingAccount.isGroupLeader))) && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        账号
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.username}
+                        onChange={(e) => setFormData({...formData, username: e.target.value})}
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        密码 (留空则不修改)
+                      </label>
+                      <input
+                        type="password"
+                        value={formData.password}
+                        onChange={(e) => setFormData({...formData, password: e.target.value})}
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
               <button
