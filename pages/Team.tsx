@@ -387,10 +387,20 @@ const Team: React.FC = () => {
           console.log(`Team.tsx - 团队 ${team.leader}: 用户数=${teamUsers.length}`);
           return { ...team, memberCount: teamUsers.length };
         });
-        setTeams(updatedTeams);
+        
+        // 过滤掉成员数为0的团队
+        const validTeams = updatedTeams.filter(team => team.memberCount > 0);
+        console.log('Team.tsx - 过滤后的团队数:', validTeams.length);
+        console.log('Team.tsx - 过滤后的团队列表:', validTeams.map(t => t.leader));
+        
+        setTeams(validTeams);
       } catch (error) {
         console.error('获取用户列表失败:', error);
-        setTeams(teamsData);
+        // 即使获取用户列表失败，也过滤掉成员数为0的团队
+        const validTeams = teamsData.filter(team => team.memberCount > 0);
+        console.log('Team.tsx - 错误处理时过滤后的团队数:', validTeams.length);
+        console.log('Team.tsx - 错误处理时过滤后的团队列表:', validTeams.map(t => t.leader));
+        setTeams(validTeams);
       }
     } catch (error) {
       console.error('Error fetching teams:', error);

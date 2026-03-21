@@ -271,6 +271,7 @@ const GroupManagement: React.FC = () => {
         const teamsResponse = await request<{ id: string; name: string }[]>('/team/list', {
           method: 'GET'
         });
+        console.log('Teams API response:', teamsResponse);
         setTeams(teamsResponse);
 
         // Fetch groups - 使用 /admin/employee/group-leaders 接口
@@ -309,30 +310,49 @@ const GroupManagement: React.FC = () => {
           const allGroups: Group[] = [];
           for (const team of teamsResponse) {
             try {
+              console.log(`Fetching groups for team: ${team.name} (${team.id})`);
               const groupLeadersData = await request<{ data?: any[] } | any[]>(`/admin/employee/group-leaders?teamId=${team.id}`, {
                 method: 'GET'
               });
+              console.log(`Group leaders data for team ${team.name}:`, groupLeadersData);
               const dataArray = Array.isArray(groupLeadersData) ? groupLeadersData : (groupLeadersData?.data || []);
-              const teamGroups = dataArray.map((g: any) => ({
-                id: g._id || g.groupId,
-                name: g.groupName,
-                teamId: team.id,
-                teamName: team.name,
-                createdAt: g.createdAt || new Date().toISOString(),
-                memberCount: g.memberCount || 0,
-                todayActive: g.todayActive || 0,
-                todayRevenue: g.todayRevenue || 0,
-                monthlyRevenue: g.monthlyRevenue || 0,
-                todayAdCount: g.todayAdCount || 0,
-                avgEcpm: g.avgEcpm || 0,
-                yesterdayRevenue: g.yesterdayRevenue || 0,
-                commission: g.commission || 0.05
-              }));
-              allGroups.push(...teamGroups);
+              console.log(`Group data array for team ${team.name}:`, dataArray);
+              
+              // 只处理有组数据的团队
+              if (dataArray.length > 0) {
+                const teamGroups = dataArray.map((g: any) => ({
+                  id: g._id || g.groupId,
+                  name: g.groupName,
+                  teamId: team.id,
+                  teamName: team.name,
+                  createdAt: g.createdAt || new Date().toISOString(),
+                  memberCount: g.memberCount || 0,
+                  todayActive: g.todayActive || 0,
+                  todayRevenue: g.todayRevenue || 0,
+                  monthlyRevenue: g.monthlyRevenue || 0,
+                  todayAdCount: g.todayAdCount || 0,
+                  avgEcpm: g.avgEcpm || 0,
+                  yesterdayRevenue: g.yesterdayRevenue || 0,
+                  commission: g.commission || 0.05
+                }));
+                
+                // 过滤掉成员数为0的组
+                const validGroups = teamGroups.filter(group => group.memberCount > 0);
+                console.log(`Valid groups for team ${team.name}:`, validGroups);
+                
+                if (validGroups.length > 0) {
+                  allGroups.push(...validGroups);
+                } else {
+                  console.log(`Team ${team.name} has no valid groups (all memberCount is 0), skipping...`);
+                }
+              } else {
+                console.log(`Team ${team.name} has no groups, skipping...`);
+              }
             } catch (err) {
               console.error(`Error fetching groups for team ${team.name}:`, err);
             }
           }
+          console.log('All groups after fetching:', allGroups);
           groupsResponse = allGroups;
         }
         

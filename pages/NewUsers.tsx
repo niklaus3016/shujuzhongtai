@@ -71,7 +71,8 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
   // Derive unique teams for filtering
   const teams = useMemo(() => {
     const uniqueTeams = Array.from(new Set(users.map(u => u.superior).filter(Boolean)));
-    return ['全部', ...uniqueTeams];
+    const otherTeams = uniqueTeams.filter(team => team !== '系统直属');
+    return ['全部', ...otherTeams, ...(uniqueTeams.includes('系统直属') ? ['系统直属'] : [])];
   }, [users]);
 
   // 使用useCallback缓存数据获取函数
@@ -144,21 +145,11 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
       console.log('今日数据映射:', todayDataMap);
       console.log('今日数据映射长度:', Object.keys(todayDataMap).length);
       
-      // 检查今日数据中的字段
-      if (Array.isArray(todayDataResponse) && todayDataResponse.length > 0) {
-        console.log('今日数据第一个用户的字段:', Object.keys(todayDataResponse[0]));
-        console.log('今日数据第一个用户:', todayDataResponse[0]);
-      }
-      
       // 处理昨日数据响应，构建昨日用户数据映射
       const yesterdayUserDataMap: Record<string, number> = {};
       const yesterdayEarningsDataMap: Record<string, number> = {};
       if (Array.isArray(yesterdayDataResponse)) {
         console.log('昨日数据API响应长度:', yesterdayDataResponse.length);
-        if (yesterdayDataResponse.length > 0) {
-          console.log('昨日数据第一个用户的字段:', Object.keys(yesterdayDataResponse[0]));
-          console.log('昨日数据第一个用户:', yesterdayDataResponse[0]);
-        }
         yesterdayDataResponse.forEach((user: any) => {
           const userId = user.employeeId || user.userId || '';
           if (userId) {
@@ -176,14 +167,16 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
       
       // request函数会直接返回data字段的内容，所以response已经是用户数组
       const list = Array.isArray(newUsersResponse) ? newUsersResponse : [];
-      console.log('list长度:', list.length);
+      console.log('新人API返回的用户数:', list.length);
+      console.log('新人API返回的用户列表:', list.map(u => u.employeeId || u.userId));
       
-      // 打印前5个用户，看看是否有5555用户
-      console.log('前5个用户:', list.slice(0, 5));
-      
-      // 检查5555用户是否在列表中
-      const user5555 = list.find(u => u.employeeId === '5555');
-      console.log('5555用户:', user5555);
+      // 检查3148用户是否在新人API响应中
+      const user3148 = list.find(u => (u.employeeId || u.userId) === '3148');
+      if (user3148) {
+        console.log('3148用户在新人API响应中:', user3148);
+      } else {
+        console.log('3148用户不在新人API响应中');
+      }
       
       // 使用更高效的数据转换，并从今日详细数据中获取IP、设备、收益、次数
       const currentTime = Date.now();
@@ -215,22 +208,17 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
         };
       });
       
-      // 检查5555用户的regDays
-      const user5555Transformed = transformedUsers.find(u => u.id === '5555');
-      if (user5555Transformed) {
-        console.log('5555用户的regDays:', user5555Transformed.regDays);
-      }
-      
-      // 去重：根据employeeId去重，避免重复的8202用户
+      // 去重：根据employeeId去重
       const uniqueUsers = Array.from(new Map(transformedUsers.map(user => [user.id, user])).values());
       console.log('去重后的用户数:', uniqueUsers.length);
       console.log('去重后的用户列表:', uniqueUsers.map(u => u.id));
-      console.log('用户上线状态:', uniqueUsers.map(u => ({ id: u.id, isOnline: u.isOnline })));
       
-      console.log('转换后的用户数:', transformedUsers.length);
-      console.log('第一个用户:', transformedUsers[0]);
+      // 只保留注册15天以内的新人
+      const filteredUsers = uniqueUsers.filter(user => user.regDays <= 15);
+      console.log('过滤后的新人用户数:', filteredUsers.length);
+      console.log('过滤后的新人用户列表:', filteredUsers.map(u => u.id));
       
-      setUsers(uniqueUsers);
+      setUsers(filteredUsers);
       
       const totalTime = performance.now() - startTime;
       console.log(`新人数据总加载时间: ${totalTime.toFixed(2)}ms`);
@@ -254,21 +242,31 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
         const fallbackResponse = await request<any>(fallbackUrl, { method: 'GET' });
         
         const list = fallbackResponse || [];
-        const transformedUsers: NewUser[] = list.map((user: any) => ({
-          id: user.employeeId || user.userId || '',
-          userId: user.userId || '',
-          name: user.name || user.nickname || user.realName || user.employeeId || user.userId || '',
-          avatar: '',
-          watched: user.watched || 0,
-          earnings: (user.earnings || 0) / 1000,
-          ipCount: user.ipCount || 1,
-          deviceCount: user.deviceCount || 1,
-          ecpm: user.ecpm || 0,
-          regDays: user.regDays || 1,
-          superior: user.superior || '系统直属'
-        }));
+        const currentTime = Date.now();
+        const transformedUsers: NewUser[] = list.map((user: any) => {
+          const registerTime = user.registerTime ? new Date(user.registerTime).getTime() : currentTime;
+          const regDays = Math.ceil((currentTime - registerTime) / (1000 * 60 * 60 * 24)) || 1;
+          return {
+            id: user.employeeId || user.userId || '',
+            userId: user.userId || '',
+            name: user.name || user.nickname || user.realName || user.employeeId || user.userId || '',
+            avatar: '',
+            watched: user.watched || 0,
+            earnings: (user.earnings || 0) / 1000,
+            ipCount: user.ipCount || 1,
+            deviceCount: user.deviceCount || 1,
+            ecpm: user.ecpm || 0,
+            regDays: regDays,
+            superior: user.superior || '系统直属'
+          };
+        });
         
-        setUsers(transformedUsers);
+        // 只保留注册15天以内的新人
+        const filteredUsers = transformedUsers.filter(user => user.regDays <= 15);
+        console.log('回退API过滤后的新人用户数:', filteredUsers.length);
+        console.log('回退API过滤后的新人用户列表:', filteredUsers.map(u => u.id));
+        
+        setUsers(filteredUsers);
         
         console.log('旧API加载成功');
       } catch (fallbackError) {
@@ -337,9 +335,9 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
         const teamNameToMatch = currentUser?.teamName || teamNameMap[currentUser?.username || ''] || '';
         const matchesTeamLeader = !isTeamLeader || (teamNameToMatch && u.superior === teamNameToMatch);
         
-        // 检查5555和9527用户的过滤条件
-        if (u.id === '5555' || u.id === '9527') {
-          console.log(`${u.id}用户的过滤条件:`, { isNewUser, matchesSearch, matchesTeam, matchesOnlineFilter, matchesTeamLeader, superior: u.superior, userTeamName: currentUser?.teamName });
+        // 检查特定用户的过滤条件
+        if (u.id === '5555' || u.id === '9527' || u.id === '3148') {
+          console.log(`${u.id}用户的过滤条件:`, { isNewUser, matchesSearch, matchesTeam, matchesOnlineFilter, matchesTeamLeader, superior: u.superior, userTeamName: currentUser?.teamName, regDays: u.regDays });
         }
         
         return isNewUser && matchesSearch && matchesTeam && matchesOnlineFilter && matchesTeamLeader;
@@ -398,7 +396,7 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
 
         {/* Team Filter Pills - 只有超级管理员显示团队筛选 */}
         {isSuperAdmin && (
-          <div className="flex items-center space-x-2 overflow-x-auto hide-scrollbar pb-3">
+          <div className="flex flex-wrap items-center space-x-2 pb-3">
             <div className="flex-shrink-0 p-1.5 bg-gray-50 rounded-lg text-gray-400">
               <Users size={14} />
             </div>
