@@ -1,11 +1,11 @@
 import { ApiResponse } from '../types';
 import { retryFetch } from '../utils/retryFetch';
 
-// 使用相对路径和完整路径，确保开发和生产环境都能正常访问
-const BASE_URLS = [
-  '/api',
-  'https://wfqmaepvjkdd.sealoshzh.site/api'
-];
+// 根据环境选择合适的 API 地址
+const isProduction = process.env.NODE_ENV === 'production';
+const BASE_URLS = isProduction 
+  ? ['https://wfqmaepvjkdd.sealoshzh.site/api'] 
+  : ['/api'];
 
 export async function request<T>(
   endpoint: string,

@@ -44,20 +44,26 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
   useEffect(() => {
     const fetchGroups = async () => {
       try {
-        // Fetch groups
-        let groupsResponse;
-        if (currentUser.role === UserRole.NORMAL_ADMIN && currentUser.teamName) {
-          // Team leaders only see their own teams' groups
-          groupsResponse = await request<{ id: string; name: string }[]>(`/group/list?teamName=${encodeURIComponent(currentUser.teamName)}`, {
-            method: 'GET'
-          });
-        } else {
-          // Super admins see all groups
-          groupsResponse = await request<{ id: string; name: string }[]>(`/group/list`, {
-            method: 'GET'
-          });
-        }
-        setGroups(groupsResponse);
+        // Fetch groups from employee data
+        const employeeResponse = await request<any>('/admin/employee/list?pageSize=1000', {
+          method: 'GET'
+        });
+        const employeeAccounts = employeeResponse ? (Array.isArray(employeeResponse) ? employeeResponse : (employeeResponse?.data || [])) : [];
+        
+        const groupsMap = new Map();
+        employeeAccounts.forEach((e: any) => {
+          if (e.groupId && e.groupName) {
+            if (!groupsMap.has(e.groupId)) {
+              groupsMap.set(e.groupId, {
+                id: e.groupId,
+                name: e.groupName
+              });
+            }
+          }
+        });
+        
+        const groupsList = Array.from(groupsMap.values());
+        setGroups(groupsList);
       } catch (error) {
         console.error('Error fetching groups:', error);
         // Fallback to mock data on error
@@ -69,7 +75,7 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
       }
     };
 
-    if (currentUser.role === UserRole.SUPER_ADMIN || currentUser.role === UserRole.NORMAL_ADMIN) {
+    if (currentUser.role === UserRole.SUPER_ADMIN || currentUser.role === UserRole.NORMAL_ADMIN || currentUser.role === UserRole.GROUP_LEADER) {
       fetchGroups();
     }
   }, [currentUser]);
@@ -82,12 +88,13 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
       setLoading(true);
       try {
         // Fetch employee list from backend
-        const employeeList = await request<AdminUser[]>('/employee/list?pageSize=100', {
+        const employeeResponse = await request<any>('/admin/employee/list?pageSize=100', {
           method: 'GET',
           headers: new Headers({
             'Content-Type': 'application/json'
           })
         });
+        const employeeList = Array.isArray(employeeResponse) ? employeeResponse : (employeeResponse?.data || []);
         console.log('Employee data from backend:', employeeList);
         // 打印每个员工的完整信息
         employeeList.forEach((employee: any, index: number) => {
@@ -147,7 +154,15 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
     
     setSaving(true);
     try {
-      const result = await request<AdminUser>('/employee/create', {
+      // 组长添加员工时，默认使用自己的组信息
+      const teamGroupId = currentUser.role === UserRole.GROUP_LEADER 
+        ? (currentUser.teamGroupId || formData.teamGroupId)
+        : formData.teamGroupId;
+      const groupName = currentUser.role === UserRole.GROUP_LEADER
+        ? (currentUser.groupName || formData.groupName)
+        : formData.groupName;
+      
+      const result = await request<AdminUser>('/admin/account/add-employee', {
         method: 'POST',
         body: JSON.stringify({
           realName: formData.name,
@@ -155,8 +170,8 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
           region: formData.region,
           phoneCount: parseInt(formData.phoneCount) || 0,
           parentId: currentUser.id,
-          teamGroupId: formData.teamGroupId,
-          groupName: formData.groupName
+          teamGroupId: teamGroupId,
+          groupName: groupName
         })
       });
       
@@ -185,7 +200,15 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
 
     setSaving(true);
     try {
-      await request<AdminUser>(`/employee/${selectedEmployee.id}`, {
+      // 组长编辑员工时，默认使用自己的组信息
+      const teamGroupId = currentUser.role === UserRole.GROUP_LEADER 
+        ? (currentUser.teamGroupId || formData.teamGroupId)
+        : formData.teamGroupId;
+      const groupName = currentUser.role === UserRole.GROUP_LEADER
+        ? (currentUser.groupName || formData.groupName)
+        : formData.groupName;
+      
+      await request<AdminUser>(`/admin/account/${selectedEmployee.id}`, {
         method: 'PUT',
         headers: new Headers({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
@@ -194,8 +217,8 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
           region: formData.region,
           phoneCount: parseInt(formData.phoneCount) || 0,
           parentId: currentUser.id,
-          teamGroupId: formData.teamGroupId,
-          groupName: formData.groupName
+          teamGroupId: teamGroupId,
+          groupName: groupName
         })
       });
       
@@ -203,12 +226,13 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
       setSelectedEmployee(null);
       setFormData({ name: '', phone: '', region: '', phoneCount: '', teamGroupId: '', groupName: '' });
       // 重新获取员工列表
-      const employeeList = await request<AdminUser[]>('/employee/list?pageSize=100', {
+      const employeeResponse = await request<any>('/admin/employee/list?pageSize=100', {
         method: 'GET',
         headers: new Headers({
           'Content-Type': 'application/json'
         })
       });
+      const employeeList = Array.isArray(employeeResponse) ? employeeResponse : (employeeResponse?.data || []);
       setEmployees(employeeList);
       setError(null);
     } catch (error: any) {
@@ -224,7 +248,7 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
     
     setSaving(true);
     try {
-      await request<any>(`/employee/${deletingEmployee.id}`, {
+      await request<any>(`/admin/account/${deletingEmployee.id}`, {
         method: 'DELETE',
         headers: new Headers({ 'Content-Type': 'application/json' })
       });
@@ -232,12 +256,13 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
       setIsDeleteModalOpen(false);
       setDeletingEmployee(null);
       // 重新获取员工列表
-      const employeeList = await request<AdminUser[]>('/employee/list?pageSize=100', {
+      const employeeResponse = await request<any>('/admin/employee/list?pageSize=100', {
         method: 'GET',
         headers: new Headers({
           'Content-Type': 'application/json'
         })
       });
+      const employeeList = Array.isArray(employeeResponse) ? employeeResponse : (employeeResponse?.data || []);
       setEmployees(employeeList);
       setError(null);
     } catch (error: any) {

@@ -699,6 +699,7 @@ const Team: React.FC = () => {
               teamName: currentUser.teamName || '鼎盛战队',
               groupName: formData.groupName,
               commission: commissionRate,
+              groupLeaderName: formData.realName,
               username: formData.username,
               password: formData.password,
               realName: formData.realName,

@@ -33,23 +33,47 @@ const GroupLeaderManagement: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        // Fetch group leaders
-        const leadersList = await request<AdminUser[]>('/admin/list?role=GROUP_LEADER', {
+        // Fetch all accounts
+        const accountsResponse = await request<any>('/admin/account/list', {
           method: 'GET'
         });
+        const allAccounts = Array.isArray(accountsResponse) ? accountsResponse : (accountsResponse?.admins || []);
+        
+        // Filter group leaders
+        const leadersList = allAccounts.filter((a: any) => 
+          a.role === 'GROUP_LEADER' || a.role === 'group_leader'
+        );
         setGroupLeaders(leadersList);
 
-        // Fetch teams
-        const teamsResponse = await request<{ id: string; name: string }[]>('/team/list', {
-          method: 'GET'
-        });
-        setTeams(teamsResponse);
+        // Fetch teams (team leaders)
+        const teamLeaders = allAccounts.filter((a: any) => 
+          a.role === 'NORMAL_ADMIN'
+        );
+        const teams = teamLeaders.map((t: any) => ({
+          id: t._id,
+          name: t.teamName
+        }));
+        setTeams(teams);
 
-        // Fetch groups
-        const groupsResponse = await request<{ id: string; name: string; teamId: string }[]>('/group/list', {
+        // Fetch groups from employee data
+        const employeeResponse = await request<any>('/admin/employee/list?pageSize=1000', {
           method: 'GET'
         });
-        setGroups(groupsResponse);
+        const employeeAccounts = employeeResponse ? (Array.isArray(employeeResponse) ? employeeResponse : (employeeResponse?.data || [])) : [];
+        
+        const groupsMap = new Map();
+        employeeAccounts.forEach((e: any) => {
+          if (e.groupId && e.groupName) {
+            if (!groupsMap.has(e.groupId)) {
+              groupsMap.set(e.groupId, {
+                id: e.groupId,
+                name: e.groupName,
+                teamId: e.parentId || ''
+              });
+            }
+          }
+        });
+        setGroups(Array.from(groupsMap.values()));
       } catch (error) {
         console.error('Error fetching data:', error);
         // Fallback to mock data on error
@@ -85,22 +109,47 @@ const GroupLeaderManagement: React.FC = () => {
   }, [groupLeaders, searchTerm]);
 
   const handleAddGroupLeader = async () => {
-    if (!formData.username || !formData.password || !formData.teamGroupId) {
+    if (!formData.username || !formData.password || !formData.teamGroupId || !formData.teamName) {
       setError('请填写所有必填字段');
       return;
     }
     
     setSaving(true);
     try {
-      const result = await request<AdminUser>('/admin/create', {
+      const teamLeaderId = teams.find(t => t.name === formData.teamName)?.id || '';
+      if (!teamLeaderId) {
+        setError('无法找到对应的团队长ID');
+        return;
+      }
+      
+      // 1. 先创建管理员账号
+      const adminResult = await request<AdminUser>('/admin/account/create', {
         method: 'POST',
         body: JSON.stringify({
           username: formData.username,
           password: formData.password,
           role: UserRole.GROUP_LEADER,
-          teamGroupId: formData.teamGroupId,
+          parentId: teamLeaderId,
           teamName: formData.teamName,
           groupName: formData.groupName
+        })
+      });
+      
+      if (!adminResult) {
+        setError('创建管理员账号失败');
+        return;
+      }
+      
+      // 2. 再将该管理员设置为组长
+      const result = await request<AdminUser>('/admin/employee/group-leader/add', {
+        method: 'POST',
+        body: JSON.stringify({
+          teamLeaderId: teamLeaderId,
+          teamName: formData.teamName,
+          groupName: formData.groupName,
+          commission: 0.05,
+          groupLeaderId: adminResult.id,
+          groupLeaderName: formData.username
         })
       });
       
@@ -129,24 +178,31 @@ const GroupLeaderManagement: React.FC = () => {
 
     setSaving(true);
     try {
-      await request<AdminUser>(`/admin/${selectedLeader.id}`, {
+      await request<AdminUser>(`/admin/account/${selectedLeader.id}`, {
         method: 'PUT',
         body: JSON.stringify({
           username: formData.username,
           password: formData.password || undefined,
-          teamGroupId: formData.teamGroupId,
-          teamName: formData.teamName,
-          groupName: formData.groupName
+          parentId: teams.find(t => t.name === formData.teamName)?.id || '',
+          groupId: formData.teamGroupId,
+          groupName: formData.groupName,
+          teamName: formData.teamName
         })
       });
       
       setIsEditModalOpen(false);
       setSelectedLeader(null);
       setFormData({ username: '', password: '', teamName: '', groupName: '', teamGroupId: '' });
-      // 重新获取组长列表
-      const leadersList = await request<AdminUser[]>('/admin/list?role=GROUP_LEADER', {
+      // 重新获取所有数据
+      const accountsResponse = await request<any>('/admin/account/list', {
         method: 'GET'
       });
+      const allAccounts = Array.isArray(accountsResponse) ? accountsResponse : (accountsResponse?.admins || []);
+      
+      // 重新过滤组长账号
+      const leadersList = allAccounts.filter((a: any) => 
+        a.role === 'GROUP_LEADER' || a.role === 'group_leader'
+      );
       setGroupLeaders(leadersList);
       setError(null);
     } catch (error: any) {
@@ -162,16 +218,22 @@ const GroupLeaderManagement: React.FC = () => {
     
     setSaving(true);
     try {
-      await request<any>(`/admin/${deletingLeader.id}`, {
+      await request<any>(`/admin/account/${deletingLeader.id}`, {
         method: 'DELETE'
       });
       
       setIsDeleteModalOpen(false);
       setDeletingLeader(null);
-      // 重新获取组长列表
-      const leadersList = await request<AdminUser[]>('/admin/list?role=GROUP_LEADER', {
+      // 重新获取所有数据
+      const accountsResponse = await request<any>('/admin/account/list', {
         method: 'GET'
       });
+      const allAccounts = Array.isArray(accountsResponse) ? accountsResponse : (accountsResponse?.admins || []);
+      
+      // 重新过滤组长账号
+      const leadersList = allAccounts.filter((a: any) => 
+        a.role === 'GROUP_LEADER' || a.role === 'group_leader'
+      );
       setGroupLeaders(leadersList);
       setError(null);
     } catch (error: any) {

@@ -130,11 +130,19 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       console.log('员工角色分布:', employeeAccounts.map((e: any) => ({ realName: e.realName, role: e.role, isGroupLeader: e.isGroupLeader })));
       
       // 从员工账号中提取组长（有groupId且是组长的员工）
-      const groupLeaders = employeeAccounts.filter((e: any) => {
+      const employeeGroupLeaders = employeeAccounts.filter((e: any) => {
         const isLeader = e.isGroupLeader || e.role === 'group_leader' || e.role === 'GROUP_LEADER' || (e.groupId && e.groupId !== '');
         console.log('检查员工:', e.realName, 'isGroupLeader:', e.isGroupLeader, 'role:', e.role, 'groupId:', e.groupId, 'isLeader:', isLeader);
         return isLeader;
       });
+      
+      // 从团队账号中提取组长（role为GROUP_LEADER的账号）
+      const teamGroupLeaders = rawTeamAccounts.filter((a: any) => 
+        a.role === 'GROUP_LEADER' || a.role === 'group_leader'
+      );
+      
+      // 合并组长账号
+      const groupLeaders = [...employeeGroupLeaders, ...teamGroupLeaders];
       const groupLeaderIds = new Set(groupLeaders.map((g: any) => g._id));
       
       console.log('提取的组长:', groupLeaders);
@@ -164,27 +172,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         return !isLeader;
       });
       
-      // 添加测试组长账号数据
-      const testGroupLeader = {
-        _id: 'test-group-leader-1',
-        username: 'testgroupleader',
-        role: 'group_leader',
-        status: 'active',
-        teamName: '测试团队',
-        realName: '测试组长',
-        phone: '13800138000',
-        region: '北京市',
-        parentId: 'some-team-id',
-        groupId: 'some-group-id',
-        groupName: '测试组',
-        employeeId: '9999',
-        commission: 0,
-        createdAt: new Date().toISOString(),
-        isGroupLeader: true
-      };
-      
-      // 合并账号数据（团队长 + 组长 + 非组长员工 + 测试组长）
-      const allAccounts = [...teamAccounts, ...groupLeaders, ...nonLeaderEmployees, testGroupLeader];
+      // 合并账号数据（团队长 + 组长 + 非组长员工）
+      const allAccounts = [...teamAccounts, ...groupLeaders, ...nonLeaderEmployees];
       const processTime = performance.now() - startTime;
       console.log(`数据处理时间: ${(processTime - apiTime).toFixed(2)}ms`);
       console.log('合并后总账号数:', allAccounts.length);
@@ -262,7 +251,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     setSaving(true);
     try {
       if (addType === 'team') {
-        await request<any>('/account/create', {
+        await request<any>('/admin/account/create', {
           method: 'POST',
           body: JSON.stringify({
             teamName: formData.teamName,
@@ -281,31 +270,34 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         // 获取分成比例，默认为10%
         const commissionRate = formData.commissionRate ? parseFloat(formData.commissionRate) / 100 : 0.1;
         
-        // 第一步：先创建组
-        const groupResult = await request<any>('/admin/team-group/add', {
+        // 1. 先创建管理员账号
+        const adminResult = await request<any>('/admin/account/create', {
           method: 'POST',
           body: JSON.stringify({
-            groupName: formData.teamName,
-            teamLeaderId: formData.parentId,
-            teamName: selectedTeam?.teamName || '',
-            commission: commissionRate
-          })
-        });
-        
-        // 第二步：创建组长账号
-        await request<any>('/account/create', {
-          method: 'POST',
-          body: JSON.stringify({
-            teamName: formData.teamName,
-            realName: formData.realName,
-            phone: '',
-            region: '',
             username: formData.username,
             password: formData.password,
             role: 'GROUP_LEADER',
             parentId: formData.parentId,
-            groupId: groupResult?.data?._id || groupResult?._id,
-            commission: commissionRate
+            teamName: formData.teamName,
+            groupName: formData.teamName
+          })
+        });
+        
+        if (!adminResult) {
+          setError('创建管理员账号失败');
+          return;
+        }
+        
+        // 2. 再将该管理员设置为组长
+        await request<any>('/admin/employee/group-leader/add', {
+          method: 'POST',
+          body: JSON.stringify({
+            teamLeaderId: formData.parentId,
+            teamName: formData.teamName,
+            groupName: formData.teamName,
+            commission: commissionRate,
+            groupLeaderId: adminResult.id,
+            groupLeaderName: formData.username
           })
         });
       } else {
@@ -313,18 +305,18 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         const selectedGroup = groups.find(g => g._id === formData.parentId);
         const selectedTeam = teamLeaders.find(t => t._id === selectedGroup?.teamLeaderId);
         
-        await request<any>('/employee/add', {
+        await request<any>('/admin/account/add-employee', {
           method: 'POST',
           body: JSON.stringify({
-            employeeId: formData.employeeId,
+            username: formData.realName,
+            password: '123456', // 默认密码
+            parentId: selectedGroup?.teamLeaderId || formData.parentId,
             realName: formData.realName,
             phone: formData.phone,
             region: formData.region,
-            parentId: selectedGroup?.teamLeaderId,
             groupId: formData.parentId,
             groupName: selectedGroup?.groupName,
-            teamName: selectedTeam?.teamName,
-            superior: selectedTeam?.teamName
+            teamName: selectedTeam?.teamName
           })
         });
       }
@@ -480,12 +472,12 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       console.log('保存滚动位置:', scrollPositionRef.current);
       
       if (account.role === 'employee' || account.employeeId) {
-        await request<any>(`/employee/${account._id}/status`, {
+        await request<any>(`/admin/employee/${account._id}/status`, {
           method: 'PUT',
           body: JSON.stringify({ status: newStatus })
         });
       } else {
-        await request<any>(`/account/${account._id}/status`, {
+        await request<any>(`/admin/account/${account._id}/status`, {
           method: 'PUT',
           body: JSON.stringify({ status: newStatus })
         });
@@ -552,16 +544,16 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         !a.employeeId && a.role === 'NORMAL_ADMIN'
       );
     } else if (activeTab === 'group-leader') {
-      // 过滤组长账号，包括测试组长
+      // 过滤组长账号
       filtered = accounts.filter(a => 
-        (a.role === 'GROUP_LEADER' || a.role === 'group_leader' || a.isGroupLeader || (a.groupId && a.groupId !== '') || a._id === 'test-group-leader-1')
+        a.role === 'GROUP_LEADER' || a.role === 'group_leader' || a.isGroupLeader || (a.groupId && a.groupId !== '')
       );
     } else {
-      // 过滤非组长员工，排除测试组长
-      filtered = accounts.filter(a => 
-        a.employeeId && !(a.role === 'GROUP_LEADER' || a.role === 'group_leader' || a.isGroupLeader || (a.groupId && a.groupId !== '') || a._id === 'test-group-leader-1')
-      );
-    }
+        // 过滤非组长员工
+        filtered = accounts.filter(a => 
+          a.employeeId && !(a.role === 'GROUP_LEADER' || a.role === 'group_leader' || a.isGroupLeader || (a.groupId && a.groupId !== ''))
+        );
+      }
     
     // 根据搜索关键词过滤
     if (searchKeyword.trim()) {
@@ -587,8 +579,9 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
 
   // 计算组长账号数量
   const groupLeaderCount = useMemo(() => {
-    // 手动设置组长账号数量为1，用于测试
-    return 1;
+    return accounts.filter(a => 
+      a.role === 'GROUP_LEADER' || a.role === 'group_leader' || a.isGroupLeader || (a.groupId && a.groupId !== '')
+    ).length;
   }, [accounts]);
 
   // 计算员工账号数量

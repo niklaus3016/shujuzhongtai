@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { AppTab, UserRole } from './types';
 import Dashboard from './pages/Dashboard';
@@ -11,20 +10,31 @@ import Management from './pages/Management';
 import Settings from './pages/Settings';
 import GroupLeaderManagement from './pages/GroupLeaderManagement';
 import GroupManagement from './pages/GroupManagement';
+import GroupLeader from './pages/GroupLeader';
 import BottomNav from './components/BottomNav';
 import Login from './pages/Login';
 import { authService } from './services/authService';
 
 const App: React.FC = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(authService.isAuthenticated());
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [activeTab, setActiveTab] = useState<AppTab>(AppTab.DASHBOARD);
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [showAllUsers, setShowAllUsers] = useState(false);
+  const [loading, setLoading] = useState(false);
   const mainRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // Check authentication on mount
-    setIsAuthenticated(authService.isAuthenticated());
+    setTimeout(() => {
+      try {
+        setIsAuthenticated(authService.isAuthenticated());
+      } catch (error) {
+        console.error('Authentication check failed:', error);
+        setIsAuthenticated(false);
+      } finally {
+        setLoading(false);
+      }
+    }, 100);
   }, []);
 
   useEffect(() => {
@@ -45,6 +55,15 @@ const App: React.FC = () => {
     authService.logout();
     setIsAuthenticated(false);
   };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#F9FAFB]">
+        <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+        <p className="mt-4 text-gray-600">加载中...</p>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return <Login onLoginSuccess={handleLoginSuccess} />;
@@ -94,7 +113,11 @@ const App: React.FC = () => {
       case AppTab.GROUP_LEADER_MANAGEMENT:
         return <GroupLeaderManagement key="group-leader-management" />;
       case AppTab.GROUP_MANAGEMENT:
-        return <GroupManagement key="group-management" />;
+        return currentUser?.role === UserRole.GROUP_LEADER ? (
+          <GroupLeader key="group-leader" timeRange="today" onRefresh={() => {}} />
+        ) : (
+          <GroupManagement key="group-management" />
+        );
       default:
         return (
           <Dashboard 

@@ -254,7 +254,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         console.log('团队组长总收益:', teamLeaderEarnings);
 
         // 从首页API获取的数据直接使用
-        // 团队长收益 = （团队金币 * 25%）- 团队组长收益
+        // 团队长收益 = （团队金币 * 20%）- 团队组长收益
         const todayTeamCoins = Number(todayResponse?.coins || todayResponse?.data?.coins || 0) / 1000;
         const monthTeamCoins = Number(monthResponse?.coins || monthResponse?.data?.coins || 0) / 1000;
         const lastMonthTeamCoins = Number(lastMonthResponse?.coins || lastMonthResponse?.data?.coins || 0) / 1000;
@@ -262,12 +262,12 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         
         console.log('Calculated coins:', { todayTeamCoins, monthTeamCoins, lastMonthTeamCoins, totalTeamCoins });
         
-        // 计算收益 - 团队长收益 = （团队金币 * 25%）- 团队组长收益
+        // 计算收益 - 团队长收益 = （团队金币 * 20%）- 团队组长收益
         // 确保收益不会出现负数
-        const todayEarnings = Math.max(0, todayTeamCoins * 0.25 - teamLeaderEarnings);
-        const monthEarnings = Math.max(0, monthTeamCoins * 0.25 - teamLeaderEarnings);
-        const lastMonthEarnings = Math.max(0, lastMonthTeamCoins * 0.25); // 上月收益直接使用团队金币 * 25%，不减去团队组长收益
-        const totalEarnings = Math.max(0, totalTeamCoins * 0.25); // 累计收益直接使用团队金币 * 25%，不减去团队组长收益
+        const todayEarnings = Math.max(0, todayTeamCoins * 0.2 - teamLeaderEarnings);
+        const monthEarnings = Math.max(0, monthTeamCoins * 0.2 - teamLeaderEarnings);
+        const lastMonthEarnings = Math.max(0, lastMonthTeamCoins * 0.2); // 上月收益直接使用团队金币 * 20%，不减去团队组长收益
+        const totalEarnings = Math.max(0, totalTeamCoins * 0.2); // 累计收益直接使用团队金币 * 20%，不减去团队组长收益
         
         console.log('Calculated earnings:', { todayEarnings, monthEarnings, lastMonthEarnings, totalEarnings });
         

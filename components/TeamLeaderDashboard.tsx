@@ -226,8 +226,8 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
         console.error('获取数据失败:', error);
       }
 
-      // 计算团队提成收益 = 用户分成的25% - 团队组长收益
-      const teamShare = userShare * 0.25 - teamLeaderEarnings;
+      // 计算团队提成收益 = 用户分成的20% - 团队组长收益
+      const teamShare = userShare * 0.2 - teamLeaderEarnings;
 
       // 转换KPI数据为前端格式
       const transformedKpis = [
