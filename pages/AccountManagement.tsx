@@ -289,7 +289,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         return;
       }
     } else if (addType === 'group') {
-      if (!formData.parentId || !formData.teamName || !formData.realName || !formData.username || !formData.password) {
+      if (!formData.parentId || !formData.realName || !formData.username || !formData.password || !formData.groupName) {
         setError('请填写所有必填字段');
         return;
       }
@@ -330,7 +330,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
             password: formData.password,
             role: 'GROUP_LEADER',
             parentId: formData.parentId,
-            teamName: formData.teamName,
+            teamName: selectedTeam?.teamName || '',
             groupName: formData.groupName
           })
         });
@@ -345,7 +345,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           method: 'POST',
           body: JSON.stringify({
             teamLeaderId: formData.parentId,
-            teamName: formData.teamName,
+            teamName: selectedTeam?.teamName || '',
             groupName: formData.groupName,
             commission: commissionRate,
             groupLeaderId: adminResult.id,
