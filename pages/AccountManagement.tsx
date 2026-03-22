@@ -509,19 +509,16 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     console.log('删除账号信息:', deletingAccount);
     setSaving(true);
     try {
-      // 对于组长账号，使用组长删除API
+      // 对于组长账号，使用管理员删除API
       const isGroupLeader = deletingAccount.isGroupLeader || deletingAccount.role === 'GROUP_LEADER' || deletingAccount.role === 'group_leader';
       console.log('是否为组长:', isGroupLeader);
       
       let apiUrl = '';
-      if (isGroupLeader) {
-        // 组长账号使用专门的删除API
-        apiUrl = `/admin/employee/group-leader/${deletingAccount._id}`;
-      } else if (deletingAccount.role === 'employee') {
+      if (deletingAccount.role === 'employee') {
         // 普通员工使用员工删除API
         apiUrl = `/admin/employee/${deletingAccount._id}`;
       } else {
-        // 其他账号使用管理员删除API
+        // 组长和其他账号使用管理员删除API
         apiUrl = `/admin/account/${deletingAccount._id}`;
       }
       
