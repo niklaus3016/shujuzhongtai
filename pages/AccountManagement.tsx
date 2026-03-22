@@ -289,7 +289,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         return;
       }
     } else if (addType === 'group') {
-      if (!formData.parentId || !formData.realName || !formData.username || !formData.password || !formData.groupName) {
+      if (!formData.parentId || !formData.realName || !formData.phone || !formData.region || !formData.username || !formData.password || !formData.groupName) {
         setError('请填写所有必填字段');
         return;
       }
@@ -331,7 +331,10 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
             role: 'GROUP_LEADER',
             parentId: formData.parentId,
             teamName: selectedTeam?.teamName || '',
-            groupName: formData.groupName
+            groupName: formData.groupName,
+            realName: formData.realName,
+            phone: formData.phone,
+            region: formData.region
           })
         });
         
@@ -1063,7 +1066,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                   />
                 </div>
 
-                {(addType === 'team' || addType === 'employee') && (
+                {(addType === 'team' || addType === 'employee' || addType === 'group') && (
                   <>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
