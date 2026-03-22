@@ -492,9 +492,12 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
   const handleDeleteAccount = async () => {
     if (!deletingAccount) return;
 
+    console.log('删除账号信息:', deletingAccount);
     setSaving(true);
     try {
-      if (deletingAccount.role === 'employee' || deletingAccount.employeeId) {
+      // 对于组长账号，无论是否有employeeId，都使用管理员删除API
+      const isGroupLeader = deletingAccount.isGroupLeader || deletingAccount.role === 'GROUP_LEADER' || deletingAccount.role === 'group_leader';
+      if (deletingAccount.role === 'employee' && !isGroupLeader) {
         await request<any>(`/admin/employee/${deletingAccount._id}`, {
           method: 'DELETE'
         });
