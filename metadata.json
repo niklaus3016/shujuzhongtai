@@ -1,5 +1,5 @@
 {
-  "name": "AdMaster Data Hub",
+  "name": "光年智慧中台",
   "description": "A high-end mobile advertising data middle platform for monitoring performance, user behavior, rankings, and anomalies in real-time.",
   "requestFramePermissions": [
     "geolocation"

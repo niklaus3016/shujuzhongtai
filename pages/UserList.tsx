@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Search, ChevronLeft, Globe, Smartphone, Zap, 
-  ChevronRight, Filter
+  ChevronRight
 } from 'lucide-react';
 import { request } from '../services/api';
 import { authService } from '../services/authService';
@@ -44,30 +44,10 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
   // 添加昨日用户收益数据，用于计算收益对比
   const [yesterdayEarningsData, setYesterdayEarningsData] = useState<Record<string, number>>({});
   
-  // 使用 useMemo 缓存 currentUser，避免每次渲染都返回新对象
-  const currentUser = useMemo(() => authService.getCurrentUser(), []);
-  const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
-  
-  // 团队名称映射表
-  const teamNameMap: Record<string, string> = {
-    'cuiding': '鼎盛战队',
-    'cuijie': '花好月圆战队',
-    'huangzhenhui': '四季发财战队'
-    // 可以根据需要添加更多映射
+  // 获取用户对应的团队名称（与GroupLeader.tsx完全一致）
+  const getUserTeamName = (user: any) => {
+    return user?.teamName || '团队';
   };
-  
-  // 获取用户对应的团队名称
-  const getUserTeamName = () => {
-    if (currentUser?.teamName) {
-      return currentUser.teamName;
-    }
-    if (currentUser?.username && teamNameMap[currentUser.username]) {
-      return teamNameMap[currentUser.username];
-    }
-    return '团队';
-  };
-  
-  const teamName = getUserTeamName();
 
   // 组件挂载时重置滚动位置到顶部
   useEffect(() => {
@@ -78,21 +58,76 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
     const fetchUsers = async () => {
       setLoading(true);
       try {
-        // 团队长只获取自己团队的用户，不限制数据数量
-        const userUrl = isTeamLeader 
-          ? `/admin/dashboard/users?range=today&team=${encodeURIComponent(teamName)}&limit=1000`
-          : `/admin/dashboard/users?range=today&limit=1000`;
+        // 重新获取最新的用户信息，确保teamGroupId是最新的（与GroupLeader.tsx完全一致）
+        const updatedUser = authService.getCurrentUser();
+        const isTeamLeader = updatedUser?.role === UserRole.NORMAL_ADMIN;
+        const isGroupLeader = updatedUser?.role === UserRole.GROUP_LEADER;
+        const teamName = updatedUser?.teamName || '团队';
+        const groupName = updatedUser?.groupName || '组';
+        const groupId = updatedUser?.teamGroupId || '';
+        
+        console.log('最新的用户信息:', {
+          teamName,
+          groupName,
+          groupId
+        });
+        console.log('用户角色:', { isTeamLeader, isGroupLeader });
+        console.log('团队和组信息:', { teamName, groupName, groupId });
+        
+        // 构建API路径（与GroupLeader.tsx完全一致）
+        let userUrl = `/admin/dashboard/users?range=today&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(groupId || '')}&limit=1000`;
+        if (isTeamLeader) {
+          userUrl = `/admin/dashboard/users?range=today&team=${encodeURIComponent(teamName)}&limit=1000`;
+        } else if (!isGroupLeader) {
+          userUrl = `/admin/dashboard/users?range=today&limit=1000`;
+        }
         
         console.log('用户数据 API 路径:', userUrl);
         
-        const response = await request<any>(userUrl, {
-          method: 'GET',
-          headers: new Headers({
-            'Content-Type': 'application/json'
-          })
+        // 获取用户数据（与GroupLeader.tsx完全一致）
+        const userResult = await request<any[]>(userUrl).catch(error => {
+          console.error('获取用户列表失败:', error);
+          return [];
         });
-        
-        const transformedUsers: ListUser[] = response.map((user: any) => ({
+
+        // 处理用户数据（与GroupLeader.tsx完全一致）
+        const users = Array.isArray(userResult) ? userResult : [];
+        console.log('用户列表总数:', users.length);
+        console.log('用户数据:', users);
+
+        // 过滤用户数据（与Dashboard.tsx完全一致）
+        let filteredUsers = users;
+        if (isTeamLeader) {
+          console.log('团队长团队名称:', teamName);
+          console.log('过滤前用户数:', users.length);
+          filteredUsers = users.filter((user: any) => {
+            const userTeam = user.teamName || user.superior || '系统直属';
+            console.log('用户团队:', userTeam, '目标团队:', teamName, '是否匹配:', userTeam === teamName);
+            return userTeam === teamName;
+          });
+          console.log('过滤后用户数:', filteredUsers.length);
+          console.log('过滤后用户数据:', filteredUsers);
+        } else if (isGroupLeader) {
+          const teamGroupId = updatedUser?.teamGroupId;
+          console.log('组ID:', teamGroupId);
+          
+          // 确保teamGroupId存在（与Dashboard.tsx完全一致）
+          if (teamGroupId) {
+            filteredUsers = users.filter((user: any) => {
+              // 检查用户的组ID是否与组长的组ID匹配
+              const userTeamGroupId = user.teamGroupId || user.groupId || '';
+              console.log('用户组ID:', userTeamGroupId, '目标组ID:', teamGroupId, '是否匹配:', userTeamGroupId === teamGroupId);
+              return userTeamGroupId === teamGroupId;
+            });
+          } else {
+            // 如果组长没有组ID，不显示任何用户数据
+            filteredUsers = [];
+          }
+          console.log('过滤后用户数据:', filteredUsers);
+        }
+
+        // 转换用户数据为ListUser格式
+        const transformedUsers: ListUser[] = filteredUsers.map((user: any) => ({
           id: user.employeeId || user.userId || '',
           userId: user.userId || '',
           name: user.realName || user.realname || user.name || user.username || user.userName || user.userId || user.employeeId || '',
@@ -104,29 +139,25 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
           ecpm: user.ecpm || 0,
           superior: user.superior || user.teamName || '系统直属',
           teamName: user.teamName || user.superior || '系统直属',
-          groupName: user.groupName || ''
+          groupName: user.groupName || user.teamGroup || ''
         }));
-        
-        // 团队长只显示自己团队的成员数据
-        let filteredUsers = transformedUsers;
-        if (isTeamLeader) {
-          console.log('团队长团队名称:', teamName);
-          filteredUsers = transformedUsers.filter(user => {
-            const userTeam = user.teamName || user.superior || '系统直属';
-            return userTeam === teamName;
-          });
-          console.log('过滤后用户数:', filteredUsers.length);
-        }
-        
+
         console.log('转换后的用户数据:', transformedUsers);
-        setUsers(filteredUsers);
+        setUsers(transformedUsers);
         
         // 同时获取昨日用户数据用于计算次数对比
         try {
-          let yesterdayUserUrl = isTeamLeader 
-            ? `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}&limit=1000`
-            : `/admin/dashboard/users?range=yesterday&limit=1000`;
+          // 构建昨日用户数据API路径（与GroupLeader.tsx保持一致）
+          let yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&limit=1000`;
+          if (isTeamLeader) {
+            yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}&limit=1000`;
+          } else if (isGroupLeader && groupId) {
+            yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(groupId)}&limit=1000`;
+          }
           
+          console.log('昨日用户数据 API 路径:', yesterdayUserUrl);
+          
+          // 获取昨日活跃用户数据
           const yesterdayUserResponse = await request<any>(yesterdayUserUrl, {
             method: 'GET',
             headers: new Headers({
@@ -134,10 +165,15 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
             })
           });
           
+          // 检查API返回类型，确保是数组
+          const yesterdayUserData = Array.isArray(yesterdayUserResponse) ? yesterdayUserResponse : [];
+          console.log('昨日用户数据长度:', yesterdayUserData.length);
+          console.log('昨日用户数据:', yesterdayUserData);
+          
           // 构建用户ID到次数和收益的映射
           const yesterdayUserMap: Record<string, number> = {};
           const yesterdayEarningsMap: Record<string, number> = {};
-          yesterdayUserResponse.forEach((user: any) => {
+          yesterdayUserData.forEach((user: any) => {
             const userId = user.employeeId || user.userId || '';
             yesterdayUserMap[userId] = user.watched || 0;
             yesterdayEarningsMap[userId] = (user.earnings || 0) / 1000;
@@ -157,7 +193,7 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
     };
 
     fetchUsers();
-  }, [isTeamLeader, teamName]);
+  }, []);
 
   const filteredAndSortedUsers = useMemo(() => {
     return users

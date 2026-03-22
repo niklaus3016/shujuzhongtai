@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   ChevronLeft, UserPlus, Users, Search, ChevronRight,
-  Shield, User, Crown, Star, ToggleLeft, ToggleRight, Trash2, Phone, MapPin, Users2, Edit2, ChevronDown
+  Shield, User, Crown, Star, ToggleLeft, ToggleRight, Trash2, Phone, MapPin, Users2, Edit2, ChevronDown, CheckCircle
 } from 'lucide-react';
 import { request } from '../services/api';
 import { useSwipeBack } from '../hooks/useSwipeBack';
@@ -9,6 +9,7 @@ import { useSwipeBack } from '../hooks/useSwipeBack';
 interface Account {
   _id: string;
   username: string;
+  password?: string;
   role: string;
   status: string;
   teamName?: string;
@@ -25,6 +26,7 @@ interface Account {
   parentName?: string;
   superior?: string;
   isGroupLeader?: boolean;
+  groupLeaderId?: string;
 }
 
 interface AccountManagementProps {
@@ -47,6 +49,14 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState<Account | null>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [showMessage, setShowMessage] = useState(false);
+  const [showOpenAccountModal, setShowOpenAccountModal] = useState(false);
+  const [openingAccount, setOpeningAccount] = useState<any>(null);
+  const [openAccountForm, setOpenAccountForm] = useState({
+    username: '',
+    password: ''
+  });
   
   // 使用左滑返回hook
   const swipeRef = useSwipeBack({ onBack });
@@ -172,48 +182,95 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       // 从团队账号中提取组长（role为GROUP_LEADER的账号）
       const teamGroupLeaders = rawTeamAccounts.filter((a: any) => 
         a.role === 'GROUP_LEADER' || a.role === 'group_leader'
-      );
+      ).map((leader: any) => ({
+        ...leader,
+        // 为超管创建的组长账号添加默认密码
+        // 注意：这只是为了显示方便，实际密码存储在后端
+        password: '123456'
+      }));
       
       console.log('API组长数据:', apiGroupLeaders);
       console.log('API组长数量:', apiGroupLeaders.length);
       
       // 转换API组长数据为账号格式
       const convertedApiGroupLeaders = apiGroupLeaders.map((leader: any) => ({
-        _id: leader.groupLeaderId || leader._id,
+        _id: leader._id,
+        groupLeaderId: leader.groupLeaderId,
         realName: leader.groupLeaderName || leader.realName || '未知组长',
-        username: leader.groupLeaderName || leader.username || '未知组长',
+        username: leader.username || leader.userName || leader.groupLeaderName || '未知用户名',
         role: 'GROUP_LEADER',
         status: 'active',
         groupName: leader.groupName,
         teamName: leader.teamName,
         parentId: leader.teamLeaderId,
         commission: leader.commission,
+        phone: leader.phone || leader.mobile || '',
+        region: leader.region || leader.area || '',
         createdAt: leader.createdAt
       }));
       
       // 合并组长账号并去重
       const groupLeadersMap = new Map();
-      [...employeeGroupLeaders, ...teamGroupLeaders, ...convertedApiGroupLeaders].forEach(leader => {
-        if (leader._id) {
+      const allLeaders = [...employeeGroupLeaders, ...teamGroupLeaders, ...convertedApiGroupLeaders];
+      
+      allLeaders.forEach(leader => {
+        // 优先使用 realName 和 teamName 的组合作为去重键
+        // 这样即使 _id 不同，只要是同一个人在同一个团队，就认为是同一个账号
+        const key = `${leader.realName}-${leader.teamName}`;
+        
+        if (key) {
           // 如果已经存在，保留信息更完整的版本
-          const existingLeader = groupLeadersMap.get(leader._id);
-          if (!existingLeader || Object.keys(leader).length > Object.keys(existingLeader).length) {
-            groupLeadersMap.set(leader._id, leader);
+          const existingLeader = groupLeadersMap.get(key);
+          if (!existingLeader) {
+            groupLeadersMap.set(key, leader);
+          } else {
+            // 合并两个账号的信息，优先保留信息更完整的版本
+            // 同时优先保留超管创建的账号的ID，因为修改密码时需要使用管理员账号的ID
+            const isAdminAccount = leader.username && leader.username !== '未知用户名' && leader.username !== leader.realName;
+            const existingIsAdminAccount = existingLeader.username && existingLeader.username !== '未知用户名' && existingLeader.username !== existingLeader.realName;
+            
+            const updatedLeader = {
+              ...existingLeader,
+              // 保留信息更完整的版本
+              ...(Object.keys(leader).length > Object.keys(existingLeader).length ? leader : {}),
+              // 优先保留超管创建的账号的ID、用户名和密码
+              // 超管创建的账号是从团队账号中提取的，包含真实的username和password
+              ...(isAdminAccount ? { _id: leader._id, username: leader.username, password: leader.password } : {}),
+              // 保留现有的超管创建的账号的ID、用户名和密码（如果已经存在）
+              ...(existingIsAdminAccount ? { _id: existingLeader._id, username: existingLeader.username, password: existingLeader.password } : {})
+            };
+            groupLeadersMap.set(key, updatedLeader);
           }
         }
       });
+      
+      console.log('所有组长账号数:', allLeaders.length);
+      console.log('去重后组长账号数:', groupLeadersMap.size);
       const groupLeaders = Array.from(groupLeadersMap.values());
+      
+      // 收集组长的ID、用户名和真实姓名，用于过滤团队账号
       const groupLeaderIds = new Set(groupLeaders.map((g: any) => g._id));
+      const groupLeaderUsernames = new Set(groupLeaders.map((g: any) => g.username));
+      const groupLeaderRealNames = new Set(groupLeaders.map((g: any) => g.realName));
       
       console.log('合并后组长账号数:', groupLeaders.length);
       
       console.log('提取的组长:', groupLeaders);
       console.log('组长ID列表:', groupLeaderIds);
+      console.log('组长用户名列表:', groupLeaderUsernames);
+      console.log('组长真实姓名列表:', groupLeaderRealNames);
       console.log('组长数量:', groupLeaders.length);
       
-      // 过滤团队账号：NORMAL_ADMIN角色且不在组长ID列表中
+      // 过滤团队账号：
+      // 1. 角色为NORMAL_ADMIN
+      // 2. 不在组长ID列表中
+      // 3. 用户名不在组长用户名列表中
+      // 4. 真实姓名不在组长真实姓名列表中
       const teamAccounts = rawTeamAccounts.filter((a: any) => 
-        a.role === 'NORMAL_ADMIN' && !groupLeaderIds.has(a._id)
+        a.role === 'NORMAL_ADMIN' && 
+        !groupLeaderIds.has(a._id) && 
+        !groupLeaderUsernames.has(a.username) && 
+        !groupLeaderRealNames.has(a.realName)
       );
       
       console.log('过滤后的团队账号:', teamAccounts);
@@ -353,18 +410,47 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           return;
         }
         
+        console.log('创建管理员账号结果:', adminResult);
+        
+        // 检查adminResult的结构
+        const adminId = adminResult.id || adminResult._id;
+        if (!adminId) {
+          setError('创建管理员账号失败，未返回ID');
+          return;
+        }
+        
         // 2. 再将该管理员设置为组长
-        await request<any>('/admin/employee/group-leader/add', {
+        const groupLeaderResult = await request<any>('/admin/employee/group-leader/add', {
           method: 'POST',
           body: JSON.stringify({
             teamLeaderId: formData.parentId,
             teamName: selectedTeam?.teamName || '',
             groupName: formData.groupName,
             commission: commissionRate,
-            groupLeaderId: adminResult.id,
-            groupLeaderName: formData.username
+            groupLeaderId: adminId,
+            groupLeaderName: formData.realName
           })
         });
+        
+        console.log('设置组长结果:', groupLeaderResult);
+        
+        // 检查groupLeaderResult的结构
+        const groupId = groupLeaderResult._id || groupLeaderResult.id;
+        if (groupId) {
+          try {
+            // 更新管理员账号，设置teamGroupId
+            await request<any>(`/admin/account/${adminId}`, {
+              method: 'PUT',
+              body: JSON.stringify({
+                teamGroupId: groupId
+              })
+            });
+            console.log('更新管理员账号成功');
+          } catch (error) {
+            console.error('更新管理员账号失败:', error);
+            // 不阻止流程，继续执行
+          }
+        }
       } else {
         // 获取选中的组信息
         const selectedGroup = groups.find(g => g._id === formData.parentId);
@@ -459,6 +545,10 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           updateData.teamName = formData.teamName;
         } else if (editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader') {
           updateData.groupName = formData.groupName;
+          // 更新提成比例
+          if (formData.commissionRate) {
+            updateData.commission = parseFloat(formData.commissionRate) / 100;
+          }
         }
         
         // 只有当用户名和密码不为空时才更新
@@ -469,10 +559,44 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           updateData.password = formData.password;
         }
         
-        await request<any>(`/admin/account/${editingAccount._id}`, {
-          method: 'PUT',
-          body: JSON.stringify(updateData)
-        });
+        // 对于组长账号，需要同时更新管理员账号和组长账号的信息
+        if (editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader') {
+          // 1. 先更新组长账号的信息
+          const groupLeaderUpdateData: any = {
+            groupName: formData.groupName,
+            groupLeaderName: formData.realName,
+            phone: formData.phone
+          };
+          
+          // 更新提成比例
+          if (formData.commissionRate) {
+            groupLeaderUpdateData.commission = parseFloat(formData.commissionRate) / 100;
+          }
+          
+          try {
+            // 尝试使用组长ID更新组长账号信息
+            const groupLeaderId = editingAccount.teamGroupId || editingAccount._id;
+            await request<any>(`/admin/employee/group-leader/${groupLeaderId}`, {
+              method: 'PUT',
+              body: JSON.stringify(groupLeaderUpdateData)
+            });
+          } catch (error) {
+            console.error('更新组长账号信息失败:', error);
+            // 继续执行，尝试更新管理员账号
+          }
+        }
+        
+        // 2. 更新管理员账号的信息
+        try {
+          // 直接使用editingAccount的ID，因为在合并数据时，我们已经确保了editingAccount包含了管理员账号的信息
+          await request<any>(`/admin/account/${editingAccount._id}`, {
+            method: 'PUT',
+            body: JSON.stringify(updateData)
+          });
+        } catch (error) {
+          console.error('更新管理员账号信息失败:', error);
+          // 继续执行，不抛出错误
+        }
       }
       
       setShowEditModal(false);
@@ -509,39 +633,121 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     console.log('删除账号信息:', deletingAccount);
     setSaving(true);
     try {
-      // 对于组长账号，使用管理员删除API
+      // 对于组长账号，尝试使用组长删除API
       const isGroupLeader = deletingAccount.isGroupLeader || deletingAccount.role === 'GROUP_LEADER' || deletingAccount.role === 'group_leader';
       console.log('是否为组长:', isGroupLeader);
       
-      let apiUrl = '';
-      if (deletingAccount.role === 'employee') {
+      if (isGroupLeader) {
+        // 尝试使用组长删除API
+        try {
+          const groupLeaderApiUrl = `/admin/employee/group-leader/${deletingAccount._id}`;
+          console.log('尝试使用组长删除API:', groupLeaderApiUrl);
+          const groupLeaderResponse = await request<any>(groupLeaderApiUrl, {
+            method: 'DELETE'
+          });
+          console.log('组长删除API响应:', groupLeaderResponse);
+        } catch (groupLeaderError) {
+          console.error('组长删除API失败，尝试使用管理员删除API:', groupLeaderError);
+          // 如果组长删除API失败，尝试使用管理员删除API
+          const adminApiUrl = `/admin/account/${deletingAccount._id}`;
+          console.log('尝试使用管理员删除API:', adminApiUrl);
+          const adminResponse = await request<any>(adminApiUrl, {
+            method: 'DELETE'
+          });
+          console.log('管理员删除API响应:', adminResponse);
+        }
+      } else if (deletingAccount.role === 'employee') {
         // 普通员工使用员工删除API
-        apiUrl = `/admin/employee/${deletingAccount._id}`;
+        const employeeApiUrl = `/admin/employee/${deletingAccount._id}`;
+        console.log('使用员工删除API:', employeeApiUrl);
+        const employeeResponse = await request<any>(employeeApiUrl, {
+          method: 'DELETE'
+        });
+        console.log('员工删除API响应:', employeeResponse);
       } else {
-        // 组长和其他账号使用管理员删除API
-        apiUrl = `/admin/account/${deletingAccount._id}`;
+        // 其他账号使用管理员删除API
+        const adminApiUrl = `/admin/account/${deletingAccount._id}`;
+        console.log('使用管理员删除API:', adminApiUrl);
+        const adminResponse = await request<any>(adminApiUrl, {
+          method: 'DELETE'
+        });
+        console.log('管理员删除API响应:', adminResponse);
       }
-      
-      console.log('删除API URL:', apiUrl);
-      
-      const response = await request<any>(apiUrl, {
-        method: 'DELETE'
-      });
-      
-      console.log('删除API响应:', response);
-      
-      setShowDeleteModal(false);
-      setDeletingAccount(null);
-      fetchAccounts();
     } catch (error: any) {
       console.error('Error deleting account:', error);
       setError(error.message || '删除账号失败');
-      // 即使出错也要关闭弹窗
+    } finally {
+      // 无论删除成功与否，都关闭弹窗并刷新账号列表
       setShowDeleteModal(false);
       setDeletingAccount(null);
-    } finally {
       setSaving(false);
+      fetchAccounts();
       console.log('删除操作完成');
+    }
+  };
+
+  // 开通组长账号
+  const handleOpenAccount = (account: any) => {
+    if (!account) return;
+    
+    setOpeningAccount(account);
+    setOpenAccountForm({
+      username: '',
+      password: ''
+    });
+    setShowOpenAccountModal(true);
+  };
+  
+  const handleConfirmOpenAccount = async () => {
+    if (!openingAccount || !openAccountForm.username || !openAccountForm.password) {
+      setError('请填写用户名和密码');
+      return;
+    }
+    
+    try {
+      // 1. 创建管理员账号
+      const adminResult = await request<any>('/admin/account/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: openAccountForm.username,
+          password: openAccountForm.password,
+          role: 'GROUP_LEADER',
+          parentId: openingAccount.parentId || '',
+          teamName: openingAccount.teamName || '',
+          groupName: openingAccount.groupName || '',
+          realName: openingAccount.realName || openAccountForm.username || '',
+          phone: openingAccount.phone || '',
+          teamGroupId: openingAccount.teamGroupId || openingAccount._id
+        })
+      });
+      
+      console.log('创建管理员账号结果:', adminResult);
+      
+      const adminId = adminResult.id || adminResult._id;
+      if (!adminId) {
+        throw new Error('创建管理员账号失败，未返回ID');
+      }
+      
+      // 2. 更新组长的groupLeaderId字段
+      await request<any>(`/admin/employee/group-leader/${openingAccount.teamGroupId || openingAccount._id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          groupLeaderId: adminId
+        })
+      });
+      
+      // 显示开通成功提示
+      setMessage(`账号开通成功，用户名：${openAccountForm.username}，密码：${openAccountForm.password}`);
+      setShowMessage(true);
+      
+      // 关闭弹窗
+      setShowOpenAccountModal(false);
+      
+      // 刷新账号列表
+      fetchAccounts();
+    } catch (error) {
+      console.error('Error opening account:', error);
+      setError('开通账号失败，请重试');
     }
   };
 
@@ -616,7 +822,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       parentId: account.parentId || '',
       groupId: account.groupId || '',
       groupName: account.groupName || '',
-      commissionRate: account.commission ? (account.commission * 100).toString() : ''
+      commissionRate: account.commission ? (Math.round(account.commission * 100 * 100) / 100).toString() : ''
     });
     setShowEditModal(true);
   };
@@ -810,6 +1016,11 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                               分成：{(account.commission * 100).toFixed(0)}%
                             </p>
                           )}
+                          {account.username && (
+                            <p className="text-xs text-gray-500">
+                              用户名：{account.username}
+                            </p>
+                          )}
                         </>
                       ) : (
                         /* 团队长和员工账号的显示逻辑（恢复原样） */
@@ -864,6 +1075,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                       </span>
                     )}
                     <div className="flex items-center space-x-2">
+
                       <button
                         onClick={() => openEditModal(account)}
                         className="p-2 text-gray-400 hover:text-[#1E40AF] transition-colors"
@@ -886,6 +1098,23 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                         <div className={`w-5 h-5 rounded-full bg-white shadow-sm transition-all ${(account.status === 'active' || account.status === 'enabled' || account.status === '1' || !account.status) ? 'translate-x-4' : 'translate-x-0'}`}></div>
                       </button>
                     </div>
+                    {/* 显示开通状态（移到启用按钮下面） */}
+                    {(account.role === 'GROUP_LEADER' || account.role === 'group_leader' || account.isGroupLeader) && (
+                      <div className="mt-2 space-y-1">
+                        {!account.groupLeaderId ? (
+                          <button
+                            onClick={() => handleOpenAccount(account)}
+                            className="text-xs font-bold bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full hover:bg-yellow-200 transition-colors"
+                          >
+                            待开通
+                          </button>
+                        ) : (
+                          <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                            已开通
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1273,17 +1502,32 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                 )}
 
                 {(editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader') && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      组名
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.groupName}
-                      onChange={(e) => setFormData({...formData, groupName: e.target.value})}
-                      className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
-                    />
-                  </div>
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        组名
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.groupName}
+                        onChange={(e) => setFormData({...formData, groupName: e.target.value})}
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        分成比例 (%)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={formData.commissionRate}
+                        onChange={(e) => setFormData({...formData, commissionRate: e.target.value})}
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
+                      />
+                    </div>
+                  </>
                 )}
 
                 <div>
@@ -1407,6 +1651,57 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                   {saving ? '删除中...' : '确认删除'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* 开通账号弹窗 */}
+      {showOpenAccountModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-4/5 max-w-md">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">开通组长账号</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">用户名 *</label>
+                <input
+                  type="text"
+                  value={openAccountForm.username}
+                  onChange={(e) => setOpenAccountForm({ ...openAccountForm, username: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="请输入用户名"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">密码 *</label>
+                <input
+                  type="password"
+                  value={openAccountForm.password}
+                  onChange={(e) => setOpenAccountForm({ ...openAccountForm, password: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="请输入密码"
+                />
+              </div>
+            </div>
+            
+            {error && (
+              <p className="mt-3 text-sm text-red-600">{error}</p>
+            )}
+            
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => setShowOpenAccountModal(false)}
+                className="flex-1 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 rounded-xl"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmOpenAccount}
+                className="flex-1 py-2.5 text-sm font-bold text-white bg-[#1E40AF] rounded-xl"
+              >
+                确认开通
+              </button>
             </div>
           </div>
         </div>

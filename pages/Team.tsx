@@ -389,18 +389,38 @@ const Team: React.FC = () => {
         });
         
         // 过滤掉成员数为0的团队
-        const validTeams = updatedTeams.filter(team => team.memberCount > 0);
-        console.log('Team.tsx - 过滤后的团队数:', validTeams.length);
-        console.log('Team.tsx - 过滤后的团队列表:', validTeams.map(t => t.leader));
+        const validTeams = updatedTeams.filter((team: TeamItem) => team.memberCount > 0);
         
-        setTeams(validTeams);
+        // 去重处理：根据团队名称去重，保留成员数最多的团队
+        const teamMap = new Map<string, TeamItem>();
+        validTeams.forEach((team: TeamItem) => {
+          const existingTeam = teamMap.get(team.leader);
+          if (!existingTeam || team.memberCount > existingTeam.memberCount) {
+            teamMap.set(team.leader, team);
+          }
+        });
+        const uniqueTeams = Array.from(teamMap.values());
+        console.log('Team.tsx - 去重后的团队数:', uniqueTeams.length);
+        console.log('Team.tsx - 去重后的团队列表:', uniqueTeams.map((t: TeamItem) => t.leader));
+        
+        setTeams(uniqueTeams);
       } catch (error) {
         console.error('获取用户列表失败:', error);
         // 即使获取用户列表失败，也过滤掉成员数为0的团队
-        const validTeams = teamsData.filter(team => team.memberCount > 0);
-        console.log('Team.tsx - 错误处理时过滤后的团队数:', validTeams.length);
-        console.log('Team.tsx - 错误处理时过滤后的团队列表:', validTeams.map(t => t.leader));
-        setTeams(validTeams);
+        const validTeams = (teamsData as TeamItem[]).filter((team: TeamItem) => team.memberCount > 0);
+        
+        // 去重处理：根据团队名称去重，保留成员数最多的团队
+        const teamMap = new Map<string, TeamItem>();
+        validTeams.forEach((team: TeamItem) => {
+          const existingTeam = teamMap.get(team.leader);
+          if (!existingTeam || team.memberCount > existingTeam.memberCount) {
+            teamMap.set(team.leader, team);
+          }
+        });
+        const uniqueTeams = Array.from(teamMap.values());
+        console.log('Team.tsx - 错误处理时去重后的团队数:', uniqueTeams.length);
+        console.log('Team.tsx - 错误处理时去重后的团队列表:', uniqueTeams.map((t: TeamItem) => t.leader));
+        setTeams(uniqueTeams);
       }
     } catch (error) {
       console.error('Error fetching teams:', error);
@@ -458,8 +478,6 @@ const Team: React.FC = () => {
       realName: '',
       phone: '',
       region: '',
-      username: '',
-      password: '',
       employeeId: '',
       groupId: '',
       groupName: '',
@@ -482,6 +500,10 @@ const Team: React.FC = () => {
         });
         const groupLeaders = Array.isArray(groupLeadersResponse) ? groupLeadersResponse : (groupLeadersResponse?.data || []);
         console.log('Team.tsx - 组长列表:', groupLeaders);
+        // 查看第一个组长的完整结构
+        if (groupLeaders.length > 0) {
+          console.log('Team.tsx - 第一个组长的完整结构:', groupLeaders[0]);
+        }
         
         // 获取员工账号
         const employeeAccounts = await request<any>('/admin/employee/list?pageSize=100', { method: 'GET' });
@@ -515,11 +537,12 @@ const Team: React.FC = () => {
         const formattedGroupLeaders = groupLeaders.map((leader: any) => ({
           _id: leader.groupLeaderId || leader._id,
           realName: leader.groupLeaderName || '未知组长',
-          username: leader.groupLeaderName || '未知组长',
+          username: leader.username || leader.groupLeaderName || '未知账号',
           role: 'GROUP_LEADER',
           status: 'enabled',
           groupName: leader.groupName,
           teamGroupId: leader._id,
+          groupLeaderId: leader.groupLeaderId,
           commission: leader.commission,
           memberCount: leader.memberCount
         }));
@@ -589,8 +612,6 @@ const Team: React.FC = () => {
           realName: account.realName || '',
           phone: account.phone || '',
           region: account.region || '',
-          username: '',
-          password: '',
           employeeId: account.employeeId || '',
           groupId: account.teamGroupId || '',
           groupName: account.groupName || '',
@@ -602,8 +623,6 @@ const Team: React.FC = () => {
           realName: account.realName || '',
           phone: account.phone || '',
           region: account.region || '',
-          username: account.username || '',
-          password: '',
           employeeId: '',
           groupId: account.teamGroupId || '',
           groupName: account.groupName || '',
@@ -641,13 +660,21 @@ const Team: React.FC = () => {
         } else {
           const commissionRate = formData.commissionRate !== undefined && formData.commissionRate !== '' ? parseFloat(formData.commissionRate) / 100 : undefined;
           const groupId = editingAccount.teamGroupId || editingAccount._id;
+          
+          // 更新组长信息
+          const updateData = {
+            groupName: formData.groupName,
+            groupLeaderName: formData.realName,
+            ...(commissionRate !== undefined && { commission: commissionRate }),
+            ...(formData.phone && { phone: formData.phone })
+          };
+          
           await request<any>(`/admin/employee/group-leader/${groupId}`, {
             method: 'PUT',
-            body: JSON.stringify({
-              groupName: formData.groupName,
-              ...(commissionRate !== undefined && { commission: commissionRate })
-            })
+            body: JSON.stringify(updateData)
           });
+          
+          console.log('更新组长信息成功');
         }
         setShowEditModal(false);
         setEditingAccount(null);
@@ -685,7 +712,7 @@ const Team: React.FC = () => {
       setError(null);
       
       if (addType === 'group') {
-        if (!formData.groupName || !formData.realName || !formData.username || !formData.password) {
+        if (!formData.groupName || !formData.realName) {
           setError('请填写所有必填字段');
           return;
         }
@@ -702,7 +729,8 @@ const Team: React.FC = () => {
           // 创建组长账号
           const commissionRate = formData.commissionRate ? parseFloat(formData.commissionRate) / 100 : 0.05;
           
-          await request<any>('/admin/employee/group-leader/add', {
+          // 创建组长账号
+          const groupLeaderResult = await request<any>('/admin/employee/group-leader/add', {
             method: 'POST',
             body: JSON.stringify({
               teamLeaderId: currentUser.id,
@@ -710,12 +738,18 @@ const Team: React.FC = () => {
               groupName: formData.groupName,
               commission: commissionRate,
               groupLeaderName: formData.realName,
-              username: formData.username,
-              password: formData.password,
               realName: formData.realName,
               phone: formData.phone
             })
           });
+          
+          console.log('创建组长账号结果:', groupLeaderResult);
+          
+          // 显示提交成功提示
+          alert('组长信息已提交，请等待超管开通账号');
+          
+          // 刷新账号列表
+          fetchAccounts();
         } else {
           await request<any>('/admin/employee/create', {
             method: 'POST',
@@ -731,7 +765,7 @@ const Team: React.FC = () => {
         }
         setShowAddModal(false);
         setAddType('group');
-        setFormData({ teamName: '', realName: '', phone: '', region: '', username: '', password: '', employeeId: '', groupId: '', groupName: '', commissionRate: '' });
+        setFormData({ teamName: '', realName: '', phone: '', region: '', employeeId: '', groupId: '', groupName: '', commissionRate: '' });
         fetchAccounts();
       } catch (error: any) {
         console.error('Error adding account:', error);
@@ -872,6 +906,20 @@ const Team: React.FC = () => {
                         <div className={`w-5 h-5 rounded-full bg-white shadow-sm transition-all ${(account.status === 'enabled' || account.status === '1' || !account.status) ? 'translate-x-4' : 'translate-x-0'}`}></div>
                       </button>
                     </div>
+                    {/* 显示开通状态（移到启用按钮下面） */}
+                    {((account.teamGroupId || account.groupName) && (
+                      <div className="mt-2 space-y-1">
+                        {!account.groupLeaderId ? (
+                          <span className="text-xs font-bold bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
+                            待开通
+                          </span>
+                        ) : (
+                          <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                            已开通
+                          </span>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -921,6 +969,7 @@ const Team: React.FC = () => {
                         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
                       />
                     </div>
+
                     <div>
                       <label className="text-xs font-bold text-gray-700 block mb-1">分成比例(%)</label>
                       <input
@@ -1051,6 +1100,11 @@ const Team: React.FC = () => {
               <div className="space-y-4">
                 {addType === 'group' ? (
                   <>
+                    <div className="bg-blue-50 p-3 rounded-lg">
+                      <p className="text-xs text-blue-700">
+                        请如实填下以下组长信息，提交后等待总管理员进行帐号配置（一般1小时之内），配置完成后，组长进入系统的用户名默认为下面填写的姓名全拼，如组长姓名张三，默认用户名就是：zhangsan，初始密码默认为：11112222
+                      </p>
+                    </div>
                     <div>
                       <label className="text-xs font-bold text-gray-700 block mb-1">组名称 <span className="text-red-500">*</span></label>
                       <input
@@ -1082,26 +1136,7 @@ const Team: React.FC = () => {
                         />
                       </div>
                     </div>
-                    <div>
-                      <label className="text-xs font-bold text-gray-700 block mb-1">用户名 <span className="text-red-500">*</span></label>
-                      <input
-                        type="text"
-                        placeholder="请输入用户名"
-                        value={formData.username}
-                        onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-bold text-gray-700 block mb-1">密码 <span className="text-red-500">*</span></label>
-                      <input
-                        type="password"
-                        placeholder="请输入密码"
-                        value={formData.password}
-                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
-                      />
-                    </div>
+
                     <div>
                       <label className="text-xs font-bold text-gray-700 block mb-1">分成比例 (%)</label>
                       <input
@@ -1202,7 +1237,7 @@ const Team: React.FC = () => {
                   onClick={() => {
                     setShowAddModal(false);
                     setAddType('group');
-                    setFormData({ teamName: '', realName: '', phone: '', region: '', username: '', password: '', employeeId: '', groupId: '', groupName: '', commissionRate: '' });
+                    setFormData({ teamName: '', realName: '', phone: '', region: '', employeeId: '', groupId: '', groupName: '', commissionRate: '' });
                     setError(null);
                   }}
                   className="flex-1 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 rounded-xl"

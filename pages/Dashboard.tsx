@@ -9,6 +9,7 @@ import {
 import { request } from '../services/api';
 import { authService } from '../services/authService';
 import TeamLeaderDashboard from '../components/TeamLeaderDashboard';
+import GroupLeader from './GroupLeader';
 
 interface DashboardUser {
   id: string;
@@ -47,13 +48,13 @@ const mockDashboardUsers: DashboardUser[] = [
 ];
 
 const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) => {
-  // 使用 useMemo 缓存 currentUser，避免每次渲染都返回新对象
-  const currentUser = useMemo(() => authService.getCurrentUser(), []);
+  // 不使用useMemo缓存，确保每次渲染都能获取最新的用户信息
+  const currentUser = authService.getCurrentUser();
   const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
   const isGroupLeader = currentUser?.role === UserRole.GROUP_LEADER;
   const isSuperAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
-  // 只要不是团队长和组长，就显示数据看板（包括超级管理员和普通管理员）
-  const showKPIDashboard = !isTeamLeader && !isGroupLeader;
+  // 只要不是团队长，就显示数据看板（包括超级管理员、普通管理员和组长）
+  const showKPIDashboard = !isTeamLeader;
   
   // 团队名称映射表
   const teamNameMap: Record<string, string> = {
@@ -126,15 +127,29 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       // 并行获取KPI数据和用户数据，提高加载速度
       const promises: Promise<any>[] = [];
 
-      // 只要不是团队长和组长，就获取KPI数据
+      // 只要不是团队长，就获取KPI数据
       if (showKPIDashboard) {
-        const kpiUrl = `/admin/dashboard/kpi?range=${rangeParam}`;
+        let kpiUrl = `/admin/dashboard/kpi?range=${rangeParam}`;
+        
+        // 组长获取自己组的KPI数据
+        if (isGroupLeader) {
+          const teamGroupId = currentUser?.teamGroupId;
+          kpiUrl = `/admin/dashboard/kpi?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}`;
+        }
+        
         console.log('KPI API URL:', kpiUrl);
         promises.push(request<any>(kpiUrl, { method: 'GET' }));
 
         // 如果是今日数据，同时获取昨日数据用于计算增长率
         if (timeRange === TimeRange.TODAY) {
-          const yesterdayKpiUrl = `/admin/dashboard/kpi?range=yesterday`;
+          let yesterdayKpiUrl = `/admin/dashboard/kpi?range=yesterday`;
+          
+          // 组长获取自己组的昨日KPI数据
+          if (isGroupLeader) {
+            const teamGroupId = currentUser?.teamGroupId;
+            yesterdayKpiUrl = `/admin/dashboard/kpi?range=yesterday&group=${encodeURIComponent(teamGroupId || '')}`;
+          }
+          
           console.log('昨日KPI API URL:', yesterdayKpiUrl);
           promises.push(request<any>(yesterdayKpiUrl, { method: 'GET' }));
         }
@@ -148,6 +163,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         userUrl = `/admin/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}&limit=30`;
       } else if (isGroupLeader) {
         const teamGroupId = currentUser?.teamGroupId;
+        console.log('组长的teamGroupId:', teamGroupId);
         userUrl = `/admin/dashboard/users?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}&limit=30`;
       }
       console.log('用户API URL:', userUrl);
@@ -240,16 +256,76 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         }
         console.log('最终活跃用户增长率:', activeUsersGrowth);
 
-        const transformedKpis = [
-          { title: `${timePrefix}利润`, value: `¥${(Number(kpiResponse.revenue || 0) - userShare - platformCost).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: BarChart3, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-          { title: `${timePrefix}利润率`, value: `${todayProfitMargin.toFixed(2)}%`, growth: showGrowth ? `${profitMarginGrowth > 0 ? '+' : ''}${profitMarginGrowth.toFixed(2)}%` : '', isUp: profitMarginGrowth > 0, icon: Percent, color: 'text-pink-600', bg: 'bg-pink-50' },
-          { title: '业务总收入', value: `¥${Number(kpiResponse.revenue || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: Wallet, color: 'text-green-600', bg: 'bg-green-50' },
-          { title: '用户分成金额', value: `¥${(Number(kpiResponse.coins || 0) / 1000).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, subValue: `${kpiResponse.revenue > 0 ? ((Number(kpiResponse.coins || 0) / 1000 / Number(kpiResponse.revenue)) * 100).toFixed(2) : '0.00'}%`, growth: showGrowth ? `${kpiResponse.coinsGrowth > 0 ? '+' : ''}${kpiResponse.coinsGrowth || 0}%` : '', isUp: kpiResponse.coinsGrowth > 0, icon: Coins, color: 'text-orange-600', bg: 'bg-orange-50' },
-          { title: '广告总曝光', value: kpiResponse.impressions?.toLocaleString() || '0', growth: showGrowth ? `${kpiResponse.impressionsGrowth > 0 ? '+' : ''}${kpiResponse.impressionsGrowth || 0}%` : '', isUp: kpiResponse.impressionsGrowth > 0, icon: Eye, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { title: '团队分成', value: `¥${(Number(kpiResponse.coins || 0) / 1000 * 0.2).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.coinsGrowth > 0 ? '+' : ''}${kpiResponse.coinsGrowth || 0}%` : '', isUp: kpiResponse.coinsGrowth > 0, icon: Users, color: 'text-purple-600', bg: 'bg-purple-50' },
-          { title: `${timePrefix}平均 eCPM`, value: `${kpiResponse.ecpm || 0}`, growth: showGrowth ? `${kpiResponse.ecpmGrowth > 0 ? '+' : ''}${kpiResponse.ecpmGrowth || 0}%` : '', isUp: kpiResponse.ecpmGrowth > 0, icon: Zap, color: 'text-yellow-600', bg: 'bg-yellow-50' },
-          { title: `${timePrefix}活跃用户`, value: kpiResponse.activeUsers?.toLocaleString() || '0', growth: showGrowth ? `${activeUsersGrowth > 0 ? '+' : ''}${activeUsersGrowth.toFixed(2)}%` : '', isUp: activeUsersGrowth > 0, icon: Users, color: 'text-cyan-600', bg: 'bg-cyan-50' },
-        ];
+        // 为组长显示特定的组数据结构
+        let transformedKpis = [];
+        if (isGroupLeader) {
+          // 计算组提成收益（使用提成比例计算）
+          const commissionRate = currentUser?.commission || 0.12; // 默认12%
+          const groupLeaderEarnings = userShare * commissionRate;
+          
+          // 计算单条平均金币
+          const averageCoins = kpiResponse?.impressions > 0 ? (userShare * 1000) / Number(kpiResponse?.impressions) : 0;
+          
+          transformedKpis = [
+            {
+              title: '组提成收益',
+              value: `¥${groupLeaderEarnings.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
+              subValue: userShare > 0 ? `${((groupLeaderEarnings / userShare) * 100).toFixed(2)}%` : '0%',
+              growth: showGrowth ? `${kpiResponse?.coinsGrowth > 0 ? '+' : ''}${kpiResponse?.coinsGrowth || 0}%` : '',
+              isUp: kpiResponse?.coinsGrowth > 0,
+              icon: Users,
+              color: 'text-purple-600',
+              bg: 'bg-purple-50'
+            },
+            {
+              title: '团队用户收益',
+              value: `¥${userShare.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
+              growth: showGrowth ? `${kpiResponse?.coinsGrowth > 0 ? '+' : ''}${kpiResponse?.coinsGrowth || 0}%` : '',
+              isUp: kpiResponse?.coinsGrowth > 0,
+              icon: Coins,
+              color: 'text-orange-600',
+              bg: 'bg-orange-50'
+            },
+            {
+              title: '今日活跃用户',
+              value: kpiResponse?.activeUsers?.toLocaleString() || '0',
+              subValue: '0', // 暂时显示0，后续可以从API获取
+              icon: TrendingUp,
+              color: 'text-emerald-600',
+              bg: 'bg-emerald-50'
+            },
+            {
+              title: '广告总曝光',
+              value: kpiResponse?.impressions?.toLocaleString() || '0',
+              growth: showGrowth ? `${kpiResponse?.impressionsGrowth > 0 ? '+' : ''}${kpiResponse?.impressionsGrowth || 0}%` : '',
+              isUp: kpiResponse?.impressionsGrowth > 0,
+              icon: Eye,
+              color: 'text-blue-600',
+              bg: 'bg-blue-50'
+            },
+            {
+              title: '单条平均金币',
+              value: `${averageCoins.toFixed(2)}`,
+              growth: showGrowth ? `${kpiResponse?.ecpmGrowth > 0 ? '+' : ''}${kpiResponse?.ecpmGrowth || 0}%` : '',
+              isUp: kpiResponse?.ecpmGrowth > 0,
+              icon: Zap,
+              color: 'text-yellow-600',
+              bg: 'bg-yellow-50'
+            }
+          ];
+        } else {
+          // 为其他角色显示通用的KPI数据结构
+          transformedKpis = [
+            { title: `${timePrefix}利润`, value: `¥${(Number(kpiResponse.revenue || 0) - userShare - platformCost).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: BarChart3, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+            { title: `${timePrefix}利润率`, value: `${todayProfitMargin.toFixed(2)}%`, growth: showGrowth ? `${profitMarginGrowth > 0 ? '+' : ''}${profitMarginGrowth.toFixed(2)}%` : '', isUp: profitMarginGrowth > 0, icon: Percent, color: 'text-pink-600', bg: 'bg-pink-50' },
+            { title: '业务总收入', value: `¥${Number(kpiResponse.revenue || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: Wallet, color: 'text-green-600', bg: 'bg-green-50' },
+            { title: '用户分成金额', value: `¥${(Number(kpiResponse.coins || 0) / 1000).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, subValue: `${kpiResponse.revenue > 0 ? ((Number(kpiResponse.coins || 0) / 1000 / Number(kpiResponse.revenue)) * 100).toFixed(2) : '0.00'}%`, growth: showGrowth ? `${kpiResponse.coinsGrowth > 0 ? '+' : ''}${kpiResponse.coinsGrowth || 0}%` : '', isUp: kpiResponse.coinsGrowth > 0, icon: Coins, color: 'text-orange-600', bg: 'bg-orange-50' },
+            { title: '广告总曝光', value: kpiResponse.impressions?.toLocaleString() || '0', growth: showGrowth ? `${kpiResponse.impressionsGrowth > 0 ? '+' : ''}${kpiResponse.impressionsGrowth || 0}%` : '', isUp: kpiResponse.impressionsGrowth > 0, icon: Eye, color: 'text-blue-600', bg: 'bg-blue-50' },
+            { title: '团队分成', value: `¥${(Number(kpiResponse.coins || 0) / 1000 * 0.2).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.coinsGrowth > 0 ? '+' : ''}${kpiResponse.coinsGrowth || 0}%` : '', isUp: kpiResponse.coinsGrowth > 0, icon: Users, color: 'text-purple-600', bg: 'bg-purple-50' },
+            { title: `${timePrefix}平均 eCPM`, value: `${kpiResponse.ecpm || 0}`, growth: showGrowth ? `${kpiResponse.ecpmGrowth > 0 ? '+' : ''}${kpiResponse.ecpmGrowth || 0}%` : '', isUp: kpiResponse.ecpmGrowth > 0, icon: Zap, color: 'text-yellow-600', bg: 'bg-yellow-50' },
+            { title: `${timePrefix}活跃用户`, value: kpiResponse.activeUsers?.toLocaleString() || '0', growth: showGrowth ? `${activeUsersGrowth > 0 ? '+' : ''}${activeUsersGrowth.toFixed(2)}%` : '', isUp: activeUsersGrowth > 0, icon: Users, color: 'text-cyan-600', bg: 'bg-cyan-50' },
+          ];
+        }
 
         console.log('转换后的KPI数据:', transformedKpis);
         setKpiData(transformedKpis);
@@ -317,9 +393,17 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       } else if (isGroupLeader) {
         const teamGroupId = currentUser?.teamGroupId;
         console.log('组ID:', teamGroupId);
-        filteredUsers = transformedUsers.filter(user => {
-          return user.teamGroupId === teamGroupId;
-        });
+        
+        // 确保teamGroupId存在
+        if (teamGroupId) {
+          filteredUsers = transformedUsers.filter(user => {
+            // 检查用户的组ID是否与组长的组ID匹配
+            return user.teamGroupId === teamGroupId;
+          });
+        } else {
+          // 如果组长没有组ID，不显示任何用户数据
+          filteredUsers = [];
+        }
         console.log('过滤后的用户数据:', filteredUsers);
       }
       
@@ -391,46 +475,54 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
 
   return (
     <div className="pb-6">
-      <header className="sticky top-0 bg-white z-40 px-4 py-3 border-b border-gray-100 shadow-sm animate-in fade-in duration-300">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-[#1E40AF] to-indigo-600 rounded-xl flex items-center justify-center shadow-md">
-              <TrendingUp size={18} className="text-white" />
+      {/* 只有非组长显示头部标题和时间切换栏 */}
+      {!isGroupLeader && (
+        <header className="sticky top-0 bg-white z-40 px-4 py-3 border-b border-gray-100 shadow-sm animate-in fade-in duration-300">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center space-x-3">
+              <div className="w-8 h-8 bg-gradient-to-br from-[#1E40AF] to-indigo-600 rounded-xl flex items-center justify-center shadow-md">
+                <TrendingUp size={18} className="text-white" />
+              </div>
+              <h1 className="text-xl font-bold text-gray-900">{isTeamLeader ? '团队数据' : '数据总览'}</h1>
+              <button 
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="p-1.5 bg-blue-50 rounded-lg text-[#1E40AF] hover:bg-blue-100 transition-all disabled:opacity-50 animate-in hover:scale-105"
+                title="刷新数据"
+              >
+                <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+              </button>
             </div>
-            <h1 className="text-xl font-bold text-gray-900">{isTeamLeader ? '团队数据' : '数据总览'}</h1>
-            <button 
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="p-1.5 bg-blue-50 rounded-lg text-[#1E40AF] hover:bg-blue-100 transition-all disabled:opacity-50 animate-in hover:scale-105"
-              title="刷新数据"
-            >
-              <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
-            </button>
+            <div className="p-1.5 bg-green-50 rounded-full flex items-center px-3 text-green-600 text-[10px] font-bold shadow-sm">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-1.5"></div>
+              实时更新中
+            </div>
           </div>
-          <div className="p-1.5 bg-green-50 rounded-full flex items-center px-3 text-green-600 text-[10px] font-bold shadow-sm">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-1.5"></div>
-            实时更新中
+          <div className="flex bg-gray-100 p-1 rounded-xl shadow-inner">
+            {Object.values(TimeRange).map((range) => (
+              <button
+                key={range}
+                onClick={() => setTimeRange(range)}
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
+                  timeRange === range ? 'bg-white text-[#1E40AF] shadow-md' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {range}
+              </button>
+            ))}
           </div>
-        </div>
-        <div className="flex bg-gray-100 p-1 rounded-xl shadow-inner">
-          {Object.values(TimeRange).map((range) => (
-            <button
-              key={range}
-              onClick={() => setTimeRange(range)}
-              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
-                timeRange === range ? 'bg-white text-[#1E40AF] shadow-md' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              {range}
-            </button>
-          ))}
-        </div>
-      </header>
+        </header>
+      )}
 
       <div className="px-4 mt-4 space-y-4">
-        {/* 团队长显示专用数据看板，超级管理员显示完整数据看板 */}
+        {/* 团队长显示专用数据看板，组长显示团队模块的数据看板，超级管理员显示完整数据看板 */}
         {isTeamLeader ? (
           <TeamLeaderDashboard 
+            timeRange={timeRangeMap[timeRange]} 
+            onRefresh={handleRefresh} 
+          />
+        ) : isGroupLeader ? (
+          <GroupLeader 
             timeRange={timeRangeMap[timeRange]} 
             onRefresh={handleRefresh} 
           />

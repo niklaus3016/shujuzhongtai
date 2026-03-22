@@ -35,11 +35,9 @@ const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab }) => {
         { id: AppTab.PROFILE, icon: User, label: '我的' },
       ];
     } else if (isGroupLeader) {
-      // 组长：显示首页、新人、团队、我的
+      // 组长：只显示首页、我的
       return [
         { id: AppTab.DASHBOARD, icon: Home, label: '首页' },
-        { id: AppTab.NEW_USERS, icon: UserPlus, label: '新人' },
-        { id: AppTab.GROUP_MANAGEMENT, icon: Building2, label: '团队' },
         { id: AppTab.PROFILE, icon: User, label: '我的' },
       ];
     }

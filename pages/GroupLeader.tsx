@@ -1,12 +1,11 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { 
   Coins, Eye, Zap, Users, BarChart3, 
-  TrendingUp, TrendingDown, Clock, UserPlus, RefreshCw
+  TrendingUp, TrendingDown, Clock, RefreshCw
 } from 'lucide-react';
 import { authService } from '../services/authService';
 import { request } from '../services/api';
 import { UserRole, TimeRange } from '../types';
-import EmployeeManagement from '../components/EmployeeManagement';
 
 interface GroupLeaderProps {
   timeRange: string;
@@ -17,7 +16,7 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [kpiData, setKpiData] = useState<any[]>([]);
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [localTimeRange, setLocalTimeRange] = useState<string>(timeRange);
   
   // 使用 useMemo 缓存 currentUser，避免每次渲染都返回新对象
   const currentUser = useMemo(() => authService.getCurrentUser(), []);
@@ -51,14 +50,26 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
         throw new Error('用户未登录');
       }
       
-      const { teamName, groupName, groupId } = getUserGroupInfo();
+      // 重新获取最新的用户信息，确保teamGroupId是最新的
+      const updatedUser = authService.getCurrentUser();
+      const { teamName, groupName, groupId } = {
+        teamName: updatedUser?.teamName || '团队',
+        groupName: updatedUser?.groupName || '组',
+        groupId: updatedUser?.teamGroupId || ''
+      };
       
-      // 使用传入的 timeRange
-      const formattedTimeRange = timeRange;
+      console.log('最新的用户信息:', {
+        teamName,
+        groupName,
+        groupId
+      });
+      
+      // 使用本地时间范围
+      const formattedTimeRange = localTimeRange;
       console.log('处理后的时间范围:', formattedTimeRange);
       
       // 使用正确的 API 路径 - KPI 接口
-      const apiUrl = `/admin/dashboard/kpi?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}`;
+      const apiUrl = `/admin/dashboard/kpi?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(groupId || '')}`;
       
       try {
         const result = await request<any>(apiUrl, {
@@ -79,9 +90,9 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
         week: '本周',
         month: '本月'
       };
-      const timePrefix = timePrefixMap[timeRange];
+      const timePrefix = timePrefixMap[localTimeRange];
       // 只在今日显示增长率，其他时间范围不显示
-      showGrowth = timeRange === 'today';
+      showGrowth = localTimeRange === 'today';
 
       // 计算团队分成（用户分成的20%）
       userShare = Number(responseData?.coins || 0) / 1000;
@@ -93,7 +104,7 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
       try {
         // 并行执行API请求
         const [userResult, employeeResult] = await Promise.all([
-          request<any[]>(`/admin/dashboard/users?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}&limit=100`).catch(error => {
+          request<any[]>(`/admin/dashboard/users?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(groupId || '')}&limit=100`).catch(error => {
             console.error('获取用户列表失败:', error);
             return [];
           }),
@@ -163,7 +174,6 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
         {
           title: '组提成收益',
           value: `¥${groupLeaderEarnings.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
-          subValue: userShare > 0 ? `${((groupLeaderEarnings / userShare) * 100).toFixed(2)}%` : '0%',
           growth: showGrowth ? `${responseData?.coinsGrowth > 0 ? '+' : ''}${responseData?.coinsGrowth || 0}%` : '',
           isUp: responseData?.coinsGrowth > 0,
           icon: Users,
@@ -171,36 +181,8 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
           bg: 'bg-purple-50'
         },
         {
-          title: '团队用户收益',
-          value: `¥${userShare.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
-          growth: showGrowth ? `${responseData?.coinsGrowth > 0 ? '+' : ''}${responseData?.coinsGrowth || 0}%` : '',
-          isUp: responseData?.coinsGrowth > 0,
-          icon: Coins,
-          color: 'text-orange-600',
-          bg: 'bg-orange-50'
-        },
-        {
-            title: '今日活跃用户',
-            value: activeUsersCount.toLocaleString(),
-            subValue: totalUsersCount.toString(),
-            icon: TrendingUp,
-            color: 'text-emerald-600',
-            bg: 'bg-emerald-50'
-          },
-        {
-          title: '广告总曝光',
-          value: responseData?.impressions?.toLocaleString() || '0',
-          growth: showGrowth ? `${responseData?.impressionsGrowth > 0 ? '+' : ''}${responseData?.impressionsGrowth || 0}%` : '',
-          isUp: responseData?.impressionsGrowth > 0,
-          icon: Eye,
-          color: 'text-blue-600',
-          bg: 'bg-blue-50'
-        },
-        {
-          title: '单条平均金币',
+          title: '单条平均金币（总盘）',
           value: `${averageCoins.toFixed(2)}`,
-          growth: showGrowth ? `${responseData?.ecpmGrowth > 0 ? '+' : ''}${responseData?.ecpmGrowth || 0}%` : '',
-          isUp: responseData?.ecpmGrowth > 0,
           icon: Zap,
           color: 'text-yellow-600',
           bg: 'bg-yellow-50'
@@ -219,11 +201,11 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [timeRange, currentUser]);
+  }, [localTimeRange, currentUser]);
 
   useEffect(() => {
     fetchData();
-  }, [fetchData, timeRange]);
+  }, [fetchData, localTimeRange]);
 
   const handleRefresh = useCallback(() => {
     fetchData(true);
@@ -253,12 +235,34 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
             实时更新中
           </div>
         </div>
+        <div className="flex bg-gray-100 p-1 rounded-xl shadow-inner">
+          {['今日', '昨日', '本周', '本月'].map((range) => {
+            const rangeMap: Record<string, string> = {
+              '今日': 'today',
+              '昨日': 'yesterday',
+              '本周': 'week',
+              '本月': 'month'
+            };
+            const rangeValue = rangeMap[range];
+            return (
+              <button
+                key={range}
+                onClick={() => setLocalTimeRange(rangeValue)}
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
+                  localTimeRange === rangeValue ? 'bg-white text-[#1E40AF] shadow-md' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {range}
+              </button>
+            );
+          })}
+        </div>
       </header>
 
-      <div className="px-4 mt-4 space-y-4">
+      <div className="mt-4 space-y-2">
         {/* KPI数据卡片 */}
-        <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-md mb-6">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-md">
+          <div className="px-4 py-4 grid grid-cols-2 gap-3">
             {loading ? (
               // 加载状态
               Array(5).fill(0).map((_, idx) => (
@@ -311,25 +315,7 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
           </div>
         </div>
 
-        {/* 员工管理 */}
-        <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-md">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-gray-900">员工管理</h2>
-            <button 
-              onClick={() => setIsAddModalOpen(true)}
-              className="bg-[#1E40AF] text-white p-2 rounded-xl shadow-lg shadow-blue-100 active:scale-95 transition-all"
-            >
-              <UserPlus size={20} />
-            </button>
-          </div>
-          {currentUser && (
-            <EmployeeManagement 
-              currentUser={currentUser} 
-              isAddModalOpen={isAddModalOpen}
-              setIsAddModalOpen={setIsAddModalOpen}
-            />
-          )}
-        </div>
+
       </div>
     </div>
   );

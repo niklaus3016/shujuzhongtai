@@ -34,11 +34,14 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     if (currentUser?.username && teamNameMap[currentUser.username]) {
       return teamNameMap[currentUser.username];
     }
-    return '团队';
+    // 如果都没有，直接返回用户名作为团队名称
+    return currentUser?.username || '团队';
   };
   
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [showWithdrawRecordModal, setShowWithdrawRecordModal] = useState(false);
@@ -62,17 +65,23 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
   });
 
   const handleUpdatePassword = async () => {
-    if (!newPassword || !currentUser) return;
+    if (!oldPassword || !newPassword || !confirmPassword) return;
     if (newPassword.length < 6) {
       alert('密码长度不能少于6位');
       return;
     }
+    if (newPassword !== confirmPassword) {
+      alert('两次输入的密码不一致，请重新输入');
+      return;
+    }
     setIsUpdating(true);
     try {
-      await authService.updatePassword(currentUser.id, newPassword);
+      await authService.updatePassword(oldPassword, newPassword);
       setIsUpdating(false);
       setShowPasswordModal(false);
+      setOldPassword('');
       setNewPassword('');
+      setConfirmPassword('');
       alert('密码修改成功');
     } catch (error) {
       setIsUpdating(false);
@@ -87,8 +96,8 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     try {
       // 直接设置最新一次推送的时间、标题和Commit版本号
       setVersionInfo({
-        lastPushTime: '2026-03-22 11:06:00',
-        lastPushTitle: '优化超管界面，添加版本信息功能',
+        lastPushTime: '2026-03-22 18:20:00',
+        lastPushTitle: '超管、团队长、组长测试通过',
         commitVersion: '8bfa2a0'
       });
     } catch (error) {
@@ -301,58 +310,80 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         // 组长获取自己组的收益数据
         const teamGroupId = currentUser?.teamGroupId;
         
-        // 使用request函数统一处理API请求
-        // 获取组今日数据
-        const todayResponse = await request<any>(`/dashboard/kpi?range=today&group=${encodeURIComponent(teamGroupId || '')}`, {
-          method: 'GET'
-        });
+        if (!teamGroupId) {
+          console.error('组长没有组ID');
+          setEarnings({
+            today: 0,
+            month: 0,
+            lastMonth: 0,
+            total: 0
+          });
+          return;
+        }
         
-        // 获取组本月数据
-        const monthResponse = await request<any>(`/dashboard/kpi?range=month&group=${encodeURIComponent(teamGroupId || '')}`, {
-          method: 'GET'
-        });
-        
-        // 获取组内用户上月累计金币
-        const lastMonthResponse = await request<any>(`/team/last-month-coins?group=${encodeURIComponent(teamGroupId || '')}`, {
-          method: 'GET'
-        });
+        // 并行获取所有需要的提成数据，提高加载速度
+        const [todayResponse, monthResponse, lastMonthResponse, totalResponse] = await Promise.all([
+          // 获取今日提成收益
+          request<any>(`/admin/group-leader-commission/${teamGroupId}?range=today`, {
+            method: 'GET'
+          }).catch(error => {
+            console.error('Error fetching today commission:', error);
+            return { totalCommission: 0 };
+          }),
+          // 获取本月提成收益
+          request<any>(`/admin/group-leader-commission/${teamGroupId}?range=month`, {
+            method: 'GET'
+          }).catch(error => {
+            console.error('Error fetching month commission:', error);
+            return { totalCommission: 0 };
+          }),
+          // 获取上月提成收益
+          request<any>(`/admin/group-leader-commission/${teamGroupId}?range=lastMonth`, {
+            method: 'GET'
+          }).catch(error => {
+            console.error('Error fetching last month commission:', error);
+            return { totalCommission: 0 };
+          }),
+          // 获取累计提成收益
+          request<any>(`/admin/group-leader-commission/${teamGroupId}?range=all`, {
+            method: 'GET'
+          }).catch(error => {
+            console.error('Error fetching total commission:', error);
+            return { totalCommission: 0 };
+          })
+        ]);
 
-        // 获取组累计金币
-        const totalResponse = await request<any>(`/dashboard/kpi?range=all&group=${encodeURIComponent(teamGroupId || '')}`, {
-          method: 'GET'
-        });
-
-        // 计算收益 - 组长收益 = 组金币 * 10%
-        console.log('Group responses:', { todayResponse, monthResponse, lastMonthResponse, totalResponse });
-        const todayGroupCoins = Number(todayResponse?.coins || 0) / 1000;
-        const monthGroupCoins = Number(monthResponse?.coins || 0) / 1000;
-        const lastMonthGroupCoins = Number(lastMonthResponse?.coins || 0) / 1000;
-        const totalGroupCoins = Number(totalResponse?.coins || 0) / 1000;
-        console.log('Calculated group coins:', { todayGroupCoins, monthGroupCoins, lastMonthGroupCoins, totalGroupCoins });
+        // 从API响应中提取提成数据
+        console.log('Group commission responses:', { todayResponse, monthResponse, lastMonthResponse, totalResponse });
+        const todayEarnings = Number(todayResponse?.totalCommission || 0);
+        const monthEarnings = Number(monthResponse?.totalCommission || 0);
+        const lastMonthEarnings = Number(lastMonthResponse?.totalCommission || 0);
+        const totalEarnings = Number(totalResponse?.totalCommission || 0);
+        console.log('Calculated group earnings:', { todayEarnings, monthEarnings, lastMonthEarnings, totalEarnings });
 
         setEarnings({
-          today: todayGroupCoins * 0.1,
-          month: monthGroupCoins * 0.1,
-          lastMonth: lastMonthGroupCoins * 0.1,
-          total: totalGroupCoins * 0.1
+          today: todayEarnings,
+          month: monthEarnings,
+          lastMonth: lastMonthEarnings,
+          total: totalEarnings
         });
       } else {
         // 超级管理员获取全局数据
-        const todayResponse = await request<any>('/dashboard/kpi?range=today', {
+        const todayResponse = await request<any>('/admin/dashboard/kpi?range=today', {
           method: 'GET'
         });
         
-        const monthResponse = await request<any>('/dashboard/kpi?range=month', {
+        const monthResponse = await request<any>('/admin/dashboard/kpi?range=month', {
           method: 'GET'
         });
         
         // 获取上月累计金币
-        const lastMonthResponse = await request<any>('/dashboard/kpi?range=lastMonth', {
+        const lastMonthResponse = await request<any>('/admin/dashboard/kpi?range=lastMonth', {
           method: 'GET'
         });
 
         // 获取累计金币
-        const totalResponse = await request<any>('/dashboard/kpi?range=all', {
+        const totalResponse = await request<any>('/admin/dashboard/kpi?range=all', {
           method: 'GET'
         });
 
@@ -405,21 +436,17 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     }
   };
 
-  // 加载提现开关状态
+  // 加载提现开关状态（使用后端实际接口）
   const loadWithdrawStatus = async () => {
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/withdraw/status', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
+      // 使用request函数发送请求，与其他API请求保持一致
+      // 注意：endpoint不需要包含/api前缀，因为BASE_URLS已经包含了
+      const result = await request<any>('/settings/withdraw-status', {
+        method: 'GET'
       });
-      const result = await response.json();
       console.log('提现状态响应:', result);
-      // 处理后端返回的enabled字段，可能在data对象中或根级别
-      const enabledValue = result?.enabled ?? result?.data?.enabled;
+      // 处理后端返回的enabled字段（直接从根级别获取）
+      const enabledValue = result?.enabled;
       console.log('提现开关原始值:', enabledValue, '类型:', typeof enabledValue);
       // 转换为布尔值
       const isEnabled = enabledValue === true || enabledValue === 'true' || enabledValue === 1 || enabledValue === '1';
@@ -468,9 +495,11 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
             <div>
                 <div className="flex items-center space-x-2">
                     <h2 className="text-xl font-black">{currentUser?.username || 'Admin Pro'}</h2>
+                    {!isGroupLeader && (
                     <span className="text-[10px] font-bold bg-gradient-to-r from-blue-500 to-purple-600 text-white px-3 py-1 rounded-full backdrop-blur-sm border border-white/20 uppercase shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105">
-                      {isSuperAdmin ? '超级管理员' : isTeamLeader ? getUserTeamName() : isGroupLeader ? '组长' : '普通管理员'}
+                      {isSuperAdmin ? '超级管理员' : isTeamLeader ? getUserTeamName() : '普通管理员'}
                     </span>
+                    )}
                 </div>
 
             </div>
@@ -496,13 +525,13 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                   <div className="text-[10px] font-bold text-gray-400 uppercase">上月收益</div>
                   <button
                     onClick={() => {
-                      if (withdrawEnabled && earnings.lastMonth > 0) {
+                      if (withdrawEnabled) {
                         setShowWithdrawModal(true);
                       }
                     }}
-                    disabled={!withdrawEnabled || earnings.lastMonth <= 0}
+                    disabled={!withdrawEnabled}
                     className={`px-2 py-1 text-[9px] font-bold rounded-lg transition-all border flex items-center gap-1 ${
-                      withdrawEnabled && earnings.lastMonth > 0
+                      withdrawEnabled
                         ? 'bg-blue-500/20 text-blue-600 hover:bg-blue-500/30 border-blue-500/30 cursor-pointer'
                         : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
                     }`}
@@ -610,8 +639,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         </button>
         
         <div className="text-center py-6">
-            <p className="text-[10px] text-gray-300 font-medium">Power by AdMaster Cloud Service</p>
-            <p className="text-[10px] text-gray-300 font-medium">© 2026 AdMaster Data Hub</p>
+            <p className="text-[10px] text-gray-300 font-medium">© 2026 光年智慧中台</p>
         </div>
       </div>
 
@@ -622,6 +650,16 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
             <h3 className="text-lg font-black text-gray-900 mb-4">修改登录密码</h3>
             <div className="space-y-4">
               <div>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">旧密码</label>
+                <input 
+                  type="password" 
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all"
+                  placeholder="请输入旧密码"
+                />
+              </div>
+              <div>
                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">新密码</label>
                 <input 
                   type="password" 
@@ -631,9 +669,24 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                   placeholder="请输入新密码"
                 />
               </div>
+              <div>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">确认新密码</label>
+                <input 
+                  type="password" 
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all"
+                  placeholder="请再次输入新密码"
+                />
+              </div>
               <div className="flex space-x-3 pt-2">
                 <button 
-                  onClick={() => setShowPasswordModal(false)}
+                  onClick={() => {
+                    setShowPasswordModal(false);
+                    setOldPassword('');
+                    setNewPassword('');
+                    setConfirmPassword('');
+                  }}
                   className="flex-1 py-3 text-xs font-bold text-gray-500 bg-gray-100 rounded-2xl active:scale-95 transition-all"
                 >
                   取消

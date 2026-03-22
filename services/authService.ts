@@ -76,12 +76,12 @@ export const authService = {
     }
   },
 
-  async updatePassword(userId: string, newPassword: string): Promise<void> {
+  async updatePassword(oldPassword: string, newPassword: string): Promise<void> {
     try {
-      // Call the actual API
-      await request<any>('/admin/update-password', {
+      // Call the actual API with correct endpoint and parameters
+      await request<any>('/admin/account/change-password', {
         method: 'POST',
-        body: JSON.stringify({ userId, newPassword }),
+        body: JSON.stringify({ oldPassword, newPassword }),
       });
     } catch (error) {
       console.error('Update password failed:', error);

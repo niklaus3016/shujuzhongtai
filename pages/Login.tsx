@@ -42,12 +42,12 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     <div className="min-h-screen bg-[#F9FAFB] flex flex-col justify-center px-6 py-12 animate-in fade-in duration-500">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
-          <div className="w-16 h-16 bg-[#1E40AF] rounded-2xl flex items-center justify-center shadow-lg shadow-blue-100">
-            <Lock className="text-white" size={32} />
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-100 overflow-hidden">
+            <img src="/gnzhzt-icon.png" alt="光年智慧中台" className="w-full h-full object-contain" />
           </div>
         </div>
         <h2 className="mt-6 text-center text-3xl font-black tracking-tight text-gray-900">
-          AdMaster 数据中心
+          光年智慧中台
         </h2>
       </div>
 
@@ -144,7 +144,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       
       <div className="mt-8 text-center">
         <p className="text-xs text-gray-400 font-medium">
-          &copy; 2026 AdMaster 数据中心 版权所有
+          &copy; 2026 光年智慧中台 版权所有
         </p>
       </div>
     </div>

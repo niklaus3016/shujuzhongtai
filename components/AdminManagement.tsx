@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   UserPlus, Key, Shield, ShieldOff, Search, X, 
-  User, Award, MoreVertical
+  User, Award, MoreVertical, Trash2
 } from 'lucide-react';
 import { AdminUser, UserRole } from '../types';
 import { request } from '../services/api';
@@ -15,8 +15,10 @@ const AdminManagement: React.FC<AdminManagementProps> = ({ currentUser }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedAdmin, setSelectedAdmin] = useState<AdminUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   
   // Admins (Team Leaders) data
   const [admins, setAdmins] = useState<AdminUser[]>([]);
@@ -89,6 +91,32 @@ const AdminManagement: React.FC<AdminManagementProps> = ({ currentUser }) => {
     setSelectedAdmin(null);
   };
 
+  const handleDeleteAdmin = async () => {
+    if (!deletingId) return;
+    
+    try {
+      // 调用后端API删除团队长账号
+      await request<any>(`/account/admins/${deletingId}`, {
+        method: 'DELETE',
+        headers: new Headers({
+          'Content-Type': 'application/json'
+        })
+      });
+      
+      // 更新本地状态，从列表中移除被删除的团队长
+      setAdmins(prev => prev.filter(a => a.id !== deletingId));
+      
+      // 关闭删除确认模态框
+      setIsDeleteModalOpen(false);
+      setDeletingId(null);
+    } catch (error) {
+      console.error('Error deleting admin:', error);
+      // 关闭删除确认模态框
+      setIsDeleteModalOpen(false);
+      setDeletingId(null);
+    }
+  };
+
   return (
     <div className="space-y-4 animate-in fade-in duration-300">
       <div className="flex items-center justify-between">
@@ -147,6 +175,16 @@ const AdminManagement: React.FC<AdminManagementProps> = ({ currentUser }) => {
                 title={admin.status === 'enabled' ? '禁用账号' : '启用账号'}
               >
                 {admin.status === 'enabled' ? <Shield size={18} /> : <ShieldOff size={18} />}
+              </button>
+              <button 
+                onClick={() => {
+                  setDeletingId(admin.id);
+                  setIsDeleteModalOpen(true);
+                }}
+                className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                title="删除账号"
+              >
+                <Trash2 size={18} />
               </button>
             </div>
           </div>
@@ -226,6 +264,33 @@ const AdminManagement: React.FC<AdminManagementProps> = ({ currentUser }) => {
                 保存修改
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Admin Modal */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-sm rounded-[32px] p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-black text-gray-900">确认删除</h3>
+              <button onClick={() => setIsDeleteModalOpen(false)} className="text-gray-400"><X size={24} /></button>
+            </div>
+            <p className="text-xs text-gray-500 mb-6 font-medium">确定要删除该团队长账号吗？此操作不可撤销。</p>
+            <div className="flex space-x-3">
+              <button 
+                onClick={() => setIsDeleteModalOpen(false)}
+                className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-2xl transition-all"
+              >
+                取消
+              </button>
+              <button 
+                onClick={handleDeleteAdmin}
+                className="flex-1 py-3 bg-red-500 text-white font-bold rounded-2xl shadow-lg shadow-red-100 active:scale-95 transition-all"
+              >
+                确认删除
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.admaster.datahub',
-  appName: 'AdMaster数据中心',
+  appId: 'com.gnzhzt.app',
+  appName: '光年智慧中台',
   webDir: 'dist'
 };
 
