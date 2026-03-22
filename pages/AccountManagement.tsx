@@ -191,8 +191,18 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         createdAt: leader.createdAt
       }));
       
-      // 合并组长账号
-      const groupLeaders = [...employeeGroupLeaders, ...teamGroupLeaders, ...convertedApiGroupLeaders];
+      // 合并组长账号并去重
+      const groupLeadersMap = new Map();
+      [...employeeGroupLeaders, ...teamGroupLeaders, ...convertedApiGroupLeaders].forEach(leader => {
+        if (leader._id) {
+          // 如果已经存在，保留信息更完整的版本
+          const existingLeader = groupLeadersMap.get(leader._id);
+          if (!existingLeader || Object.keys(leader).length > Object.keys(existingLeader).length) {
+            groupLeadersMap.set(leader._id, leader);
+          }
+        }
+      });
+      const groupLeaders = Array.from(groupLeadersMap.values());
       const groupLeaderIds = new Set(groupLeaders.map((g: any) => g._id));
       
       console.log('合并后组长账号数:', groupLeaders.length);
