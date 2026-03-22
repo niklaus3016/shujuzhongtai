@@ -50,8 +50,10 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug
-          ./gradlew assembleRelease
+          echo "Building Debug APK..."
+          ./gradlew assembleDebug --info
+          echo "Building Release APK..."
+          ./gradlew assembleRelease --info
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
