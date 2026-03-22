@@ -49,12 +49,21 @@ jobs:
       - name: Copy icon file to Android resources
         working-directory: android
         run: |
-          mkdir -p app/src/main/res/mipmap-hdpi app/src/main/res/mipmap-mdpi app/src/main/res/mipmap-xhdpi app/src/main/res/mipmap-xxhdpi app/src/main/res/mipmap-xxxhdpi
-          cp ../gnzhzt-icon.png app/src/main/res/mipmap-hdpi/ic_launcher.png
-          cp ../gnzhzt-icon.png app/src/main/res/mipmap-mdpi/ic_launcher.png
-          cp ../gnzhzt-icon.png app/src/main/res/mipmap-xhdpi/ic_launcher.png
-          cp ../gnzhzt-icon.png app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-          cp ../gnzhzt-icon.png app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          echo "Checking if icon file exists..."
+          if [ -f "../gnzhzt-icon.png" ]; then
+            echo "Icon file found"
+            echo "Icon file size: $(du -h ../gnzhzt-icon.png)"
+            mkdir -p app/src/main/res/mipmap-hdpi app/src/main/res/mipmap-mdpi app/src/main/res/mipmap-xhdpi app/src/main/res/mipmap-xxhdpi app/src/main/res/mipmap-xxxhdpi
+            echo "Copying icon to mipmap directories..."
+            cp ../gnzhzt-icon.png app/src/main/res/mipmap-hdpi/ic_launcher.png
+            cp ../gnzhzt-icon.png app/src/main/res/mipmap-mdpi/ic_launcher.png
+            cp ../gnzhzt-icon.png app/src/main/res/mipmap-xhdpi/ic_launcher.png
+            cp ../gnzhzt-icon.png app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+            cp ../gnzhzt-icon.png app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+            echo "Icon files copied successfully"
+          else
+            echo "Warning: Icon file not found, using default icon"
+          fi
 
       - name: Build APK
         working-directory: android
