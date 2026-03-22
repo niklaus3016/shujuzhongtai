@@ -42,8 +42,10 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     <div className="min-h-screen bg-[#F9FAFB] flex flex-col justify-center px-6 py-12 animate-in fade-in duration-500">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
-          <div className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-100 overflow-hidden">
-            <img src="/gnzhzt-icon.png" alt="光年智慧中台" className="w-full h-full object-contain" />
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-100 overflow-hidden bg-[#1E40AF]">
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
           </div>
         </div>
         <h2 className="mt-6 text-center text-3xl font-black tracking-tight text-gray-900">
