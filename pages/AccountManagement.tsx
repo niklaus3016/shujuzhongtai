@@ -490,22 +490,33 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
   };
 
   const handleDeleteAccount = async () => {
-    if (!deletingAccount) return;
+    console.log('开始删除账号');
+    if (!deletingAccount) {
+      console.log('deletingAccount为空');
+      return;
+    }
 
     console.log('删除账号信息:', deletingAccount);
     setSaving(true);
     try {
       // 对于组长账号，无论是否有employeeId，都使用管理员删除API
       const isGroupLeader = deletingAccount.isGroupLeader || deletingAccount.role === 'GROUP_LEADER' || deletingAccount.role === 'group_leader';
+      console.log('是否为组长:', isGroupLeader);
+      
+      let apiUrl = '';
       if (deletingAccount.role === 'employee' && !isGroupLeader) {
-        await request<any>(`/admin/employee/${deletingAccount._id}`, {
-          method: 'DELETE'
-        });
+        apiUrl = `/admin/employee/${deletingAccount._id}`;
       } else {
-        await request<any>(`/admin/account/${deletingAccount._id}`, {
-          method: 'DELETE'
-        });
+        apiUrl = `/admin/account/${deletingAccount._id}`;
       }
+      
+      console.log('删除API URL:', apiUrl);
+      
+      const response = await request<any>(apiUrl, {
+        method: 'DELETE'
+      });
+      
+      console.log('删除API响应:', response);
       
       setShowDeleteModal(false);
       setDeletingAccount(null);
@@ -513,8 +524,12 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     } catch (error: any) {
       console.error('Error deleting account:', error);
       setError(error.message || '删除账号失败');
+      // 即使出错也要关闭弹窗
+      setShowDeleteModal(false);
+      setDeletingAccount(null);
     } finally {
       setSaving(false);
+      console.log('删除操作完成');
     }
   };
 
