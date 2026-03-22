@@ -87,9 +87,9 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     try {
       // 直接设置最新一次推送的时间、标题和Commit版本号
       setVersionInfo({
-        lastPushTime: '2026-03-22 10:30:00',
+        lastPushTime: '2026-03-22 11:06:00',
         lastPushTitle: '优化超管界面，添加版本信息功能',
-        commitVersion: 'abc1234'
+        commitVersion: '8bfa2a0'
       });
     } catch (error) {
       console.error('获取版本信息失败:', error);
