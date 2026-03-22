@@ -46,6 +46,16 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
+      - name: Copy icon file to Android resources
+        working-directory: android
+        run: |
+          mkdir -p app/src/main/res/mipmap-hdpi app/src/main/res/mipmap-mdpi app/src/main/res/mipmap-xhdpi app/src/main/res/mipmap-xxhdpi app/src/main/res/mipmap-xxxhdpi
+          cp ../gnzhzt-icon.png app/src/main/res/mipmap-hdpi/ic_launcher.png
+          cp ../gnzhzt-icon.png app/src/main/res/mipmap-mdpi/ic_launcher.png
+          cp ../gnzhzt-icon.png app/src/main/res/mipmap-xhdpi/ic_launcher.png
+          cp ../gnzhzt-icon.png app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+          cp ../gnzhzt-icon.png app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+
       - name: Build APK
         working-directory: android
         run: |
