@@ -51,9 +51,16 @@ jobs:
         run: |
           chmod +x gradlew
           echo "Building Debug APK..."
-          ./gradlew assembleDebug --info
-          echo "Building Release APK..."
-          ./gradlew assembleRelease --info
+          ./gradlew assembleDebug
+          echo "Building Release APK (unsigned)..."
+          ./gradlew assembleRelease
+
+      - name: List build outputs
+        working-directory: android
+        run: |
+          ls -la app/build/outputs/apk/
+          ls -la app/build/outputs/apk/debug/
+          ls -la app/build/outputs/apk/release/ || echo "Release directory not found"
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
@@ -66,7 +73,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-release
-          path: android/app/build/outputs/apk/release/app-release.apk
+          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 30
 
       - name: Create Release
@@ -77,6 +84,6 @@ jobs:
           name: Release v${{ github.run_number }}
           files: |
             android/app/build/outputs/apk/debug/app-debug.apk
-            android/app/build/outputs/apk/release/app-release.apk
+            android/app/build/outputs/apk/release/app-release-unsigned.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
