@@ -986,6 +986,18 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
+                        组名 <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="请输入组名"
+                        value={formData.groupName}
+                        onChange={(e) => setFormData({...formData, groupName: e.target.value})}
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
                         分成比例 (%) <span className="text-red-500">*</span>
                       </label>
                       <input
@@ -1057,20 +1069,6 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                       placeholder="请输入团队名称"
                       value={formData.teamName}
                       onChange={(e) => setFormData({...formData, teamName: e.target.value})}
-                      className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
-                    />
-                  </div>
-                )}
-                {addType === 'group' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      组名 <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="请输入组名"
-                      value={formData.groupName}
-                      onChange={(e) => setFormData({...formData, groupName: e.target.value})}
                       className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                     />
                   </div>
