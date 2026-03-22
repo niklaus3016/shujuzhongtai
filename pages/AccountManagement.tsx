@@ -61,6 +61,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     employeeId: '',
     parentId: '',
     groupId: '',
+    groupName: '',
     commissionRate: ''
   });
 
@@ -95,7 +96,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       console.log('团队名称:', teamName);
       
       // 并行获取所有数据，提高加载速度
-      const [teamResponse, employeeResponse] = await Promise.all([
+      const [teamResponse, employeeResponse, teamsListResponse] = await Promise.all([
         request<any>('/admin/account/list', { method: 'GET' }).catch(error => {
           console.error('Error fetching team accounts:', error);
           return null;
@@ -103,8 +104,39 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         request<any>('/admin/employee/list?pageSize=1000', { method: 'GET' }).catch(error => {
           console.error('Error fetching employee accounts:', error);
           return null;
+        }),
+        request<any>('/team/list', { method: 'GET' }).catch(error => {
+          console.error('Error fetching teams list:', error);
+          return null;
         })
       ]);
+      
+      // 获取所有团队的组长账号
+      let apiGroupLeaders: any[] = [];
+      if (teamsListResponse) {
+        const teams = Array.isArray(teamsListResponse) ? teamsListResponse : (teamsListResponse?.data || []);
+        console.log('Teams list:', teams);
+        
+        // 并行获取所有团队的组长账号
+        const groupLeadersPromises = teams.map(async (team: any) => {
+          try {
+            const teamGroupLeaders = await request<any>(`/admin/employee/group-leaders?teamId=${team.id}`, { method: 'GET' });
+            const leaders = Array.isArray(teamGroupLeaders) ? teamGroupLeaders : (teamGroupLeaders?.data || []);
+            // 为每个组长添加团队名称
+            return leaders.map((leader: any) => ({
+              ...leader,
+              teamName: team.leader || team.name || team.teamName || '未知团队'
+            }));
+          } catch (error) {
+            console.error(`Error fetching group leaders for team ${team.id}:`, error);
+            return [];
+          }
+        });
+        
+        const groupLeadersResults = await Promise.all(groupLeadersPromises);
+        apiGroupLeaders = groupLeadersResults.flat();
+        console.log('All group leaders from API:', apiGroupLeaders);
+      }
       
       const apiTime = performance.now() - startTime;
       console.log(`API请求时间: ${apiTime.toFixed(2)}ms`);
@@ -112,6 +144,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       // 打印原始API响应
       console.log('团队账号API响应:', teamResponse);
       console.log('员工账号API响应:', employeeResponse);
+      console.log('团队列表API响应:', teamsListResponse);
       
       // 处理团队账号数据
       const rawTeamAccounts = teamResponse 
@@ -141,9 +174,28 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         a.role === 'GROUP_LEADER' || a.role === 'group_leader'
       );
       
+      console.log('API组长数据:', apiGroupLeaders);
+      console.log('API组长数量:', apiGroupLeaders.length);
+      
+      // 转换API组长数据为账号格式
+      const convertedApiGroupLeaders = apiGroupLeaders.map((leader: any) => ({
+        _id: leader.groupLeaderId || leader._id,
+        realName: leader.groupLeaderName || leader.realName || '未知组长',
+        username: leader.groupLeaderName || leader.username || '未知组长',
+        role: 'GROUP_LEADER',
+        status: 'active',
+        groupName: leader.groupName,
+        teamName: leader.teamName,
+        parentId: leader.teamLeaderId,
+        commission: leader.commission,
+        createdAt: leader.createdAt
+      }));
+      
       // 合并组长账号
-      const groupLeaders = [...employeeGroupLeaders, ...teamGroupLeaders];
+      const groupLeaders = [...employeeGroupLeaders, ...teamGroupLeaders, ...convertedApiGroupLeaders];
       const groupLeaderIds = new Set(groupLeaders.map((g: any) => g._id));
+      
+      console.log('合并后组长账号数:', groupLeaders.length);
       
       console.log('提取的组长:', groupLeaders);
       console.log('组长ID列表:', groupLeaderIds);
@@ -279,7 +331,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
             role: 'GROUP_LEADER',
             parentId: formData.parentId,
             teamName: formData.teamName,
-            groupName: formData.teamName
+            groupName: formData.groupName
           })
         });
         
@@ -294,7 +346,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           body: JSON.stringify({
             teamLeaderId: formData.parentId,
             teamName: formData.teamName,
-            groupName: formData.teamName,
+            groupName: formData.groupName,
             commission: commissionRate,
             groupLeaderId: adminResult.id,
             groupLeaderName: formData.username
@@ -332,6 +384,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         employeeId: '',
         parentId: '',
         groupId: '',
+        groupName: '',
         commissionRate: ''
       });
       fetchAccounts();
@@ -383,11 +436,17 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         });
       } else {
         const updateData: any = {
-          teamName: formData.teamName,
           realName: formData.realName,
           phone: formData.phone,
           region: formData.region
         };
+        
+        // 根据账号类型设置不同的字段
+        if (editingAccount.role === 'NORMAL_ADMIN') {
+          updateData.teamName = formData.teamName;
+        } else if (editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader') {
+          updateData.groupName = formData.groupName;
+        }
         
         // 只有当用户名和密码不为空时才更新
         if (formData.username) {
@@ -415,6 +474,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         employeeId: '',
         parentId: '',
         groupId: '',
+        groupName: '',
         commissionRate: ''
       });
       fetchAccounts();
@@ -522,6 +582,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       employeeId: account.employeeId || '',
       parentId: account.parentId || '',
       groupId: account.groupId || '',
+      groupName: account.groupName || '',
       commissionRate: account.commission ? (account.commission * 100).toString() : ''
     });
     setShowEditModal(true);
@@ -697,45 +758,70 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                       )}
                     </div>
                     <div className="flex-1 min-w-0 space-y-1">
-                      {account.teamName && (
-                        <p className="text-sm text-[#1E40AF] font-bold">
-                          {account.teamName}
-                        </p>
-                      )}
-                      <h3 className="text-sm font-bold text-gray-900">
-                        {account.realName || account.username}
-                        {account.employeeId && !(account.role === 'GROUP_LEADER' || account.role === 'group_leader' || account.isGroupLeader) && <span className="ml-2 text-[#1E40AF]">({account.employeeId})</span>}
-                      </h3>
-                      <div className="space-y-0.5">
-                        {account.username && !account.employeeId && account.role !== 'NORMAL_ADMIN' && (
-                          <p className="text-xs text-gray-500">
-                            用户名：{account.username}
-                          </p>
-                        )}
-                        {account.phone && (
-                          <p className="text-xs text-gray-500 flex items-center">
-                            <Phone size={10} className="mr-1 flex-shrink-0" />
-                            {account.phone}
-                          </p>
-                        )}
-
-                        {account.region && (
-                          <p className="text-xs text-gray-500 flex items-center">
-                            <MapPin size={10} className="mr-1 flex-shrink-0" />
-                            {account.region}
-                          </p>
-                        )}
-                        {account.employeeId && (
-                          <p className="text-xs text-[#1E40AF] flex items-center">
-                            团队：{account.parentName || account.teamName || account.superior || '无'}
-                          </p>
-                        )}
-                        {account.employeeId && (
-                          <p className="text-xs text-orange-500 flex items-center">
+                      {/* 组长账号的显示逻辑 */}
+                      {account.role === 'GROUP_LEADER' || account.role === 'group_leader' || account.isGroupLeader ? (
+                        <>
+                          {account.teamName && (
+                            <p className="text-base text-[#1E40AF] font-bold">
+                              {account.teamName}
+                            </p>
+                          )}
+                          <p className="text-sm text-gray-900 flex items-center">
                             组别：{account.groupName || '无'}
                           </p>
-                        )}
-                      </div>
+                          <h3 className="text-sm text-gray-900">
+                            组长：{account.realName || account.username}
+                          </h3>
+                          {account.commission !== undefined && (
+                            <p className="text-sm font-bold text-gray-900 flex items-center">
+                              分成：{(account.commission * 100).toFixed(0)}%
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        /* 团队长和员工账号的显示逻辑（恢复原样） */
+                        <>
+                          {account.teamName && (
+                            <p className="text-sm text-[#1E40AF] font-bold">
+                              {account.teamName}
+                            </p>
+                          )}
+                          <h3 className="text-sm font-bold text-gray-900">
+                            {account.realName || account.username}
+                            {account.employeeId && !(account.role === 'GROUP_LEADER' || account.role === 'group_leader' || account.isGroupLeader) && <span className="ml-2 text-[#1E40AF]">({account.employeeId})</span>}
+                          </h3>
+                          <div className="space-y-0.5">
+                            {account.username && !account.employeeId && account.role !== 'NORMAL_ADMIN' && (
+                              <p className="text-xs text-gray-500">
+                                用户名：{account.username}
+                              </p>
+                            )}
+                            {account.phone && (
+                              <p className="text-xs text-gray-500 flex items-center">
+                                <Phone size={10} className="mr-1 flex-shrink-0" />
+                                {account.phone}
+                              </p>
+                            )}
+
+                            {account.region && (
+                              <p className="text-xs text-gray-500 flex items-center">
+                                <MapPin size={10} className="mr-1 flex-shrink-0" />
+                                {account.region}
+                              </p>
+                            )}
+                            {account.employeeId && (
+                              <p className="text-xs text-[#1E40AF] flex items-center">
+                                团队：{account.parentName || account.teamName || account.superior || '无'}
+                              </p>
+                            )}
+                            {account.employeeId && (
+                              <p className="text-xs text-orange-500 flex items-center">
+                                组别：{account.groupName || '无'}
+                              </p>
+                            )}
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                   <div className="flex flex-col items-end space-y-2">
@@ -795,6 +881,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                     employeeId: '',
                     parentId: '',
                     groupId: '',
+                    groupName: '',
                     commissionRate: ''
                   });
                 }}
@@ -956,8 +1043,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                     <input
                       type="text"
                       placeholder="请输入组名"
-                      value={formData.teamName}
-                      onChange={(e) => setFormData({...formData, teamName: e.target.value})}
+                      value={formData.groupName}
+                      onChange={(e) => setFormData({...formData, groupName: e.target.value})}
                       className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                     />
                   </div>
@@ -1074,6 +1161,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                     employeeId: '',
                     parentId: '',
                     groupId: '',
+                    groupName: '',
                     commissionRate: ''
                   });
                 }}
@@ -1160,8 +1248,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                     </label>
                     <input
                       type="text"
-                      value={formData.teamName}
-                      onChange={(e) => setFormData({...formData, teamName: e.target.value})}
+                      value={formData.groupName}
+                      onChange={(e) => setFormData({...formData, groupName: e.target.value})}
                       className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                     />
                   </div>

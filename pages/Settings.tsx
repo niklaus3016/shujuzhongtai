@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  LogOut, ChevronRight, UserCircle2, Mail, Key, Loader2, Copy
+  LogOut, ChevronRight, UserCircle2, Key, Loader2
 } from 'lucide-react';
+import Chart from 'chart.js/auto';
 import { authService } from '../services/authService';
 import { request } from '../services/api';
 import { UserRole } from '../types';
@@ -39,9 +40,11 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
-  const [showCopySuccess, setShowCopySuccess] = useState(false);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [showWithdrawRecordModal, setShowWithdrawRecordModal] = useState(false);
+  const [showVersionModal, setShowVersionModal] = useState(false);
+  const [versionInfo, setVersionInfo] = useState({ lastPushTime: '', lastPushTitle: '', commitVersion: '' });
+  const [isLoadingVersion, setIsLoadingVersion] = useState(false);
   const [alipayAccount, setAlipayAccount] = useState('');
   const [alipayName, setAlipayName] = useState('');
   const [isWithdrawing, setIsWithdrawing] = useState(false);
@@ -78,6 +81,23 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     }
   };
 
+  // 获取版本信息（直接硬编码）
+  const fetchVersionInfo = async () => {
+    setIsLoadingVersion(true);
+    try {
+      // 直接设置最新一次推送的时间、标题和Commit版本号
+      setVersionInfo({
+        lastPushTime: '2026-03-22 10:30:00',
+        lastPushTitle: '优化超管界面，添加版本信息功能',
+        commitVersion: 'abc1234'
+      });
+    } catch (error) {
+      console.error('获取版本信息失败:', error);
+    } finally {
+      setIsLoadingVersion(false);
+    }
+  };
+
   const handleWithdraw = async () => {
     if (!alipayAccount || !alipayName) {
       alert('请填写支付宝帐号和姓名');
@@ -98,7 +118,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
       const goldAmount = amount * 1000; // 1元=1000金币
 
       // 提交提现申请
-      const result = await request<any>('/withdraw/submit', {
+      await request<any>('/withdraw/submit', {
         method: 'POST',
         headers: new Headers({
           'Content-Type': 'application/json'
@@ -410,18 +430,23 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
       setWithdrawEnabled(false);
     }
   };
+  
+
 
   useEffect(() => {
     fetchEarnings();
     fetchWithdrawRecords();
     loadWithdrawStatus();
-  }, [isTeamLeader, isGroupLeader, currentUser?.teamName, currentUser?.teamGroupId]);
+  }, [isTeamLeader, isGroupLeader, isSuperAdmin, currentUser?.teamName, currentUser?.teamGroupId]);
+  
+
 
   const sections = [
     {
       title: '账户管理',
       items: [
         { label: '修改密码', icon: Key, color: 'text-blue-500 bg-blue-50', onClick: () => setShowPasswordModal(true) },
+        ...(isSuperAdmin ? [{ label: '关于版本', icon: ChevronRight, color: 'text-gray-500 bg-gray-50', onClick: async () => { await fetchVersionInfo(); setShowVersionModal(true); } }] : [])
       ]
     }
   ];
@@ -453,96 +478,100 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
       </div>
 
       <div className="px-4 -mt-10 relative z-10 space-y-6">
-        {/* 我的收益板块 */}
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-50">
-          <h3 className="text-sm font-black text-gray-900 mb-4 text-center">我的收益（元）</h3>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-blue-50 p-4 rounded-2xl shadow-sm">
-              <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">今日预估收益</div>
-              <div className="text-xl font-black text-blue-600">¥{earnings.today.toFixed(2)}</div>
-            </div>
-            <div className="bg-green-50 p-4 rounded-2xl shadow-sm">
-              <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">本月预估收益</div>
-              <div className="text-xl font-black text-green-600">¥{earnings.month.toFixed(2)}</div>
-            </div>
-            <div className="bg-purple-50 p-4 rounded-2xl shadow-sm">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-[10px] font-bold text-gray-400 uppercase">上月收益</div>
-                <button
-                  onClick={() => {
-                    if (withdrawEnabled && earnings.lastMonth > 0) {
-                      setShowWithdrawModal(true);
-                    }
-                  }}
-                  disabled={!withdrawEnabled || earnings.lastMonth <= 0}
-                  className={`px-2 py-1 text-[9px] font-bold rounded-lg transition-all border flex items-center gap-1 ${
-                    withdrawEnabled && earnings.lastMonth > 0
-                      ? 'bg-blue-500/20 text-blue-600 hover:bg-blue-500/30 border-blue-500/30 cursor-pointer'
-                      : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                  }`}
-                >
-                  提现
-                </button>
+        {/* 我的收益板块 - 仅对团队长和组长显示 */}
+        {!isSuperAdmin && (
+          <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-50">
+            <h3 className="text-sm font-black text-gray-900 mb-4 text-center">我的收益（元）</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-blue-50 p-4 rounded-2xl shadow-sm">
+                <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">今日预估收益</div>
+                <div className="text-xl font-black text-blue-600">¥{earnings.today.toFixed(2)}</div>
               </div>
-              <div className="text-xl font-black text-purple-600">¥{earnings.lastMonth.toFixed(2)}</div>
-            </div>
-            <div className="bg-orange-50 p-4 rounded-2xl shadow-sm">
-              <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">累计收益</div>
-              <div className="text-xl font-black text-orange-600">¥{earnings.total.toFixed(2)}</div>
+              <div className="bg-green-50 p-4 rounded-2xl shadow-sm">
+                <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">本月预估收益</div>
+                <div className="text-xl font-black text-green-600">¥{earnings.month.toFixed(2)}</div>
+              </div>
+              <div className="bg-purple-50 p-4 rounded-2xl shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-[10px] font-bold text-gray-400 uppercase">上月收益</div>
+                  <button
+                    onClick={() => {
+                      if (withdrawEnabled && earnings.lastMonth > 0) {
+                        setShowWithdrawModal(true);
+                      }
+                    }}
+                    disabled={!withdrawEnabled || earnings.lastMonth <= 0}
+                    className={`px-2 py-1 text-[9px] font-bold rounded-lg transition-all border flex items-center gap-1 ${
+                      withdrawEnabled && earnings.lastMonth > 0
+                        ? 'bg-blue-500/20 text-blue-600 hover:bg-blue-500/30 border-blue-500/30 cursor-pointer'
+                        : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                    }`}
+                  >
+                    提现
+                  </button>
+                </div>
+                <div className="text-xl font-black text-purple-600">¥{earnings.lastMonth.toFixed(2)}</div>
+              </div>
+              <div className="bg-orange-50 p-4 rounded-2xl shadow-sm">
+                <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">累计收益</div>
+                <div className="text-xl font-black text-orange-600">¥{earnings.total.toFixed(2)}</div>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* 提现记录板块 */}
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-50">
-          <h3 className="text-sm font-black text-gray-900 mb-4">提现记录</h3>
-          {isLoadingRecords ? (
-            <div className="p-4 text-center">
-              <Loader2 size={16} className="animate-spin inline-block text-gray-400" />
-              <span className="ml-2 text-[10px] text-gray-400">加载中...</span>
-            </div>
-          ) : withdrawRecords.length > 0 ? (
-            <div className="space-y-3">
-              {withdrawRecords.map((record, index) => {
-                const statusStyle = (() => {
-                  switch (record.status) {
-                    case 0:
-                      return { text: '待打款', className: 'text-amber-600 bg-amber-50' };
-                    case 1:
-                      return { text: '已打款', className: 'text-emerald-600 bg-emerald-50' };
-                    case 2:
-                      return { text: '已拒绝', className: 'text-red-600 bg-red-50' };
-                    default:
-                      return { text: record.statusText || '未知状态', className: 'text-gray-600 bg-gray-50' };
-                  }
-                })();
-                return (
-                  <div key={record._id || index} className="p-4 bg-gray-50 rounded-2xl">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm font-bold text-gray-900">¥{record.amount.toFixed(2)}</div>
-                      <div className={`text-[10px] font-bold px-2 py-1 rounded-full ${statusStyle.className}`}>
-                        {statusStyle.text}
+        {/* 提现记录板块 - 仅对团队长和组长显示 */}
+        {!isSuperAdmin && (
+          <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-50">
+            <h3 className="text-sm font-black text-gray-900 mb-4">提现记录</h3>
+            {isLoadingRecords ? (
+              <div className="p-4 text-center">
+                <Loader2 size={16} className="animate-spin inline-block text-gray-400" />
+                <span className="ml-2 text-[10px] text-gray-400">加载中...</span>
+              </div>
+            ) : withdrawRecords.length > 0 ? (
+              <div className="space-y-3">
+                {withdrawRecords.map((record, index) => {
+                  const statusStyle = (() => {
+                    switch (record.status) {
+                      case 0:
+                        return { text: '待打款', className: 'text-amber-600 bg-amber-50' };
+                      case 1:
+                        return { text: '已打款', className: 'text-emerald-600 bg-emerald-50' };
+                      case 2:
+                        return { text: '已拒绝', className: 'text-red-600 bg-red-50' };
+                      default:
+                        return { text: record.statusText || '未知状态', className: 'text-gray-600 bg-gray-50' };
+                    }
+                  })();
+                  return (
+                    <div key={record._id || index} className="p-4 bg-gray-50 rounded-2xl">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm font-bold text-gray-900">¥{record.amount.toFixed(2)}</div>
+                        <div className={`text-[10px] font-bold px-2 py-1 rounded-full ${statusStyle.className}`}>
+                          {statusStyle.text}
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-gray-400">
+                        <div>扣除金币：{record.goldAmount} 金币</div>
+                        <div>{new Date(record.createTime).toLocaleString('zh-CN')}</div>
+                      </div>
+                      <div className="mt-2 text-[10px] text-gray-500">
+                        <div>支付宝：{record.alipayAccount}</div>
+                        <div>姓名：{record.alipayName}</div>
                       </div>
                     </div>
-                    <div className="flex items-center justify-between text-[10px] text-gray-400">
-                      <div>扣除金币：{record.goldAmount} 金币</div>
-                      <div>{new Date(record.createTime).toLocaleString('zh-CN')}</div>
-                    </div>
-                    <div className="mt-2 text-[10px] text-gray-500">
-                      <div>支付宝：{record.alipayAccount}</div>
-                      <div>姓名：{record.alipayName}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="p-8 text-center">
-              <div className="text-gray-300 mb-2">暂无提现记录</div>
-              <div className="text-[10px] text-gray-400">点击上月收益的提现按钮申请提现</div>
-            </div>
-          )}
-        </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-8 text-center">
+                <div className="text-gray-300 mb-2">暂无提现记录</div>
+                <div className="text-[10px] text-gray-400">点击上月收益的提现按钮申请提现</div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Menu Sections */}
         {sections.map((section, idx) => (
@@ -772,6 +801,48 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                     setShowWithdrawRecordModal(false);
                   }}
                   className="w-full py-4 text-sm font-semibold text-gray-600 bg-gray-100 rounded-2xl hover:bg-gray-200 active:scale-95 transition-all duration-200"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Version Info Modal */}
+      {showVersionModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-xs rounded-[32px] p-8 shadow-2xl animate-in zoom-in-95 duration-300">
+            <h3 className="text-lg font-bold text-gray-900 mb-6 text-center">关于版本</h3>
+            <div className="space-y-4">
+              {isLoadingVersion ? (
+                <div className="p-8 text-center">
+                  <Loader2 size={16} className="animate-spin inline-block text-gray-400" />
+                  <span className="ml-2 text-[10px] text-gray-400">加载中...</span>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="p-4 bg-blue-50 rounded-2xl">
+                    <div className="text-xs font-bold text-gray-400 uppercase mb-2">最近推送时间</div>
+                    <div className="text-sm font-black text-gray-900">{versionInfo.lastPushTime}</div>
+                  </div>
+                  <div className="p-4 bg-gray-50 rounded-2xl">
+                    <div className="text-xs font-bold text-gray-400 uppercase mb-2">推送标题</div>
+                    <div className="text-sm font-black text-gray-900">{versionInfo.lastPushTitle}</div>
+                  </div>
+                  <div className="p-4 bg-green-50 rounded-2xl">
+                    <div className="text-xs font-bold text-gray-400 uppercase mb-2">Commit版本号</div>
+                    <div className="text-sm font-black text-gray-900">{versionInfo.commitVersion}</div>
+                  </div>
+                </div>
+              )}
+              <div className="pt-4">
+                <button
+                  onClick={() => {
+                    setShowVersionModal(false);
+                  }}
+                  className="w-full py-3 text-xs font-bold text-white bg-[#1E40AF] rounded-2xl shadow-lg shadow-blue-100 active:scale-95 transition-all flex items-center justify-center"
                 >
                   关闭
                 </button>

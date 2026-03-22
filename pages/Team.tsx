@@ -1326,7 +1326,11 @@ const Team: React.FC = () => {
                           index === 1 ? 'bg-gray-300 text-gray-800' : // 第2名 - 银色
                           index === 2 ? 'bg-orange-600 text-white' : 'bg-green-400 text-white' // 第3名 - 铜色，其他 - 绿色
                       }`}>
-                          <Award size={24} />
+                          {index < 3 ? (
+                              <span className="text-xl font-black">{index + 1}</span>
+                          ) : (
+                              <Users2 size={24} />
+                          )}
                       </div>
                       <div>
                           <div className="flex items-center space-x-2">

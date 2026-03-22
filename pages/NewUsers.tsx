@@ -49,19 +49,14 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
   const [yesterdayEarningsData, setYesterdayEarningsData] = useState<Record<string, number>>({});
   // 计算今日新增用户数（注册天数为1的用户）
   const todayNewUsers = useMemo(() => {
-    const teamNameMap: Record<string, string> = {
-      'cuiding': '鼎盛战队',
-      'cuijie': '花好月圆战队',
-      'huangzhenhui': '四季发财战队'
-    };
-    const teamNameToMatch = currentUser?.teamName || teamNameMap[currentUser?.username || ''] || '';
+    const teamNameToMatch = currentUser?.teamName || '';
     
     return users.filter(u => {
       const isTodayNew = u.regDays <= 1;
       const matchesTeamLeader = !isTeamLeader || (teamNameToMatch && u.superior === teamNameToMatch);
       return isTodayNew && matchesTeamLeader;
     }).length;
-  }, [users, isTeamLeader, currentUser?.teamName, currentUser?.username]);
+  }, [users, isTeamLeader, currentUser?.teamName]);
   
   // 组件挂载时重置滚动位置到顶部
   useEffect(() => {
@@ -101,12 +96,7 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
       }
       
       // 构建今日详细数据API URL（与首页全部用户一致）
-      const teamNameMap: Record<string, string> = {
-        'cuiding': '鼎盛战队',
-        'cuijie': '花好月圆战队',
-        'huangzhenhui': '四季发财战队'
-      };
-      const teamNameToMatch = currentUser?.teamName || teamNameMap[currentUser?.username || ''] || '';
+      const teamNameToMatch = currentUser?.teamName || '';
       let todayDataUrl = isTeamLeader 
         ? `/admin/dashboard/users?range=today&team=${encodeURIComponent(teamNameToMatch)}&limit=1000`
         : '/admin/dashboard/users?range=today&limit=1000';
@@ -179,8 +169,11 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
       }
       
       // 使用更高效的数据转换，并从今日详细数据中获取IP、设备、收益、次数
-      const currentTime = Date.now();
+      // 获取当前UTC时间戳（去除本地时区偏移）
+      const now = new Date();
+      const currentTime = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), now.getUTCHours(), now.getUTCMinutes(), now.getUTCSeconds());
       const transformedUsers: NewUser[] = list.map((user: any) => {
+        // 确保使用UTC时间计算注册时间戳
         const registerTime = user.registerTime ? new Date(user.registerTime).getTime() : currentTime;
         const regDays = Math.ceil((currentTime - registerTime) / (1000 * 60 * 60 * 24)) || 1;
         const userId = user.employeeId || user.userId || '';
@@ -284,12 +277,7 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
 
   // 计算全部、已上线和未上线用户的数量
   const userCounts = useMemo(() => {
-    const teamNameMap: Record<string, string> = {
-      'cuiding': '鼎盛战队',
-      'cuijie': '花好月圆战队',
-      'huangzhenhui': '四季发财战队'
-    };
-    const teamNameToMatch = currentUser?.teamName || teamNameMap[currentUser?.username || ''] || '';
+    const teamNameToMatch = currentUser?.teamName || '';
     
     const baseFiltered = users.filter(u => {
       const isNewUser = u.regDays <= 15;
@@ -304,7 +292,7 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
     const offline = baseFiltered.filter(u => !u.isOnline || u.isOnline === undefined).length;
     
     return { all, online, offline };
-  }, [users, searchTerm, selectedTeam, isTeamLeader, currentUser?.teamName, currentUser?.username]);
+  }, [users, searchTerm, selectedTeam, isTeamLeader, currentUser?.teamName]);
 
   const sortedUsers = useMemo(() => {
     // 检查users数组
@@ -324,15 +312,9 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
           (onlineFilter === 'offline' && (u.isOnline === false || u.isOnline === undefined));
         // 团队长只能看到自己团队的用户
         // 直接通过superior字段过滤
-        // 当currentUserTeamName为空时，根据团队长username判断团队
         console.log('团队长过滤信息:', { isTeamLeader, currentUserTeamName: currentUser?.teamName, userSuperior: u.superior, userId: u.id, currentUsername: currentUser?.username });
-        // 团队长username到团队名称的映射
-        const teamNameMap: Record<string, string> = {
-          'cuiding': '鼎盛战队',
-          'cuijie': '花好月圆战队',
-          'huangzhenhui': '四季发财战队'
-        };
-        const teamNameToMatch = currentUser?.teamName || teamNameMap[currentUser?.username || ''] || '';
+        // 直接使用登录接口返回的团队名称
+        const teamNameToMatch = currentUser?.teamName || '';
         const matchesTeamLeader = !isTeamLeader || (teamNameToMatch && u.superior === teamNameToMatch);
         
         // 检查特定用户的过滤条件
