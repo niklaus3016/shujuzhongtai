@@ -48,10 +48,15 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
       if (result.success) {
         setConfig(result.data);
         // 根据返回的数据决定使用哪种模式
+        // 当同时存在 extractRateMin 和 extractRateMax 时，使用范围模式
+        // 当只存在 extractRate 时，使用固定值模式
         if (result.data.extractRateMin !== undefined && result.data.extractRateMax !== undefined) {
           setUseRangeMode(true);
-        } else {
+        } else if (result.data.extractRate !== undefined) {
           setUseRangeMode(false);
+        } else {
+          // 默认使用范围模式
+          setUseRangeMode(true);
         }
       }
     } catch (error) {
@@ -92,7 +97,7 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
     try {
       const token = localStorage.getItem('admin_token');
       // 根据模式准备请求数据
-      let configData = {
+      let configData: any = {
         enabled: config.enabled,
         triggerRate: config.triggerRate,
         injectRate: config.injectRate
@@ -314,7 +319,7 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
                     try {
                       const token = localStorage.getItem('admin_token');
                       // 根据模式准备请求数据
-                      let configData = {
+                      let configData: any = {
                         enabled: newEnabled,
                         triggerRate: config.triggerRate,
                         injectRate: config.injectRate
