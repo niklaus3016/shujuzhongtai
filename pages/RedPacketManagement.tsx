@@ -19,6 +19,15 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
   const [addAmount, setAddAmount] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
   const [error, setError] = useState('');
+  const [records, setRecords] = useState<any[]>([]);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+  const [employeeId, setEmployeeId] = useState('');
+  const [pagination, setPagination] = useState({
+    total: 0,
+    page: 1,
+    limit: 20,
+    pages: 1
+  });
 
   // 获取红包配置
   const fetchConfig = async () => {
@@ -132,9 +141,39 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
     }
   };
 
+  // 获取红包发放记录
+  const fetchRecords = async (page = 1, limit = 20) => {
+    setRecordsLoading(true);
+    try {
+      const token = localStorage.getItem('admin_token');
+      let url = `https://wfqmaepvjkdd.sealoshzh.site/api/admin/red-packet/records?page=${page}&limit=${limit}`;
+      if (employeeId) {
+        url += `&employeeId=${employeeId}`;
+      }
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const result = await response.json();
+      if (result.success) {
+        setRecords(result.data.records);
+        setPagination(result.data.pagination);
+      }
+    } catch (error) {
+      console.error('Error fetching red packet records:', error);
+      setError('获取红包发放记录失败');
+    } finally {
+      setRecordsLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchConfig();
     fetchPoolBalance();
+    fetchRecords();
 
     // 设置每30秒自动刷新余额
     const intervalId = setInterval(() => {
@@ -144,6 +183,11 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
     // 组件卸载时清除定时器
     return () => clearInterval(intervalId);
   }, []);
+
+  // 当employeeId变化时，重新获取记录
+  useEffect(() => {
+    fetchRecords();
+  }, [employeeId]);
 
   return (
     <div className="min-h-screen bg-[#F9FAFB] animate-in fade-in duration-300">
@@ -356,6 +400,94 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
                   <span>{error}</span>
                 </div>
               )}
+            </div>
+          )}
+        </div>
+
+        {/* 红包发放记录 */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center space-x-2">
+            <Wallet size={20} className="text-red-500" />
+            <span>红包发放记录</span>
+          </h2>
+
+          {/* 筛选条件 */}
+          <div className="mb-4">
+            <label className="block text-sm font-bold text-gray-700 mb-2">按员工ID筛选</label>
+            <div className="flex space-x-3">
+              <input
+                type="text"
+                value={employeeId}
+                onChange={(e) => setEmployeeId(e.target.value)}
+                placeholder="输入员工ID"
+                className="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
+            </div>
+          </div>
+
+          {/* 记录列表 */}
+          {recordsLoading ? (
+            <div className="text-center py-10 text-gray-400">加载中...</div>
+          ) : records.length === 0 ? (
+            <div className="text-center py-10 text-gray-400">
+              <Wallet size={40} className="mx-auto mb-2 opacity-20" />
+              <p className="text-sm">暂无红包发放记录</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {records.map((record, index) => (
+                <div key={record._id || index} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-bold text-gray-900">红包发放</span>
+                    <span className="text-xs text-gray-400">
+                      {new Date(record.createdAt).toLocaleString('zh-CN')}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                    <div>
+                      <span className="text-gray-400">员工ID：</span>
+                      <span className="font-medium">{record.employeeId}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">用户ID：</span>
+                      <span className="font-medium">{record.userId}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">发放金额：</span>
+                      <span className="font-medium text-red-500">{record.amount.toFixed(2)} 金币</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">发放后余额：</span>
+                      <span className="font-medium">{parseFloat(record.poolBalanceAfter.toFixed(2))} 金币</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 分页控件 */}
+          {records.length > 0 && (
+            <div className="mt-4 flex items-center justify-between">
+              <p className="text-xs text-gray-500">
+                共 {pagination.total} 条记录，当前第 {pagination.page} 页，共 {pagination.pages} 页
+              </p>
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => fetchRecords(pagination.page > 1 ? pagination.page - 1 : 1)}
+                  disabled={pagination.page === 1}
+                  className={`px-3 py-1 text-xs font-bold rounded-xl transition-all ${pagination.page === 1 ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
+                >
+                  上一页
+                </button>
+                <button
+                  onClick={() => fetchRecords(pagination.page < pagination.pages ? pagination.page + 1 : pagination.pages)}
+                  disabled={pagination.page === pagination.pages}
+                  className={`px-3 py-1 text-xs font-bold rounded-xl transition-all ${pagination.page === pagination.pages ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
+                >
+                  下一页
+                </button>
+              </div>
             </div>
           )}
         </div>
