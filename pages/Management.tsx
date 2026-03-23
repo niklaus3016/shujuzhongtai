@@ -7,11 +7,12 @@ import { request } from '../services/api';
 import AccountManagement from './AccountManagement';
 import DailyTargetManagement from './DailyTargetManagement';
 import WithdrawalManagement from './WithdrawalManagement';
+import RedPacketManagement from './RedPacketManagement';
 
 interface ManagementProps {}
 
 const Management: React.FC<ManagementProps> = () => {
-  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission'>('main');
+  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet'>('main');
   const [withdrawEnabled, setWithdrawEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showDeductionModal, setShowDeductionModal] = useState(false);
@@ -470,18 +471,14 @@ const Management: React.FC<ManagementProps> = () => {
                 <button
                   onClick={() => setTempRate((commissionRate * 100).toString())}
                   disabled={commissionLoading}
-                  className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${
-                    commissionLoading ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
-                  }`}
+                  className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${commissionLoading ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
                 >
                   取消
                 </button>
                 <button
                   onClick={handleSave}
                   disabled={commissionLoading}
-                  className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${
-                    commissionLoading ? 'bg-blue-100 text-blue-300 cursor-not-allowed' : 'bg-[#1E40AF] text-white hover:bg-blue-700'
-                  }`}
+                  className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${commissionLoading ? 'bg-blue-100 text-blue-300 cursor-not-allowed' : 'bg-[#1E40AF] text-white hover:bg-blue-700'}`}
                 >
                   {commissionLoading ? '保存中...' : '保存设置'}
                 </button>
@@ -513,6 +510,10 @@ const Management: React.FC<ManagementProps> = () => {
     );
   }
 
+  if (activePage === 'red-packet') {
+    return <RedPacketManagement onBack={() => setActivePage('main')} />;
+  }
+
   const menuItems = [
     {
       id: 'account',
@@ -537,6 +538,14 @@ const Management: React.FC<ManagementProps> = () => {
       description: '设置用户金币分成比例',
       color: 'text-purple-500',
       bg: 'bg-purple-50'
+    },
+    {
+      id: 'red-packet',
+      icon: Wallet,
+      title: '红包玩法管理',
+      description: '管理红包配置和红包池',
+      color: 'text-red-500',
+      bg: 'bg-red-50'
     },
     {
       id: 'gold-deduction',
@@ -593,6 +602,8 @@ const Management: React.FC<ManagementProps> = () => {
                   setActivePage('deduction-history');
                 } else if (item.id === 'commission') {
                   setActivePage('commission');
+                } else if (item.id === 'red-packet') {
+                  setActivePage('red-packet');
                 }
               }}
               className={`bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-between cursor-pointer active:bg-gray-50 transition-all ${loading && item.isToggle ? 'opacity-50' : ''}`}
