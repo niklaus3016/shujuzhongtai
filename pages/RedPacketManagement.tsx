@@ -198,7 +198,7 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
                   <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-bold">%</div>
                 </div>
                 <p className="text-xs text-gray-500 mt-2">
-                  用户观看视频时触发红包的概率，范围：0-100%
+                  看完广告得金币时触发红包的概率，范围0-100%
                 </p>
               </div>
 
