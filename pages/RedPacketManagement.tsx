@@ -177,9 +177,10 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
     fetchPoolBalance();
     fetchRecords();
 
-    // 设置每30秒自动刷新余额
+    // 设置每30秒自动刷新余额和记录
     const intervalId = setInterval(() => {
       fetchPoolBalance();
+      fetchRecords();
     }, 30000);
 
     // 组件卸载时清除定时器
