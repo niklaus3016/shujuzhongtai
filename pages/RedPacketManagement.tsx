@@ -10,6 +10,8 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
     enabled: false,
     triggerRate: 0.1,
     extractRate: 0.05,
+    extractRateMin: 0.01,
+    extractRateMax: 0.05,
     injectRate: 0.025
   });
   const [poolBalance, setPoolBalance] = useState(0);
@@ -335,22 +337,38 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
               {/* 发放百分比 */}
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">红包发放百分比</label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    value={config.extractRate * 100}
-                    onChange={(e) => setConfig({ ...config, extractRate: parseFloat(e.target.value) / 100 })}
-                    placeholder="例如：5"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    disabled={loading}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-                  />
-                  <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-bold">%</div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={config.extractRateMin * 100}
+                      onChange={(e) => setConfig({ ...config, extractRateMin: parseFloat(e.target.value) / 100 })}
+                      placeholder="最小值"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      disabled={loading}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                    <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-bold">%</div>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={config.extractRateMax * 100}
+                      onChange={(e) => setConfig({ ...config, extractRateMax: parseFloat(e.target.value) / 100 })}
+                      placeholder="最大值"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      disabled={loading}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                    <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-bold">%</div>
+                  </div>
                 </div>
                 <p className="text-xs text-gray-500 mt-2">
-                  每次红包从现有红包池余额释放的百分比，范围：0-100%
+                  每次红包从现有红包池余额释放的百分比范围，范围：0-100%。设置范围后，系统会在范围内随机生成百分比。
                 </p>
               </div>
 
