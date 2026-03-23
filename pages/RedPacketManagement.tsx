@@ -135,6 +135,14 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
   useEffect(() => {
     fetchConfig();
     fetchPoolBalance();
+
+    // 设置每30秒自动刷新余额
+    const intervalId = setInterval(() => {
+      fetchPoolBalance();
+    }, 30000);
+
+    // 组件卸载时清除定时器
+    return () => clearInterval(intervalId);
   }, []);
 
   return (
