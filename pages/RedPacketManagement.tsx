@@ -231,7 +231,36 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
                 </div>
                 <div 
                   className={`w-12 h-7 rounded-full p-1 transition-all ${config.enabled ? 'bg-green-500' : 'bg-gray-300'} cursor-pointer`}
-                  onClick={() => setConfig({ ...config, enabled: !config.enabled })}
+                  onClick={async () => {
+                    const newEnabled = !config.enabled;
+                    setConfig({ ...config, enabled: newEnabled });
+                    // 自动保存更改到后端
+                    try {
+                      const token = localStorage.getItem('admin_token');
+                      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/admin/red-packet/config', {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ ...config, enabled: newEnabled })
+                      });
+                      const result = await response.json();
+                      if (result.success) {
+                        setShowSuccess(true);
+                        setTimeout(() => setShowSuccess(false), 2000);
+                      } else {
+                        // 保存失败，恢复原状态
+                        setConfig({ ...config, enabled: !newEnabled });
+                        setError(result.message || '保存失败');
+                      }
+                    } catch (error) {
+                      console.error('Error updating red packet config:', error);
+                      // 保存失败，恢复原状态
+                      setConfig({ ...config, enabled: !newEnabled });
+                      setError('保存失败');
+                    }
+                  }}
                 >
                   <div className={`w-5 h-5 rounded-full bg-white shadow-sm transition-all ${config.enabled ? 'translate-x-5' : 'translate-x-0'}`}></div>
                 </div>
