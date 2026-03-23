@@ -170,7 +170,7 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-bold text-gray-900">红包玩法开关</h3>
-                  <p className="text-xs text-gray-500 mt-0.5">开启后，用户观看视频时可能获得红包</p>
+                  <p className="text-xs text-gray-500 mt-0.5">开启后，用户看视频得金币时，可同时概率触发随机红包</p>
                 </div>
                 <div 
                   className={`w-12 h-7 rounded-full p-1 transition-all ${config.enabled ? 'bg-green-500' : 'bg-gray-300'} cursor-pointer`}
