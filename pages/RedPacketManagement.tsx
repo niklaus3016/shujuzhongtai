@@ -170,7 +170,7 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
               {/* 红包池余额 */}
               <div className="p-4 bg-red-50 rounded-xl">
                 <h3 className="text-sm font-bold text-gray-900 mb-2">当前红包池余额</h3>
-                <p className="text-2xl font-bold text-red-500">{poolBalance.toLocaleString()} 金币</p>
+                <p className="text-2xl font-bold text-red-500">{parseFloat(poolBalance.toFixed(2)).toLocaleString()} 金币</p>
                 <p className="text-xs text-gray-500 mt-2">
                   红包池余额用于发放用户红包
                 </p>
