@@ -14,6 +14,7 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
     extractRateMax: 0.05,
     injectRate: 0.025
   });
+  const [useRangeMode, setUseRangeMode] = useState(true);
   const [poolBalance, setPoolBalance] = useState(0);
   const [loading, setLoading] = useState(false);
   const [configLoading, setConfigLoading] = useState(false);
@@ -46,6 +47,12 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
       const result = await response.json();
       if (result.success) {
         setConfig(result.data);
+        // 根据返回的数据决定使用哪种模式
+        if (result.data.extractRateMin !== undefined && result.data.extractRateMax !== undefined) {
+          setUseRangeMode(true);
+        } else {
+          setUseRangeMode(false);
+        }
       }
     } catch (error) {
       console.error('Error fetching red packet config:', error);
@@ -84,13 +91,35 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
     setLoading(true);
     try {
       const token = localStorage.getItem('admin_token');
+      // 根据模式准备请求数据
+      let configData = {
+        enabled: config.enabled,
+        triggerRate: config.triggerRate,
+        injectRate: config.injectRate
+      };
+      
+      if (useRangeMode) {
+        // 范围模式
+        configData = {
+          ...configData,
+          extractRateMin: config.extractRateMin,
+          extractRateMax: config.extractRateMax
+        };
+      } else {
+        // 固定值模式
+        configData = {
+          ...configData,
+          extractRate: config.extractRate
+        };
+      }
+      
       const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/admin/red-packet/config', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(config)
+        body: JSON.stringify(configData)
       });
       const result = await response.json();
       if (result.success) {
@@ -284,13 +313,35 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
                     // 自动保存更改到后端
                     try {
                       const token = localStorage.getItem('admin_token');
+                      // 根据模式准备请求数据
+                      let configData = {
+                        enabled: newEnabled,
+                        triggerRate: config.triggerRate,
+                        injectRate: config.injectRate
+                      };
+                      
+                      if (useRangeMode) {
+                        // 范围模式
+                        configData = {
+                          ...configData,
+                          extractRateMin: config.extractRateMin,
+                          extractRateMax: config.extractRateMax
+                        };
+                      } else {
+                        // 固定值模式
+                        configData = {
+                          ...configData,
+                          extractRate: config.extractRate
+                        };
+                      }
+                      
                       const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/admin/red-packet/config', {
                         method: 'POST',
                         headers: {
                           'Content-Type': 'application/json',
                           'Authorization': `Bearer ${token}`
                         },
-                        body: JSON.stringify({ ...config, enabled: newEnabled })
+                        body: JSON.stringify(configData)
                       });
                       const result = await response.json();
                       if (result.success) {
@@ -335,16 +386,68 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
                 </p>
               </div>
 
+              {/* 发放百分比模式选择 */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-bold text-gray-700">红包发放百分比模式</label>
+                  <div className="flex space-x-2">
+                    <button
+                      className={`px-3 py-1 text-xs font-bold rounded-xl transition-all ${useRangeMode ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600'}`}
+                      onClick={() => setUseRangeMode(true)}
+                    >
+                      范围模式
+                    </button>
+                    <button
+                      className={`px-3 py-1 text-xs font-bold rounded-xl transition-all ${!useRangeMode ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600'}`}
+                      onClick={() => setUseRangeMode(false)}
+                    >
+                      固定值模式
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {/* 发放百分比 */}
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">红包发放百分比</label>
-                <div className="grid grid-cols-2 gap-4">
+                {useRangeMode ? (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="relative">
+                      <input
+                        type="number"
+                        value={config.extractRateMin * 100}
+                        onChange={(e) => setConfig({ ...config, extractRateMin: parseFloat(e.target.value) / 100 })}
+                        placeholder="最小值"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        disabled={loading}
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                      />
+                      <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-bold">%</div>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        value={config.extractRateMax * 100}
+                        onChange={(e) => setConfig({ ...config, extractRateMax: parseFloat(e.target.value) / 100 })}
+                        placeholder="最大值"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        disabled={loading}
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                      />
+                      <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-bold">%</div>
+                    </div>
+                  </div>
+                ) : (
                   <div className="relative">
                     <input
                       type="number"
-                      value={config.extractRateMin * 100}
-                      onChange={(e) => setConfig({ ...config, extractRateMin: parseFloat(e.target.value) / 100 })}
-                      placeholder="最小值"
+                      value={config.extractRate * 100}
+                      onChange={(e) => setConfig({ ...config, extractRate: parseFloat(e.target.value) / 100 })}
+                      placeholder="例如：5"
                       min="0"
                       max="100"
                       step="0.1"
@@ -353,23 +456,9 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
                     />
                     <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-bold">%</div>
                   </div>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={config.extractRateMax * 100}
-                      onChange={(e) => setConfig({ ...config, extractRateMax: parseFloat(e.target.value) / 100 })}
-                      placeholder="最大值"
-                      min="0"
-                      max="100"
-                      step="0.1"
-                      disabled={loading}
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-                    />
-                    <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-bold">%</div>
-                  </div>
-                </div>
+                )}
                 <p className="text-xs text-gray-500 mt-2">
-                  每次红包从现有红包池余额释放的百分比范围，范围：0-100%。设置范围后，系统会在范围内随机生成百分比。
+                  {useRangeMode ? '每次红包从现有红包池余额释放的百分比范围，范围：0-100%。设置范围后，系统会在范围内随机生成百分比。' : '每次红包从现有红包池余额释放的固定百分比，范围：0-100%。'}
                 </p>
               </div>
 
