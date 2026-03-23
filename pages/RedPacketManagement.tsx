@@ -9,7 +9,8 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
   const [config, setConfig] = useState({
     enabled: false,
     triggerRate: 0.1,
-    extractRate: 0.05
+    extractRate: 0.05,
+    injectRate: 0.025
   });
   const [poolBalance, setPoolBalance] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -155,103 +156,6 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
       </header>
 
       <div className="p-4 space-y-4">
-        {/* 红包配置 */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center space-x-2">
-            <Settings size={20} className="text-red-500" />
-            <span>红包配置</span>
-          </h2>
-
-          {configLoading ? (
-            <div className="text-center py-10 text-gray-400">加载中...</div>
-          ) : (
-            <div className="space-y-6">
-              {/* 红包开关 */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-gray-900">红包玩法开关</h3>
-                  <p className="text-xs text-gray-500 mt-0.5">开启后，用户看视频得金币时，可概率触发随机红包</p>
-                </div>
-                <div 
-                  className={`w-12 h-7 rounded-full p-1 transition-all ${config.enabled ? 'bg-green-500' : 'bg-gray-300'} cursor-pointer`}
-                  onClick={() => setConfig({ ...config, enabled: !config.enabled })}
-                >
-                  <div className={`w-5 h-5 rounded-full bg-white shadow-sm transition-all ${config.enabled ? 'translate-x-5' : 'translate-x-0'}`}></div>
-                </div>
-              </div>
-
-              {/* 触发概率 */}
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">红包触发概率</label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    value={config.triggerRate * 100}
-                    onChange={(e) => setConfig({ ...config, triggerRate: parseFloat(e.target.value) / 100 })}
-                    placeholder="例如：10"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    disabled={loading}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-                  />
-                  <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-bold">%</div>
-                </div>
-                <p className="text-xs text-gray-500 mt-2">
-                  看完广告得金币时触发红包的概率，范围0-100%
-                </p>
-              </div>
-
-              {/* 抽取百分比 */}
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">红包抽取百分比</label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    value={config.extractRate * 100}
-                    onChange={(e) => setConfig({ ...config, extractRate: parseFloat(e.target.value) / 100 })}
-                    placeholder="例如：5"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    disabled={loading}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-                  />
-                  <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-bold">%</div>
-                </div>
-                <p className="text-xs text-gray-500 mt-2">
-                  从视频收益中抽取作为红包的百分比，范围：0-100%
-                </p>
-              </div>
-
-              {/* 保存按钮 */}
-              <button
-                onClick={updateConfig}
-                disabled={loading}
-                className={`w-full py-3 text-sm font-bold rounded-xl transition-all ${loading ? 'bg-red-100 text-red-300 cursor-not-allowed' : 'bg-red-500 text-white hover:bg-red-600'}`}
-              >
-                {loading ? '保存中...' : '保存配置'}
-              </button>
-
-              {/* 成功提示 */}
-              {showSuccess && (
-                <div className="mt-4 p-3 bg-green-50 text-green-600 text-sm font-medium rounded-xl flex items-center space-x-2">
-                  <Check size={16} />
-                  <span>设置保存成功！</span>
-                </div>
-              )}
-
-              {/* 错误提示 */}
-              {error && (
-                <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm font-medium rounded-xl flex items-center space-x-2">
-                  <AlertTriangle size={16} />
-                  <span>{error}</span>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
         {/* 红包池管理 */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center space-x-2">
@@ -300,6 +204,125 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
           )}
         </div>
 
+        {/* 红包配置 */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center space-x-2">
+            <Settings size={20} className="text-red-500" />
+            <span>红包配置</span>
+          </h2>
+
+          {configLoading ? (
+            <div className="text-center py-10 text-gray-400">加载中...</div>
+          ) : (
+            <div className="space-y-6">
+              {/* 红包开关 */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900">红包玩法开关</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">开启后，用户看视频得金币时，可概率触发随机红包</p>
+                </div>
+                <div 
+                  className={`w-12 h-7 rounded-full p-1 transition-all ${config.enabled ? 'bg-green-500' : 'bg-gray-300'} cursor-pointer`}
+                  onClick={() => setConfig({ ...config, enabled: !config.enabled })}
+                >
+                  <div className={`w-5 h-5 rounded-full bg-white shadow-sm transition-all ${config.enabled ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                </div>
+              </div>
+
+              {/* 触发概率 */}
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">红包触发概率</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={config.triggerRate * 100}
+                    onChange={(e) => setConfig({ ...config, triggerRate: parseFloat(e.target.value) / 100 })}
+                    placeholder="例如：10"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    disabled={loading}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                  <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-bold">%</div>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  看完广告得金币时触发红包的概率，范围0-100%
+                </p>
+              </div>
+
+              {/* 发放百分比 */}
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">红包发放百分比</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={config.extractRate * 100}
+                    onChange={(e) => setConfig({ ...config, extractRate: parseFloat(e.target.value) / 100 })}
+                    placeholder="例如：5"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    disabled={loading}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                  <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-bold">%</div>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  每次红包从现有红包池余额释放的百分比，范围：0-100%
+                </p>
+              </div>
+
+              {/* 注入百分比 */}
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">红包池注入百分比</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={config.injectRate * 100}
+                    onChange={(e) => setConfig({ ...config, injectRate: parseFloat(e.target.value) / 100 })}
+                    placeholder="例如：2.5"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    disabled={loading}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                  <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-bold">%</div>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  每次发放金币时，往红包池注入的百分比，范围：0-100%
+                </p>
+              </div>
+
+              {/* 保存按钮 */}
+              <button
+                onClick={updateConfig}
+                disabled={loading}
+                className={`w-full py-3 text-sm font-bold rounded-xl transition-all ${loading ? 'bg-red-100 text-red-300 cursor-not-allowed' : 'bg-red-500 text-white hover:bg-red-600'}`}
+              >
+                {loading ? '保存中...' : '保存配置'}
+              </button>
+
+              {/* 成功提示 */}
+              {showSuccess && (
+                <div className="mt-4 p-3 bg-green-50 text-green-600 text-sm font-medium rounded-xl flex items-center space-x-2">
+                  <Check size={16} />
+                  <span>设置保存成功！</span>
+                </div>
+              )}
+
+              {/* 错误提示 */}
+              {error && (
+                <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm font-medium rounded-xl flex items-center space-x-2">
+                  <AlertTriangle size={16} />
+                  <span>{error}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* 使用说明 */}
         <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100">
           <h3 className="text-sm font-bold text-blue-800 mb-2 flex items-center space-x-2">
@@ -308,8 +331,9 @@ const RedPacketManagement: React.FC<RedPacketManagementProps> = ({ onBack }) => 
           </h3>
           <ul className="text-xs text-blue-600 space-y-2">
             <li>• 红包玩法开关：控制是否开启红包功能</li>
-            <li>• 触发概率：用户观看视频时获得红包的概率</li>
-            <li>• 抽取百分比：从视频收益中抽取作为红包的比例</li>
+            <li>• 触发概率：用户看完广告得金币时获得红包的概率</li>
+            <li>• 发放百分比：每次红包从现有红包池余额释放的百分比</li>
+            <li>• 注入百分比：每次发放金币时，往红包池注入的百分比</li>
             <li>• 红包池：存放用于发放红包的金币</li>
             <li>• 当红包池余额为0时，即使触发红包也不会发放</li>
           </ul>
