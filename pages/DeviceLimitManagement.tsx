@@ -226,7 +226,7 @@ const DeviceLimitManagement: React.FC<DeviceLimitManagementProps> = ({ onBack })
                 <button
                   onClick={updateConfig}
                   disabled={configLoading}
-                  className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${configLoading ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-500 text-white hover:bg-gray-600'}`}
+                  className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${configLoading ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-[#1E40AF] text-white hover:bg-blue-700'}`}
                 >
                   {configLoading ? '保存中...' : '保存设置'}
                 </button>
@@ -264,7 +264,7 @@ const DeviceLimitManagement: React.FC<DeviceLimitManagementProps> = ({ onBack })
               <button
                 onClick={() => resetDevice(deviceId || undefined)}
                 disabled={resetLoading}
-                className={`px-4 py-3 text-sm font-bold rounded-xl transition-all ${resetLoading ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-500 text-white hover:bg-gray-600'}`}
+                className={`px-4 py-3 text-sm font-bold rounded-xl transition-all ${resetLoading ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-[#1E40AF] text-white hover:bg-blue-700'}`}
               >
                 {resetLoading ? '重置中...' : '重置'}
               </button>
@@ -290,21 +290,15 @@ const DeviceLimitManagement: React.FC<DeviceLimitManagementProps> = ({ onBack })
                         {device.isLimited ? '已限制' : '正常'}
                       </span>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                      <div>
-                        <span className="text-gray-400">连续低价值记录：</span>
-                        <span className="font-medium">{device.consecutiveLowValueCount}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-400">最后更新：</span>
-                        <span className="font-medium">{new Date(device.lastUpdated).toLocaleString('zh-CN')}</span>
-                      </div>
+                    <div className="text-xs text-gray-600">
+                      <span className="text-gray-400">连续低价值记录：</span>
+                      <span className="font-medium">{device.consecutiveLowValueCount}</span>
                     </div>
                     <div className="mt-2">
                       <button
                         onClick={() => resetDevice(device.deviceId)}
                         disabled={resetLoading}
-                        className="text-xs font-bold text-gray-600 hover:text-gray-900 transition-colors"
+                        className="text-xs font-bold text-[#1E40AF] hover:text-blue-700 transition-colors"
                       >
                         重置此设备
                       </button>
