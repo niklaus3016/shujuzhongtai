@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, Target, ToggleLeft, ToggleRight, Wallet, ChevronRight,
-  UserPlus, Settings, TrendingUp, Plus, ChevronLeft, Info, Check
+  UserPlus, Settings, TrendingUp, Plus, ChevronLeft, Info, Check, Smartphone
 } from 'lucide-react';
 import { request } from '../services/api';
 import AccountManagement from './AccountManagement';
 import DailyTargetManagement from './DailyTargetManagement';
 import WithdrawalManagement from './WithdrawalManagement';
 import RedPacketManagement from './RedPacketManagement';
+import DeviceLimitManagement from './DeviceLimitManagement';
 
 interface ManagementProps {}
 
 const Management: React.FC<ManagementProps> = () => {
-  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet'>('main');
+  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit'>('main');
   const [withdrawEnabled, setWithdrawEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showDeductionModal, setShowDeductionModal] = useState(false);
@@ -514,6 +515,10 @@ const Management: React.FC<ManagementProps> = () => {
     return <RedPacketManagement onBack={() => setActivePage('main')} />;
   }
 
+  if (activePage === 'device-limit') {
+    return <DeviceLimitManagement onBack={() => setActivePage('main')} />;
+  }
+
   const menuItems = [
     {
       id: 'account',
@@ -546,6 +551,14 @@ const Management: React.FC<ManagementProps> = () => {
       description: '管理红包配置和红包池',
       color: 'text-red-500',
       bg: 'bg-red-50'
+    },
+    {
+      id: 'device-limit',
+      icon: Smartphone,
+      title: '设备限制管理',
+      description: '管理限制用户设备是否能正常匹配广告',
+      color: 'text-gray-500',
+      bg: 'bg-gray-50'
     },
     {
       id: 'gold-deduction',
