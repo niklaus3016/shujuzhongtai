@@ -148,6 +148,10 @@ const DeviceLimitManagement: React.FC<DeviceLimitManagementProps> = ({ onBack })
   useEffect(() => {
     fetchDevices();
     fetchConfig();
+    const intervalId = setInterval(() => {
+      fetchDevices();
+    }, 30000);
+    return () => clearInterval(intervalId);
   }, [page, limit]);
 
   return (
@@ -247,6 +251,16 @@ const DeviceLimitManagement: React.FC<DeviceLimitManagementProps> = ({ onBack })
           <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center space-x-2">
             <Smartphone size={20} className="text-gray-500" />
             <span>设备管理</span>
+            <button
+              onClick={fetchDevices}
+              disabled={loading}
+              className="ml-auto flex items-center space-x-1 text-xs font-bold text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin" style={{animationPlayState: loading ? 'running' : 'paused'}}>
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
+              <span>刷新</span>
+            </button>
           </h2>
 
           {/* 重置设备 */}
@@ -284,17 +298,14 @@ const DeviceLimitManagement: React.FC<DeviceLimitManagementProps> = ({ onBack })
               <div className="space-y-3">
                 {devices.map((device) => (
                   <div key={device._id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center mb-1">
                       <span className="text-sm font-bold text-gray-900">设备ID: {device.deviceId}</span>
-                      <span className={`text-xs font-bold px-2 py-1 rounded-full ${device.isLimited ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
-                        {device.isLimited ? '已限制' : '正常'}
-                      </span>
                     </div>
                     <div className="text-xs text-gray-600">
                       <span className="text-gray-400">连续低价值记录：</span>
                       <span className="font-medium">{device.consecutiveLowValueCount}</span>
                     </div>
-                    <div className="mt-2">
+                    <div className="mt-2 flex items-center justify-between">
                       <button
                         onClick={() => resetDevice(device.deviceId)}
                         disabled={resetLoading}
@@ -302,6 +313,9 @@ const DeviceLimitManagement: React.FC<DeviceLimitManagementProps> = ({ onBack })
                       >
                         重置此设备
                       </button>
+                      <span className={`text-xs font-bold px-2 py-1 rounded-full ${device.isLimited ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                        {device.isLimited ? '已限制' : '正常'}
+                      </span>
                     </div>
                   </div>
                 ))}
