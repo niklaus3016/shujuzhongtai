@@ -9,11 +9,12 @@ import DailyTargetManagement from './DailyTargetManagement';
 import WithdrawalManagement from './WithdrawalManagement';
 import RedPacketManagement from './RedPacketManagement';
 import DeviceLimitManagement from './DeviceLimitManagement';
+import LotteryManagement from './LotteryManagement';
 
 interface ManagementProps {}
 
 const Management: React.FC<ManagementProps> = () => {
-  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit'>('main');
+  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery'>('main');
   const [withdrawEnabled, setWithdrawEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showDeductionModal, setShowDeductionModal] = useState(false);
@@ -519,6 +520,10 @@ const Management: React.FC<ManagementProps> = () => {
     return <DeviceLimitManagement onBack={() => setActivePage('main')} />;
   }
 
+  if (activePage === 'lottery') {
+    return <LotteryManagement onBack={() => setActivePage('main')} />;
+  }
+
   const menuItems = [
     {
       id: 'account',
@@ -551,6 +556,14 @@ const Management: React.FC<ManagementProps> = () => {
       description: '管理红包配置和红包池',
       color: 'text-red-500',
       bg: 'bg-red-50'
+    },
+    {
+      id: 'lottery',
+      icon: Wallet,
+      title: '幸运彩票管理',
+      description: '管理彩票设置、奖金池和开奖',
+      color: 'text-yellow-500',
+      bg: 'bg-yellow-50'
     },
     {
       id: 'device-limit',
@@ -617,6 +630,10 @@ const Management: React.FC<ManagementProps> = () => {
                   setActivePage('commission');
                 } else if (item.id === 'red-packet') {
                   setActivePage('red-packet');
+                } else if (item.id === 'device-limit') {
+                  setActivePage('device-limit');
+                } else if (item.id === 'lottery') {
+                  setActivePage('lottery');
                 }
               }}
               className={`bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-between cursor-pointer active:bg-gray-50 transition-all ${loading && item.isToggle ? 'opacity-50' : ''}`}
