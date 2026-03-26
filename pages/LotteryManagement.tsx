@@ -231,8 +231,7 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ issueNumber: currentIssue })
+        }
       });
       const result = await response.json();
       if (result.success) {
