@@ -294,7 +294,7 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
       });
       const result = await response.json();
       if (result.success) {
-        setCurrentIssue(result.data);
+        setCurrentIssue(result.data.issueNumber);
       }
     } catch (error) {
       console.error('Error fetching current issue:', error);
