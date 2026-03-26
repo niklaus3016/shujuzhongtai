@@ -321,7 +321,7 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">当前奖金池余额</label>
                 <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-100">
-                  <p className="text-2xl font-bold text-yellow-600">{parseFloat(poolBalance.toFixed(2)).toLocaleString()} 金币</p>
+                  <p className="text-2xl font-bold text-yellow-600">{poolBalance.toFixed(2).toLocaleString()} 金币</p>
                 </div>
               </div>
 
@@ -735,13 +735,13 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
                       </div>
                       <div>
                         <span className="text-gray-400">奖金池金额：</span>
-                        <span className="font-medium">{item.poolAmount} 金币</span>
+                        <span className="font-medium">{parseFloat(item.poolAmount).toFixed(2)} 金币</span>
                       </div>
                     </div>
                     <div className="space-y-2 mb-3">
                       <div className="flex items-center space-x-2">
                         <span className="text-xs font-bold text-yellow-600">一等奖：</span>
-                        <span className="text-xs text-gray-600">{item.firstPrize} 金币</span>
+                        <span className="text-xs text-gray-600">{parseFloat(item.firstPrize).toFixed(2)} 金币</span>
                         {item.winners && item.winners.firstPrize && item.winners.firstPrize.length > 0 && (
                           <span className="text-xs text-gray-600">
                             中奖者：{item.winners.firstPrize[0].employeeId}
@@ -750,7 +750,7 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
                       </div>
                       <div className="flex items-center space-x-2">
                         <span className="text-xs font-bold text-yellow-600">二等奖：</span>
-                        <span className="text-xs text-gray-600">{item.secondPrize} 金币</span>
+                        <span className="text-xs text-gray-600">{parseFloat(item.secondPrize).toFixed(2)} 金币</span>
                         {item.winners && item.winners.secondPrize && item.winners.secondPrize.length > 0 && (
                           <span className="text-xs text-gray-600">
                             中奖者：{item.winners.secondPrize[0].employeeId}
@@ -759,7 +759,7 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
                       </div>
                       <div className="flex items-center space-x-2">
                         <span className="text-xs font-bold text-yellow-600">三等奖：</span>
-                        <span className="text-xs text-gray-600">{item.thirdPrize} 金币</span>
+                        <span className="text-xs text-gray-600">{parseFloat(item.thirdPrize).toFixed(2)} 金币</span>
                         {item.winners && item.winners.thirdPrize && item.winners.thirdPrize.length > 0 && (
                           <span className="text-xs text-gray-600">
                             中奖者：{item.winners.thirdPrize[0].employeeId}
