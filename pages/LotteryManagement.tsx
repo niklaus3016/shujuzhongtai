@@ -48,6 +48,7 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
   const [limit, setLimit] = useState(20);
   const [total, setTotal] = useState(0);
   const [showDrawConfirm, setShowDrawConfirm] = useState(false);
+  const [currentIssue, setCurrentIssue] = useState('');
 
   // 获取彩票设置
   const fetchSettings = async () => {
@@ -194,6 +195,7 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ 
+          issueNumber: currentIssue,
           firstPrizeUserId, 
           secondPrizeUserId, 
           thirdPrizeUserId 
@@ -206,6 +208,8 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
         setFirstPrizeUserId('');
         setSecondPrizeUserId('');
         setThirdPrizeUserId('');
+        // 重新获取当前期号
+        fetchCurrentIssue();
       } else {
         setError(result.message || '设置中奖用户失败');
       }
@@ -228,7 +232,7 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({})
+        body: JSON.stringify({ issueNumber: currentIssue })
       });
       const result = await response.json();
       if (result.success) {
@@ -238,6 +242,8 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
         fetchPoolBalance();
         // 重新获取历史开奖记录
         fetchHistory();
+        // 重新获取当前期号
+        fetchCurrentIssue();
       } else {
         setError(result.message || '开奖失败');
       }
@@ -275,11 +281,36 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
     }
   };
 
+  // 获取当前期号
+  const fetchCurrentIssue = async () => {
+    try {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/lottery/current-issue', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const result = await response.json();
+      if (result.success) {
+        setCurrentIssue(result.data);
+      }
+    } catch (error) {
+      console.error('Error fetching current issue:', error);
+    }
+  };
+
   // 初始加载
   useEffect(() => {
     fetchSettings();
     fetchPoolBalance();
     fetchHistory();
+    fetchCurrentIssue();
+  }, []);
+
+  // 定期更新奖金池余额
+  useEffect(() => {
     const intervalId = setInterval(() => {
       fetchPoolBalance();
     }, 30000);
@@ -359,6 +390,15 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
             <Settings size={20} className="text-yellow-500" />
             <span>彩票设置</span>
           </h2>
+          
+          {/* 当前期号显示 */}
+          <div className="mb-6 p-4 bg-blue-50 rounded-xl border border-blue-100">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-blue-700">当前期号</span>
+              <span className="text-sm font-bold text-blue-900">{currentIssue || '加载中...'}</span>
+            </div>
+            <p className="text-xs text-blue-600 mt-1">当前正在执行的彩票期号</p>
+          </div>
 
           {settingsLoading ? (
             <div className="text-center py-10 text-gray-400">加载中...</div>
