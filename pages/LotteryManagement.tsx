@@ -607,20 +607,7 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
                 </div>
               </div>
 
-              {/* 开奖时间 */}
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">开奖时间</label>
-                <input
-                  type="time"
-                  value={settings.drawTime}
-                  onChange={(e) => setSettings({ ...settings, drawTime: e.target.value })}
-                  disabled={settingsLoading}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                />
-                <p className="text-xs text-gray-500 mt-2">
-                  每天自动开奖的时间
-                </p>
-              </div>
+
 
               <div className="flex space-x-3">
                 <button
