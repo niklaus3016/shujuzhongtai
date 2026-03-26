@@ -110,7 +110,6 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
         },
         body: JSON.stringify({
           poolPercentage: settings.poolPercentage,
-          drawTime: settings.drawTime,
           adCountThreshold: settings.adCountThreshold,
           enabled: settings.enabled,
           firstPrizePercentage: settings.firstPrizePercentage,
@@ -807,7 +806,6 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
             <li>• 彩票功能开关：控制彩票功能的开启和关闭</li>
             <li>• 奖券生成阈值：用户每日广告观看次数达到此阈值时，自动生成奖券</li>
             <li>• 奖金池比例：每次用户获得金币时，按此比例计算添加到奖金池的金额</li>
-            <li>• 开奖时间：每天自动开奖的时间</li>
             <li>• 手动开奖：可以在任何时间手动执行开奖</li>
             <li>• 奖金分配：按照一等奖{(settings.firstPrizePercentage * 100).toFixed(0)}%（{settings.firstPrizeCount}人）、二等奖{(settings.secondPrizePercentage * 100).toFixed(0)}%（{settings.secondPrizeCount}人）、三等奖{(settings.thirdPrizePercentage * 100).toFixed(0)}%（{settings.thirdPrizeCount}人）分配奖金</li>
           </ul>
