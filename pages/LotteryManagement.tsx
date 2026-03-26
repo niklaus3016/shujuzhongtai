@@ -686,6 +686,14 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
           </h2>
 
           <div className="space-y-6">
+            {/* 当前期号显示 */}
+            <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-blue-700">当前期号</span>
+                <span className="text-xs font-bold text-blue-900">{currentIssue || '加载中...'}</span>
+              </div>
+            </div>
+            
             {/* 设置指定中奖用户 */}
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-2">设置指定中奖用户</label>
