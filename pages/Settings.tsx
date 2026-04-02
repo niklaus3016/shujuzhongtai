@@ -186,8 +186,8 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
             console.error('Error fetching month data:', error);
             return {};
           }),
-          // 获取团队内用户上月累计金币
-          request<any>(`/team/last-month-coins?team=${encodeURIComponent(teamName)}`, {
+          // 获取团队上月数据
+          request<any>(`/admin/dashboard/kpi?range=lastMonth&team=${encodeURIComponent(teamName)}`, {
             method: 'GET'
           }).catch(error => {
             console.error('Error fetching last month data:', error);
