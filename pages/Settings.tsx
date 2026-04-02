@@ -162,13 +162,12 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
   };
 
   // 获取收益数据
-  const fetchEarnings = async () => {
+  const fetchEarnings = useCallback(async () => {
     try {
       // 团队长获取自己团队的收益数据
       if (isTeamLeader) {
         // 使用 getUserTeamName() 函数获取团队名称
         const teamName = getUserTeamName();
-        console.log('Team name:', teamName);
         
         // 并行获取所有需要的数据，提高加载速度
         const [todayResponse, monthResponse, lastMonthResponse, totalResponse, teamsResponse] = await Promise.all([
@@ -207,24 +206,15 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
           })
         ]);
 
-        console.log('Today response:', todayResponse);
-        console.log('Month response:', monthResponse);
-        console.log('Last month response:', lastMonthResponse);
-        console.log('Total response:', totalResponse);
-        console.log('Teams response:', teamsResponse);
-
         // 处理团队和组数据
         let groupsData: any[] = [];
         const teams = Array.isArray(teamsResponse) ? teamsResponse : [];
-        console.log('团队列表:', teams);
         const team = teams.find(t => t.leader === teamName);
         if (team) {
-          console.log('找到团队:', team);
           try {
             const groups = await request<any[]>(`/group/list?teamId=${team.id}`, {
               method: 'GET'
             });
-            console.log('组列表:', groups);
             groupsData = groups || [];
           } catch (error) {
             console.error('获取组列表失败:', error);
@@ -237,7 +227,6 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
             ];
           }
         } else {
-          console.log('找不到团队:', teamName);
           // 如果找不到团队，使用默认组数据
           groupsData = [
             {
@@ -248,22 +237,18 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         }
 
         // 并行获取所有组的提成数据，提高加载速度
-        console.log('开始获取团队组长收益，组列表:', groupsData);
         const commissionPromises = groupsData.map(async (group) => {
           if (group._id || group.id) {
             const groupId = group._id || group.id;
             const groupName = group.groupName || group.name || '未知组';
             const commissionUrl = `/admin/group-leader-commission/${groupId}?range=today`;
-            console.log(`请求组 ${groupName} 的提成数据，URL:`, commissionUrl);
             
             try {
               const commissionData = await request<any>(commissionUrl, {
                 method: 'GET'
               });
-              console.log(`组 ${groupName} API返回数据:`, commissionData);
               // 返回每个组的提成数据，request函数已经处理了data字段的提取
               const totalCommission = commissionData?.totalCommission || 0;
-              console.log(`组 ${groupName}: 组长提成=${totalCommission}`);
               return totalCommission;
             } catch (err) {
               console.error(`组 ${groupName} API请求异常:`, err);

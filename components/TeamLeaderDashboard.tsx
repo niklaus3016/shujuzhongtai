@@ -56,14 +56,8 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
         throw new Error('用户未登录');
       }
       
-      // 即使没有 teamName 也继续获取数据
-      // if (!currentUser?.teamName) {
-      //   throw new Error('团队名称不存在');
-      // }
-
       // 处理时间范围
       const formattedTimeRange = timeRange === 'this_week' ? 'week' : timeRange === 'this_month' ? 'month' : timeRange;
-      console.log('处理后的时间范围:', formattedTimeRange);
       
       // 使用正确的 API 路径 - KPI 接口
       const teamName = getUserTeamName();
@@ -74,7 +68,6 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
           method: 'GET'
         });
         responseData = result;
-        console.log('KPI API返回数据:', responseData);
       } catch (error) {
         console.error('获取KPI数据失败:', error);
         // 即使KPI数据获取失败，也继续获取其他数据
@@ -121,17 +114,13 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
         // 处理团队和组数据
         let groupsData: any[] = [];
         const teams = Array.isArray(teamsResult) ? teamsResult : [];
-        console.log('团队列表API返回:', teams);
         const team = teams.find(t => t.leader === teamName);
         if (team) {
-          console.log('找到团队:', team);
           try {
             const groups = await request<any[]>(`/group/list?teamId=${team.id}`, {
               method: 'GET'
             });
-            console.log('组列表API返回:', groups);
             groupsData = groups || [];
-            console.log('从API获取的组数据:', groupsData);
           } catch (error) {
             console.error('获取组列表失败:', error);
             // API错误时使用默认组数据
@@ -141,10 +130,8 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
                 groupName: '我是测试'
               }
             ];
-            console.log('使用默认组数据:', groupsData);
           }
         } else {
-          console.log('找不到团队:', teamName);
           // 如果找不到团队，使用默认组数据
           groupsData = [
             {
@@ -156,19 +143,15 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
 
         // 处理用户数据，计算活跃用户数
         const users = Array.isArray(userResult) ? userResult : [];
-        console.log('团队名称:', teamName);
-        console.log('用户列表总数:', users.length);
         
         // 团队长只计算自己团队的用户
         const filteredUsers = users.filter((user: any) => {
           const userTeam = user.teamName || user.superior || '系统直属';
           return userTeam === teamName;
         });
-        console.log('过滤后用户数:', filteredUsers.length);
         
         // 计算活跃用户数：有收益或观看次数的用户（只计算本团队的用户）
         activeUsersCount = filteredUsers.filter((user: any) => (user.watched > 0 || user.earnings > 0)).length;
-        console.log('活跃用户数:', activeUsersCount);
 
         // 处理员工账号数据，计算已启用的员工账号数量
         const employees = Array.isArray(employeeResult) ? employeeResult : (employeeResult?.data || []);
@@ -181,35 +164,28 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
         });
         
         totalUsersCount = teamEmployees.length;
-        console.log('账号管理中的员工账号数量（已启用）:', totalUsersCount);
 
         // 调用后端API获取团队组长收益（根据提成比例变更历史准确计算）
         // 并行获取所有组的提成数据，提高加载速度
-        console.log('开始获取团队组长收益，组列表:', groupsData);
 
         // 创建所有组的提成API请求
         const commissionPromises = groupsData.map(async (group) => {
           if (group._id || group.id) {
             const groupId = group._id || group.id;
-            const groupName = group.groupName || group.name || '未知组';
             const commissionUrl = `/admin/group-leader-commission/${groupId}?range=${formattedTimeRange}`;
-            console.log(`请求组 ${groupName} 的提成数据，URL:`, commissionUrl);
             
             try {
               const commissionData = await request<any>(commissionUrl, {
                 method: 'GET'
               });
-              console.log(`组 ${groupName} API返回数据:`, commissionData);
               // 返回每个组的提成数据，request函数已经处理了data字段的提取
               const totalCommission = commissionData?.totalCommission || 0;
-              console.log(`组 ${groupName}: 组长提成=${totalCommission}`);
               return totalCommission;
             } catch (err) {
-              console.error(`组 ${groupName} API请求异常:`, err);
+              console.error('获取组提成数据失败:', err);
               return 0;
             }
           } else {
-            console.log('组没有ID:', group);
             return 0;
           }
         });
@@ -219,9 +195,6 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
 
         // 累加所有组的总提成
         teamLeaderEarnings = commissionResults.reduce((total, commission) => total + commission, 0);
-        console.log('团队组长总收益:', teamLeaderEarnings);
-
-        console.log('团队组长收益总计（从后端API获取）:', teamLeaderEarnings);
       } catch (error) {
         console.error('获取数据失败:', error);
       }
@@ -286,9 +259,6 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
         }
       ];
 
-      console.log('转换后的KPI数据:', transformedKpis);
-      console.log('activeUsersCount:', activeUsersCount);
-      console.log('totalUsersCount:', totalUsersCount);
       setKpiData(transformedKpis);
     } catch (error) {
       console.error('获取数据失败:', error);
