@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   LogOut, ChevronRight, UserCircle2, Key, Loader2
 } from 'lucide-react';
@@ -390,7 +390,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
       console.error('Error fetching earnings data:', error);
       // 保持当前数据，不设置为0，避免数据闪烁
     }
-  };
+  }, [isTeamLeader, currentUser?.role, currentUser?.teamGroupId]);
 
   // 获取提现记录
   const fetchWithdrawRecords = async () => {
@@ -449,7 +449,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     fetchEarnings();
     fetchWithdrawRecords();
     loadWithdrawStatus();
-  }, [isTeamLeader, isGroupLeader, isSuperAdmin, currentUser?.teamName, currentUser?.teamGroupId]);
+  }, [isTeamLeader, isGroupLeader, isSuperAdmin, currentUser?.teamName, currentUser?.teamGroupId, fetchEarnings]);
   
 
 
