@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, Target, ToggleLeft, ToggleRight, Wallet, ChevronRight,
-  UserPlus, Settings, TrendingUp, Plus, ChevronLeft, Info, Check, Smartphone
+  UserPlus, Settings, TrendingUp, Plus, ChevronLeft, Info, Check, Smartphone, AlertCircle
 } from 'lucide-react';
 import { request } from '../services/api';
 import AccountManagement from './AccountManagement';
@@ -10,11 +10,12 @@ import WithdrawalManagement from './WithdrawalManagement';
 import RedPacketManagement from './RedPacketManagement';
 import DeviceLimitManagement from './DeviceLimitManagement';
 import LotteryManagement from './LotteryManagement';
+import VerificationManagement from './VerificationManagement';
 
 interface ManagementProps {}
 
 const Management: React.FC<ManagementProps> = () => {
-  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery'>('main');
+  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification'>('main');
   const [withdrawEnabled, setWithdrawEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showDeductionModal, setShowDeductionModal] = useState(false);
@@ -524,6 +525,10 @@ const Management: React.FC<ManagementProps> = () => {
     return <LotteryManagement onBack={() => setActivePage('main')} />;
   }
 
+  if (activePage === 'verification') {
+    return <VerificationManagement onBack={() => setActivePage('main')} />;
+  }
+
   const menuItems = [
     {
       id: 'account',
@@ -597,6 +602,14 @@ const Management: React.FC<ManagementProps> = () => {
       description: '查看所有提现记录和数据',
       color: 'text-orange-500',
       bg: 'bg-orange-50'
+    },
+    {
+      id: 'verification',
+      icon: AlertCircle,
+      title: '手机核销管理',
+      description: '管理核销申请和统计数据',
+      color: 'text-purple-500',
+      bg: 'bg-purple-50'
     }
   ];
 
@@ -634,6 +647,8 @@ const Management: React.FC<ManagementProps> = () => {
                   setActivePage('device-limit');
                 } else if (item.id === 'lottery') {
                   setActivePage('lottery');
+                } else if (item.id === 'verification') {
+                  setActivePage('verification');
                 }
               }}
               className={`bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-between cursor-pointer active:bg-gray-50 transition-all ${loading && item.isToggle ? 'opacity-50' : ''}`}
