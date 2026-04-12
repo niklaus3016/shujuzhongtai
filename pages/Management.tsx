@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, Target, ToggleLeft, ToggleRight, Wallet, ChevronRight,
-  UserPlus, Settings, TrendingUp, Plus, ChevronLeft, Info, Check, Smartphone, AlertCircle
+  UserPlus, Settings, TrendingUp, Plus, ChevronLeft, Info, Check, Smartphone, AlertCircle, DollarSign
 } from 'lucide-react';
 import { request } from '../services/api';
 import AccountManagement from './AccountManagement';
@@ -11,11 +11,12 @@ import RedPacketManagement from './RedPacketManagement';
 import DeviceLimitManagement from './DeviceLimitManagement';
 import LotteryManagement from './LotteryManagement';
 import VerificationManagement from './VerificationManagement';
+import GoldAdjustment from './GoldAdjustment';
 
 interface ManagementProps {}
 
 const Management: React.FC<ManagementProps> = () => {
-  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification'>('main');
+  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification' | 'gold-adjustment'>('main');
   const [withdrawEnabled, setWithdrawEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showDeductionModal, setShowDeductionModal] = useState(false);
@@ -529,6 +530,10 @@ const Management: React.FC<ManagementProps> = () => {
     return <VerificationManagement onBack={() => setActivePage('main')} />;
   }
 
+  if (activePage === 'gold-adjustment') {
+    return <GoldAdjustment onBack={() => setActivePage('main')} />;
+  }
+
   const menuItems = [
     {
       id: 'account',
@@ -610,6 +615,14 @@ const Management: React.FC<ManagementProps> = () => {
       description: '管理核销申请和统计数据',
       color: 'text-purple-500',
       bg: 'bg-purple-50'
+    },
+    {
+      id: 'gold-adjustment',
+      icon: DollarSign,
+      title: '用户金币调整',
+      description: '调整用户金币数量',
+      color: 'text-green-500',
+      bg: 'bg-green-50'
     }
   ];
 
@@ -649,6 +662,8 @@ const Management: React.FC<ManagementProps> = () => {
                   setActivePage('lottery');
                 } else if (item.id === 'verification') {
                   setActivePage('verification');
+                } else if (item.id === 'gold-adjustment') {
+                  setActivePage('gold-adjustment');
                 }
               }}
               className={`bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-between cursor-pointer active:bg-gray-50 transition-all ${loading && item.isToggle ? 'opacity-50' : ''}`}
