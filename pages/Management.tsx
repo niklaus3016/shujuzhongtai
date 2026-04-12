@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { request } from '../services/api';
 import AccountManagement from './AccountManagement';
-import DailyTargetManagement from './DailyTargetManagement';
+import WeeklyTargetManagement from './DailyTargetManagement';
 import WithdrawalManagement from './WithdrawalManagement';
 import RedPacketManagement from './RedPacketManagement';
 import DeviceLimitManagement from './DeviceLimitManagement';
@@ -259,7 +259,7 @@ const Management: React.FC<ManagementProps> = () => {
   }
 
   if (activePage === 'target') {
-    return <DailyTargetManagement onBack={() => setActivePage('main')} />;
+    return <WeeklyTargetManagement onBack={() => setActivePage('main')} />;
   }
 
   if (activePage === 'withdrawal') {
@@ -546,8 +546,8 @@ const Management: React.FC<ManagementProps> = () => {
     {
       id: 'target',
       icon: Target,
-      title: '今日目标管理',
-      description: '设定每日目标数据',
+      title: '周目标管理',
+      description: '设定周目标数据',
       color: 'text-green-500',
       bg: 'bg-green-50'
     },

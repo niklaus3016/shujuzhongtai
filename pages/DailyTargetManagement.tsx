@@ -2,26 +2,25 @@ import React, { useState, useEffect } from 'react';
 import { 
   ChevronLeft, ChevronRight, Target, Save, X
 } from 'lucide-react';
-import { request } from '../services/api';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 
-interface DailyTarget {
-  date: string;
-  targetCoins: number;
+interface WeeklyTarget {
+  week: string;
+  targetCount: number;
   bonusCoins: number;
 }
 
-interface DailyTargetManagementProps {
+interface WeeklyTargetManagementProps {
   onBack: () => void;
 }
 
-const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack }) => {
+const WeeklyTargetManagement: React.FC<WeeklyTargetManagementProps> = ({ onBack }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [targets, setTargets] = useState<Record<string, { targetCoins: number; bonusCoins: number }>>({});
+  const [targets, setTargets] = useState<Record<string, { targetCount: number; bonusCoins: number }>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [editAmount, setEditAmount] = useState(0);
+  const [selectedWeek, setSelectedWeek] = useState<string | null>(null);
+  const [editCount, setEditCount] = useState(0);
   const [editBonus, setEditBonus] = useState(0);
   const [showEditModal, setShowEditModal] = useState(false);
   
@@ -32,12 +31,27 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
   };
 
+  // 获取周数（YYYY-WW格式）
+  const getWeekNumber = (date: Date): string => {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+    return `${d.getUTCFullYear()}-${String(weekNo).padStart(2, '0')}`;
+  };
+
+  // 获取本周的周数
+  const getCurrentWeek = (): string => {
+    return getWeekNumber(new Date());
+  };
+
   const fetchMonthTargets = async () => {
     setLoading(true);
     try {
       const monthKey = getMonthKey(currentMonth);
       const token = localStorage.getItem('admin_token');
-      const response = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/daily-target/month?month=${monthKey}`, {
+      const response = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/weeklyTarget/month?month=${monthKey}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -46,10 +60,10 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
       });
       const result = await response.json();
       if (result.success && result.data) {
-        const targetMap: Record<string, { targetCoins: number; bonusCoins: number }> = {};
-        result.data.forEach((item: DailyTarget) => {
-          targetMap[item.date] = {
-            targetCoins: item.targetCoins || 0,
+        const targetMap: Record<string, { targetCount: number; bonusCoins: number }> = {};
+        result.data.forEach((item: WeeklyTarget) => {
+          targetMap[item.week] = {
+            targetCount: item.targetCount || 0,
             bonusCoins: item.bonusCoins || 0
           };
         });
@@ -66,28 +80,28 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
     fetchMonthTargets();
   }, [currentMonth]);
 
-  const handleDayClick = (dateStr: string) => {
-    setSelectedDate(dateStr);
-    setEditAmount(targets[dateStr]?.targetCoins || 0);
-    setEditBonus(targets[dateStr]?.bonusCoins || 0);
+  const handleWeekClick = (week: string) => {
+    setSelectedWeek(week);
+    setEditCount(targets[week]?.targetCount || 0);
+    setEditBonus(targets[week]?.bonusCoins || 0);
     setShowEditModal(true);
   };
 
   const handleSaveTarget = async () => {
-    if (!selectedDate) return;
+    if (!selectedWeek) return;
     
     setSaving(true);
     try {
       const token = localStorage.getItem('admin_token');
-      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/daily-target', {
+      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/weeklyTarget', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          date: selectedDate,
-          targetCoins: editAmount,
+          week: selectedWeek,
+          targetCount: editCount,
           bonusCoins: editBonus
         })
       });
@@ -95,13 +109,13 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
       if (result.success) {
         setTargets(prev => ({
           ...prev,
-          [selectedDate]: {
-            targetCoins: editAmount,
+          [selectedWeek]: {
+            targetCount: editCount,
             bonusCoins: editBonus
           }
         }));
         setShowEditModal(false);
-        setSelectedDate(null);
+        setSelectedWeek(null);
       } else {
         throw new Error(result.message || '保存失败');
       }
@@ -121,56 +135,41 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
     setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
   };
 
-  const getDaysInMonth = (date: Date) => {
+  const getWeeksInMonth = (date: Date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
     const daysInMonth = lastDay.getDate();
-    const startingDay = firstDay.getDay();
     
-    const days: { date: Date; isCurrentMonth: boolean }[] = [];
-    
-    for (let i = 0; i < startingDay; i++) {
-      const prevDate = new Date(year, month, -startingDay + i + 1);
-      days.push({ date: prevDate, isCurrentMonth: false });
-    }
-    
+    const weeks = new Set<string>();
     for (let i = 1; i <= daysInMonth; i++) {
-      days.push({ date: new Date(year, month, i), isCurrentMonth: true });
+      const day = new Date(year, month, i);
+      weeks.add(getWeekNumber(day));
     }
     
-    const totalCells = Math.ceil(days.length / 7) * 7;
-    const remainingDays = totalCells - days.length;
-    for (let i = 1; i <= remainingDays; i++) {
-      days.push({ date: new Date(year, month + 1, i), isCurrentMonth: false });
-    }
+    return Array.from(weeks).sort();
+  };
+
+  const getWeekRange = (week: string): string => {
+    const [yearStr, weekStr] = week.split('-');
+    const year = parseInt(yearStr);
+    const weekNum = parseInt(weekStr);
     
-    return days;
+    const d = new Date(Date.UTC(year, 0, 1 + (weekNum - 1) * 7));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    
+    const weekStart = new Date(d);
+    weekStart.setUTCDate(weekStart.getUTCDate() - 3);
+    
+    const weekEnd = new Date(d);
+    weekEnd.setUTCDate(weekEnd.getUTCDate() + 3);
+    
+    return `${weekStart.getUTCMonth() + 1}/${weekStart.getUTCDate()}-${weekEnd.getUTCMonth() + 1}/${weekEnd.getUTCDate()}`;
   };
 
-  const formatDateKey = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  const getTodayKey = () => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  const isToday = (date: Date) => {
-    const today = new Date();
-    return date.toDateString() === today.toDateString();
-  };
-
-  const days = getDaysInMonth(currentMonth);
-  const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+  const weeks = getWeeksInMonth(currentMonth);
   const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
 
   return (
@@ -179,16 +178,16 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
         <button onClick={onBack} className="p-2 -ml-2 text-gray-400 active:text-gray-900">
           <ChevronLeft size={24} />
         </button>
-        <h1 className="flex-1 text-center font-bold text-gray-900 mr-8">今日目标管理</h1>
+        <h1 className="flex-1 text-center font-bold text-gray-900 mr-8">周目标管理</h1>
       </header>
 
       <div className="p-4">
         <div className="bg-gradient-to-br from-[#1E40AF] to-indigo-600 rounded-2xl p-5 text-white mb-4">
           <div className="flex items-center space-x-2 mb-2">
             <Target size={18} />
-            <span className="text-xs font-bold opacity-80 uppercase tracking-wider">每日目标设定</span>
+            <span className="text-xs font-bold opacity-80 uppercase tracking-wider">周目标设定</span>
           </div>
-          <p className="text-xs opacity-70">点击日期设置当日目标金币</p>
+          <p className="text-xs opacity-70">点击周数设置当周目标条数</p>
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -212,52 +211,52 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
             </button>
           </div>
 
-          <div className="grid grid-cols-7 bg-gray-50">
-            {weekDays.map((day) => (
-              <div key={day} className="py-2 text-center text-xs font-bold text-gray-400">
-                {day}
-              </div>
-            ))}
-          </div>
-
           {loading ? (
             <div className="text-center py-20 text-gray-400">加载中...</div>
           ) : (
-            <div className="grid grid-cols-7">
-              {days.map((day, index) => {
-                const dateKey = formatDateKey(day.date);
-                const targetData = targets[dateKey];
-                const hasTarget = targetData && targetData.targetCoins > 0;
-                const today = isToday(day.date);
+            <div className="p-4 space-y-3">
+              {weeks.map((week) => {
+                const targetData = targets[week];
+                const hasTarget = targetData && targetData.targetCount > 0;
+                const currentWeek = getCurrentWeek() === week;
                 
                 return (
                   <div
-                    key={index}
-                    onClick={() => day.isCurrentMonth && handleDayClick(dateKey)}
-                    className={`min-h-[70px] p-1 border-b border-r border-gray-50 ${
-                      day.isCurrentMonth 
-                        ? 'bg-white active:bg-gray-50 cursor-pointer' 
-                        : 'bg-gray-50/50'
-                    } ${today ? 'bg-blue-50' : ''}`}
+                    key={week}
+                    onClick={() => handleWeekClick(week)}
+                    className={`p-4 rounded-xl border border-gray-100 cursor-pointer active:bg-gray-50 transition-all ${
+                      currentWeek ? 'bg-blue-50 border-blue-200' : 'bg-white'
+                    }`}
                   >
-                    {day.isCurrentMonth && (
-                      <>
-                        <div className={`text-xs font-bold mb-1 ${
-                          today ? 'text-[#1E40AF]' : 'text-gray-900'
-                        }`}>
-                          {day.date.getDate()}
-                          {today && <span className="ml-1 text-[8px]">今天</span>}
+                    <div className="flex items-center justify-between mb-2">
+                      <div className={`text-sm font-bold ${
+                        currentWeek ? 'text-[#1E40AF]' : 'text-gray-900'
+                      }`}>
+                        {week} 周
+                        {currentWeek && <span className="ml-2 text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">本周</span>}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {getWeekRange(week)}
+                      </div>
+                    </div>
+                    {hasTarget ? (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <div className="text-lg font-black text-green-600">
+                            {targetData.targetCount} 条
+                          </div>
+                          <div className="text-xs text-green-500 bg-green-50 px-2 py-0.5 rounded-full">
+                            奖励 {targetData.bonusCoins} 金币
+                          </div>
                         </div>
-                        {hasTarget ? (
-                          <div className="text-[10px] font-bold text-green-600 bg-green-50 rounded px-1 py-0.5 text-center">
-                            {targetData.targetCoins.toLocaleString()}币
-                          </div>
-                        ) : (
-                          <div className="text-[10px] text-gray-300 text-center">
-                            未设定
-                          </div>
-                        )}
-                      </>
+                        <div className="text-xs text-gray-400">
+                          已设定
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-400">
+                        未设定目标
+                      </div>
                     )}
                   </div>
                 );
@@ -269,31 +268,31 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
         <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-xs text-gray-400 mb-1">今日目标</div>
-              {targets[getTodayKey()]?.targetCoins > 0 ? (
+              <div className="text-xs text-gray-400 mb-1">本周目标</div>
+              {targets[getCurrentWeek()]?.targetCount > 0 ? (
                 <div className="text-lg font-bold text-green-600">
-                  {targets[getTodayKey()].targetCoins.toLocaleString()} 金币
+                  {targets[getCurrentWeek()].targetCount} 条
                 </div>
               ) : (
                 <div className="text-lg font-bold text-gray-400">未设定</div>
               )}
             </div>
             <button
-              onClick={() => handleDayClick(getTodayKey())}
+              onClick={() => handleWeekClick(getCurrentWeek())}
               className="px-4 py-2 bg-[#1E40AF] text-white text-xs font-bold rounded-xl"
             >
-              {targets[getTodayKey()]?.targetCoins > 0 ? '修改' : '设置'}
+              {targets[getCurrentWeek()]?.targetCount > 0 ? '修改' : '设置'}
             </button>
           </div>
         </div>
       </div>
 
-      {showEditModal && selectedDate && (
+      {showEditModal && selectedWeek && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl w-full max-w-sm animate-in zoom-in-95 duration-200 overflow-hidden shadow-2xl">
             <div className="bg-gradient-to-br from-[#1E40AF] to-indigo-600 px-6 pt-6 pb-8 text-white">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold">设置目标</h2>
+                <h2 className="text-lg font-bold">设置周目标</h2>
                 <button 
                   onClick={() => setShowEditModal(false)}
                   className="p-2 text-white/70 hover:text-white rounded-full hover:bg-white/10"
@@ -302,9 +301,12 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
                 </button>
               </div>
               <div className="text-center">
-                <div className="text-xs text-white/60 mb-1">选择日期</div>
+                <div className="text-xs text-white/60 mb-1">选择周数</div>
                 <div className="text-2xl font-bold">
-                  {selectedDate}
+                  {selectedWeek}
+                </div>
+                <div className="text-xs text-white/60 mt-1">
+                  {getWeekRange(selectedWeek)}
                 </div>
               </div>
             </div>
@@ -317,15 +319,15 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
                       <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
                         <Target size={16} className="text-blue-600" />
                       </div>
-                      <span className="text-sm font-medium text-gray-600">目标金币</span>
+                      <span className="text-sm font-medium text-gray-600">目标条数</span>
                     </div>
                   </div>
                   <input
                     type="number"
-                    value={editAmount || ''}
-                    onChange={(e) => setEditAmount(Math.max(0, parseInt(e.target.value) || 0))}
+                    value={editCount || ''}
+                    onChange={(e) => setEditCount(Math.max(0, parseInt(e.target.value) || 0))}
                     className="w-full text-center text-3xl font-black text-gray-900 bg-gray-50 rounded-xl border-0 focus:ring-2 focus:ring-blue-100 focus:outline-none py-3"
-                    placeholder="输入目标金币"
+                    placeholder="输入目标条数"
                   />
                 </div>
 
@@ -366,4 +368,4 @@ const DailyTargetManagement: React.FC<DailyTargetManagementProps> = ({ onBack })
   );
 };
 
-export default DailyTargetManagement;
+export default WeeklyTargetManagement;
