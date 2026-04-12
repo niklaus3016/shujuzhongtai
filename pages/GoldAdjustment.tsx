@@ -132,7 +132,7 @@ const GoldAdjustment: React.FC<GoldAdjustmentProps> = ({ onBack }) => {
                   className="flex-1 px-4 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1E40AF]"
                 />
                 <button
-                  onClick={fetchUserInfo}
+                  onClick={fetchUserGoldInfo}
                   disabled={!employeeId || fetchingUserInfo}
                   className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
                     fetchingUserInfo 
