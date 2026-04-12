@@ -11,7 +11,7 @@ interface VerificationRecord {
   userId: string;
   userName: string;
   amount: number;
-  status: 'pending' | 'processing' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected';
   createdAt: string;
   updatedAt: string;
   remark?: string;
@@ -30,7 +30,7 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
   const swipeRef = useSwipeBack({ onBack });
   const [records, setRecords] = useState<VerificationRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'processing' | 'approved' | 'rejected'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [stats, setStats] = useState<VerificationStats>({
     totalAmount: 0,
     pendingCount: 0,
@@ -43,7 +43,7 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
   const [showModal, setShowModal] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<VerificationRecord | null>(null);
   const [remark, setRemark] = useState('');
-  const [status, setStatus] = useState<'processing' | 'approved' | 'rejected'>('processing');
+  const [status, setStatus] = useState<'approved' | 'rejected'>('approved');
   const [updating, setUpdating] = useState(false);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -107,7 +107,7 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
     }
   };
 
-  const handleUpdateStatus = async (id: string, status: 'processing' | 'approved' | 'rejected', remark: string = '') => {
+  const handleUpdateStatus = async (id: string, status: 'approved' | 'rejected', remark: string = '') => {
     try {
       const token = localStorage.getItem('admin_token');
       const response = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/verification/admin/${id}/status`, {
@@ -147,7 +147,7 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
     }
   };
 
-  const handleBatchUpdate = async (status: 'processing' | 'approved' | 'rejected') => {
+  const handleBatchUpdate = async (status: 'approved' | 'rejected') => {
     if (selectedRecords.length === 0) return;
     
     setUpdating(true);
@@ -281,10 +281,6 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
             <p className="text-lg font-black text-yellow-600">{stats.pendingCount}</p>
             <p className="text-[10px] text-yellow-500">待处理</p>
           </div>
-          <div className="bg-blue-50 rounded-xl p-3 text-center">
-            <p className="text-lg font-black text-blue-600">{stats.pendingCount}</p>
-            <p className="text-[10px] text-blue-500">处理中</p>
-          </div>
           <div className="bg-green-50 rounded-xl p-3 text-center">
             <p className="text-lg font-black text-green-600">{stats.approvedCount}</p>
             <p className="text-[10px] text-green-500">已通过</p>
@@ -298,7 +294,7 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
         {/* 状态筛选 */}
         <div className="flex items-center space-x-2 overflow-x-auto hide-scrollbar mb-2">
           <div className="flex space-x-2 overflow-x-auto hide-scrollbar">
-            {(['all', 'pending', 'processing', 'approved', 'rejected'] as const).map((status) => (
+            {(['all', 'pending', 'approved', 'rejected'] as const).map((status) => (
               <button
                 key={status}
                 onClick={() => setStatusFilter(status)}
@@ -308,7 +304,7 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
                     : 'bg-white text-gray-500 border border-gray-100'
                 }`}
               >
-                {status === 'all' ? '全部' : status === 'pending' ? '待处理' : status === 'processing' ? '处理中' : status === 'approved' ? '已通过' : '已拒绝'}
+                {status === 'all' ? '全部' : status === 'pending' ? '待处理' : status === 'approved' ? '已通过' : '已拒绝'}
               </button>
             ))}
           </div>
@@ -324,7 +320,7 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
         </div>
 
         {/* 批量操作 */}
-        {(statusFilter === 'pending' || statusFilter === 'processing') && filteredRecords.length > 0 && (
+        {statusFilter === 'pending' && filteredRecords.length > 0 && (
           <div className="bg-white rounded-2xl border border-gray-100 p-3 mb-3">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center space-x-2">
@@ -342,17 +338,6 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
                 <span className="text-xs text-gray-400">({selectedRecords.length}/{filteredRecords.length})</span>
               </div>
               <div className="flex space-x-2">
-                <button
-                  onClick={() => handleBatchUpdate('processing')}
-                  disabled={selectedRecords.length === 0}
-                  className={`px-4 py-1.5 text-xs font-bold rounded-xl transition-all ${
-                    selectedRecords.length > 0 
-                      ? 'bg-blue-50 text-blue-600' 
-                      : 'bg-gray-100 text-gray-300 cursor-not-allowed'
-                  }`}
-                >
-                  批量处理
-                </button>
                 <button
                   onClick={() => handleBatchUpdate('approved')}
                   disabled={selectedRecords.length === 0}
@@ -391,7 +376,7 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
                 <div key={record.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center space-x-3">
-                      {(statusFilter === 'pending' || statusFilter === 'processing') && (
+                      {statusFilter === 'pending' && (
                         <input
                           type="checkbox"
                           checked={isSelected}
@@ -454,20 +439,8 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
                     </div>
                   )}
                   
-                  {(record.status === 'pending' || record.status === 'processing') && (
+                  {record.status === 'pending' && (
                     <div className="flex space-x-2 pt-2 border-t border-gray-50">
-                      <button
-                        onClick={() => {
-                          setSelectedRecord(record);
-                          setStatus('processing');
-                          setRemark('');
-                          setShowModal(true);
-                        }}
-                        className="flex-1 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-xl flex items-center justify-center space-x-1"
-                      >
-                        <Clock size={14} />
-                        <span>处理中</span>
-                      </button>
                       <button
                         onClick={() => {
                           setSelectedRecord(record);
@@ -519,12 +492,6 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
             <div className="mb-4">
               <label className="block text-xs font-bold text-gray-700 mb-1">状态</label>
               <div className="flex space-x-2">
-                <button
-                  onClick={() => setStatus('processing')}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${status === 'processing' ? 'bg-blue-500 text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
-                >
-                  处理中
-                </button>
                 <button
                   onClick={() => setStatus('approved')}
                   className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${status === 'approved' ? 'bg-green-500 text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
