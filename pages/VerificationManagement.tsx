@@ -180,7 +180,7 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
       record.userId,
       record.userName,
       record.amount.toFixed(2),
-      record.status === 'pending' ? '待处理' : record.status === 'processing' ? '处理中' : record.status === 'approved' ? '已通过' : '已拒绝',
+      record.status === 'pending' ? '待处理' : record.status === 'approved' ? '已通过' : '已拒绝',
       new Date(record.createdAt).toLocaleString('zh-CN'),
       record.remark || ''
     ]);
