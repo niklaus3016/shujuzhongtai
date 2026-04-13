@@ -12,11 +12,12 @@ import DeviceLimitManagement from './DeviceLimitManagement';
 import LotteryManagement from './LotteryManagement';
 import VerificationManagement from './VerificationManagement';
 import GoldAdjustment from './GoldAdjustment';
+import WelfareLotteryManagement from './WelfareLotteryManagement';
 
 interface ManagementProps {}
 
 const Management: React.FC<ManagementProps> = () => {
-  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification' | 'gold-adjustment'>('main');
+  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification' | 'gold-adjustment' | 'welfare-lottery'>('main');
   const [withdrawEnabled, setWithdrawEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showDeductionModal, setShowDeductionModal] = useState(false);
@@ -526,6 +527,10 @@ const Management: React.FC<ManagementProps> = () => {
     return <LotteryManagement onBack={() => setActivePage('main')} />;
   }
 
+  if (activePage === 'welfare-lottery') {
+    return <WelfareLotteryManagement onBack={() => setActivePage('main')} />;
+  }
+
   if (activePage === 'verification') {
     return <VerificationManagement onBack={() => setActivePage('main')} />;
   }
@@ -574,6 +579,14 @@ const Management: React.FC<ManagementProps> = () => {
       description: '管理彩票设置、奖金池和开奖',
       color: 'text-yellow-500',
       bg: 'bg-yellow-50'
+    },
+    {
+      id: 'welfare-lottery',
+      icon: Wallet,
+      title: '福利抽奖管理',
+      description: '管理奖品概率和提现申请',
+      color: 'text-pink-500',
+      bg: 'bg-pink-50'
     },
     {
       id: 'device-limit',
@@ -660,6 +673,8 @@ const Management: React.FC<ManagementProps> = () => {
                   setActivePage('device-limit');
                 } else if (item.id === 'lottery') {
                   setActivePage('lottery');
+                } else if (item.id === 'welfare-lottery') {
+                  setActivePage('welfare-lottery');
                 } else if (item.id === 'verification') {
                   setActivePage('verification');
                 } else if (item.id === 'gold-adjustment') {
