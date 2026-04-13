@@ -8,18 +8,21 @@ interface VerificationManagementProps {
 
 interface VerificationRecord {
   id: string;
-  userId: string;
-  userName: string;
+  employeeId: string;
   amount: number;
   status: 'pending' | 'approved' | 'rejected';
-  createdAt: string;
-  updatedAt: string;
-  remark?: string;
+  date: string;
+  rejectReason?: string;
   invoiceUrl?: string;
+  alipayName?: string;
+  alipayAccount?: string;
 }
 
 interface VerificationStats {
   totalAmount: number;
+  pendingAmount?: number;
+  approvedAmount?: number;
+  rejectedAmount?: number;
   pendingCount: number;
   approvedCount: number;
   rejectedCount: number;
@@ -55,10 +58,16 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
     setLoading(true);
     try {
       const token = localStorage.getItem('admin_token');
-      let url = `https://wfqmaepvjkdd.sealoshzh.site/api/verification/admin/pending?page=${page}&limit=10`;
-      if (statusFilter !== 'all' && statusFilter !== 'pending') {
+      let url = '';
+      
+      if (statusFilter === 'all') {
+        url = `https://wfqmaepvjkdd.sealoshzh.site/api/verification/admin/pending?page=${page}&limit=10`;
+      } else if (statusFilter === 'pending') {
+        url = `https://wfqmaepvjkdd.sealoshzh.site/api/verification/admin/pending?page=${page}&limit=10`;
+      } else {
         url = `https://wfqmaepvjkdd.sealoshzh.site/api/verification/admin/list?status=${statusFilter}&page=${page}&limit=10`;
       }
+      
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -70,7 +79,6 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
       if (result.success) {
         setRecords(result.data.records || []);
         setTotal(result.data.total || 0);
-        // 重置选择状态
         setSelectAll(false);
         setSelectedRecords([]);
       }
@@ -175,14 +183,15 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
     }
 
     // 生成CSV内容
-    const headers = ['用户ID', '用户名称', '核销金额', '状态', '申请时间', '备注'];
+    const headers = ['用户ID', '核销金额', '状态', '申请时间', '支付宝姓名', '支付宝帐号', '拒绝原因'];
     const rows = exportRecords.map(record => [
-      record.userId,
-      record.userName,
+      record.employeeId,
       record.amount.toFixed(2),
       record.status === 'pending' ? '待处理' : record.status === 'approved' ? '已通过' : '已拒绝',
-      new Date(record.createdAt).toLocaleString('zh-CN'),
-      record.remark || ''
+      new Date(record.date).toLocaleString('zh-CN'),
+      record.alipayName || '',
+      record.alipayAccount || '',
+      record.rejectReason || ''
     ]);
 
     const csvContent = [
@@ -250,13 +259,13 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
             <div className="flex items-center space-x-2 mb-1">
               <span className="text-[10px] opacity-80">已通过金额</span>
             </div>
-            <p className="text-xl font-black">¥ {stats.totalAmount.toFixed(2)}</p>
+            <p className="text-xl font-black">¥ {(stats.approvedAmount || 0).toFixed(2)}</p>
           </div>
           <div className="bg-gradient-to-br from-yellow-500 to-amber-600 rounded-2xl p-4 text-white">
             <div className="flex items-center space-x-2 mb-1">
               <span className="text-[10px] opacity-80">待处理金额</span>
             </div>
-            <p className="text-xl font-black">¥ {stats.totalAmount.toFixed(2)}</p>
+            <p className="text-xl font-black">¥ {(stats.pendingAmount || 0).toFixed(2)}</p>
           </div>
         </div>
 
@@ -265,7 +274,7 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
             <div className="flex items-center space-x-2 mb-1">
               <span className="text-[10px] opacity-80">已拒绝金额</span>
             </div>
-            <p className="text-xl font-black">¥ {stats.totalAmount.toFixed(2)}</p>
+            <p className="text-xl font-black">¥ {(stats.rejectedAmount || 0).toFixed(2)}</p>
           </div>
           <div className="bg-white rounded-2xl border border-gray-100 p-4">
             <div className="flex items-center space-x-2 mb-1">
@@ -391,51 +400,100 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
                         />
                       )}
                       <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600 font-bold text-xs">
-                        {record.userId.substring(0, 2).toUpperCase()}
+                        {record.employeeId || '未知'}
                       </div>
                       <div className="flex-1">
                         <h3 className="text-sm font-bold text-gray-900">¥ {record.amount.toFixed(2)}</h3>
                         <p className="text-[10px] text-gray-400 mt-1">
-                          用户: {record.userName}
+                          支付宝姓名: {record.alipayName || '未知'}
                         </p>
                         <p className="text-[10px] text-gray-400">
-                          ID: {record.userId}
+                          支付宝帐号: {record.alipayAccount || '未知'}
                         </p>
                       </div>
                     </div>
                     <div className="text-right">
                       {getStatusBadge(record.status)}
                       <p className="text-[10px] text-gray-400 mt-1">
-                        {new Date(record.createdAt).toLocaleString('zh-CN', {
+                        {record.date ? new Date(record.date).toLocaleString('zh-CN', {
                           year: 'numeric',
                           month: '2-digit',
                           day: '2-digit',
                           hour: '2-digit',
                           minute: '2-digit',
                           second: '2-digit'
-                        })}
+                        }) : '未知'}
                       </p>
                     </div>
                   </div>
                   
-                  {record.remark && (
+                  {record.rejectReason && (
                     <div className="text-xs text-gray-600 mb-3">
-                      <span className="text-gray-400">备注：</span>
-                      <span className="font-medium">{record.remark}</span>
+                      <span className="text-gray-400">拒绝原因：</span>
+                      <span className="font-medium">{record.rejectReason}</span>
                     </div>
                   )}
                   
                   {record.invoiceUrl && (
-                    <div className="mb-3">
-                      <a 
-                        href={record.invoiceUrl} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
+                    <div className="mb-3 flex space-x-4">
+                      <button 
+                        onClick={() => {
+                          if (record.invoiceUrl) {
+                            let urlToOpen = record.invoiceUrl;
+                            // 替换阿里云OSS的URL为指定域名
+                            if (urlToOpen.startsWith('http://yinsiurl.oss-cn-hangzhou.aliyuncs.com')) {
+                              urlToOpen = urlToOpen.replace('http://yinsiurl.oss-cn-hangzhou.aliyuncs.com', 'https://www.gnyq.cn');
+                            }
+                            
+                            if (urlToOpen.startsWith('http://') || urlToOpen.startsWith('https://')) {
+                              // 外部URL（如阿里云OSS），直接打开
+                              window.open(urlToOpen, '_blank');
+                            } else if (urlToOpen.startsWith('/uploads/')) {
+                              // 本地路径，通过后端静态文件服务访问
+                              const fullUrl = `https://wfqmaepvjkdd.sealoshzh.site${urlToOpen}`;
+                              window.open(fullUrl, '_blank');
+                            } else {
+                              // 其他路径，显示提示
+                              alert('发票文件路径：\n' + record.invoiceUrl + '\n\n提示：此为服务器本地路径，需要后端配置静态文件服务才能直接访问。');
+                            }
+                          }
+                        }}
                         className="text-xs font-medium text-[#1E40AF] hover:underline flex items-center space-x-1"
                       >
                         <Info size={12} />
                         <span>查看发票</span>
-                      </a>
+                      </button>
+                      <button 
+                        onClick={() => {
+                          if (record.invoiceUrl) {
+                            if (record.invoiceUrl.startsWith('http://') || record.invoiceUrl.startsWith('https://')) {
+                              // 外部URL（如阿里云OSS），直接下载
+                              const link = document.createElement('a');
+                              link.href = record.invoiceUrl;
+                              link.download = record.invoiceUrl.split('/').pop() || 'invoice.pdf';
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                            } else if (record.invoiceUrl.startsWith('/uploads/')) {
+                              // 本地路径，通过后端静态文件服务下载
+                              const fullUrl = `https://wfqmaepvjkdd.sealoshzh.site${record.invoiceUrl}`;
+                              const link = document.createElement('a');
+                              link.href = fullUrl;
+                              link.download = fullUrl.split('/').pop() || 'invoice.pdf';
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                            } else {
+                              // 其他路径，显示提示
+                              alert('发票文件路径：\n' + record.invoiceUrl + '\n\n提示：此为服务器本地路径，需要后端配置静态文件服务才能直接下载。');
+                            }
+                          }
+                        }}
+                        className="text-xs font-medium text-[#1E40AF] hover:underline flex items-center space-x-1"
+                      >
+                        <Download size={12} />
+                        <span>下载发票</span>
+                      </button>
                     </div>
                   )}
                   
@@ -486,7 +544,7 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
           <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-bold text-gray-900 mb-4">更新核销状态</h3>
             <p className="text-sm text-gray-500 mb-4">
-              用户：{selectedRecord.userName} | 金额：¥{selectedRecord.amount.toFixed(2)}
+              用户：{selectedRecord.employeeId} | 金额：¥{selectedRecord.amount.toFixed(2)}
             </p>
             
             <div className="mb-4">
