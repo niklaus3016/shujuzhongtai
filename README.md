@@ -8,6 +8,15 @@ This contains everything you need to run your app locally.
 
 View your app in AI Studio: https://ai.studio/apps/1db97375-ace1-4357-bc41-b4127e9da8db
 
+## Update: 2026-04-14
+
+### 福利抽奖管理功能
+- 新增福利抽奖管理模块，位于幸运彩票管理下方
+- 实现了奖品管理功能，支持调整奖品概率
+- 实现了待处理提现功能，支持标记为已到账或失败
+- 实现了提现记录功能，显示所有提现历史
+- 对接了后端API，支持奖品概率更新和提现处理
+
 ## Update: 2026-03-26
 
 ### 幸运彩票管理功能
