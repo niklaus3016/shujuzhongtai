@@ -89,8 +89,8 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
           title: '团队提成收益',
           value: `¥${teamShare.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
           subValue: userShare > 0 ? `${((teamShare / userShare) * 100).toFixed(2)}%` : '0%',
-          growth: showGrowth ? `${responseData?.coinsGrowth > 0 ? '+' : ''}${responseData?.coinsGrowth || 0}%` : '',
-          isUp: responseData?.coinsGrowth > 0,
+          growth: showGrowth ? `${responseData?.kpi?.coinsGrowth > 0 ? '+' : ''}${responseData?.kpi?.coinsGrowth || 0}%` : '',
+          isUp: responseData?.kpi?.coinsGrowth > 0,
           icon: Users,
           color: 'text-purple-600',
           bg: 'bg-purple-50'
@@ -98,8 +98,8 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
         {
           title: '团队用户收益',
           value: `¥${userShare.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
-          growth: showGrowth ? `${responseData?.coinsGrowth > 0 ? '+' : ''}${responseData?.coinsGrowth || 0}%` : '',
-          isUp: responseData?.coinsGrowth > 0,
+          growth: showGrowth ? `${responseData?.kpi?.coinsGrowth > 0 ? '+' : ''}${responseData?.kpi?.coinsGrowth || 0}%` : '',
+          isUp: responseData?.kpi?.coinsGrowth > 0,
           icon: Coins,
           color: 'text-orange-600',
           bg: 'bg-orange-50'
