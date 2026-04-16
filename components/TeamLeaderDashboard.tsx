@@ -55,149 +55,30 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
       if (!currentUser) {
         throw new Error('用户未登录');
       }
-      
-      // 处理时间范围
+
       const formattedTimeRange = timeRange === 'this_week' ? 'week' : timeRange === 'this_month' ? 'month' : timeRange;
-      
-      // 使用正确的 API 路径 - KPI 接口
-      const teamName = getUserTeamName();
-      const apiUrl = `/admin/dashboard/kpi?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}`;
-      
+
       try {
-        const result = await request<any>(apiUrl, {
+        const result = await request<any>('/admin/dashboard/team-leader', {
           method: 'GET'
         });
         responseData = result;
       } catch (error) {
-        console.error('获取KPI数据失败:', error);
-        // 即使KPI数据获取失败，也继续获取其他数据
+        console.error('获取团队长数据失败:', error);
         responseData = {};
       }
 
-      // 时间前缀
-      const timePrefixMap: Record<string, string> = {
-        today: '今日',
-        yesterday: '昨日',
-        week: '本周',
-        month: '本月',
-        this_week: '本周',
-        this_month: '本月'
-      };
-      const timePrefix = timePrefixMap[timeRange];
-      // 只在今日显示增长率，其他时间范围不显示
       showGrowth = timeRange === 'today';
 
-      // 计算团队分成（用户分成的20%）
-      userShare = Number(responseData?.coins || 0) / 1000;
-      
-      // 计算单条平均金币 = (团队用户收益 * 1000) / 广告总曝光
-      averageCoins = responseData?.impressions > 0 ? (userShare * 1000) / Number(responseData?.impressions) : 0;
+      userShare = Number(responseData?.kpi?.coins || 0) / 1000;
+      averageCoins = responseData?.kpi?.impressions > 0 ? (userShare * 1000) / Number(responseData?.kpi?.impressions) : 0;
+      teamLeaderEarnings = Number(responseData?.totalCommission || 0) / 1000;
 
-      // 并行获取所有需要的数据，提高加载速度
-      try {
-        // 并行执行API请求
-        const [teamsResult, userResult, employeeResult] = await Promise.all([
-          request<{ id: string; leader: string }[]>('/team/list', { method: 'GET' }).catch(error => {
-            console.error('获取团队列表失败:', error);
-            return [];
-          }),
-          request<any[]>(`/admin/dashboard/users?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}&limit=100`).catch(error => {
-            console.error('获取用户列表失败:', error);
-            return [];
-          }),
-          request<any>('/admin/employee/list?pageSize=100', { method: 'GET' }).catch(error => {
-            console.error('获取员工账号列表失败:', error);
-            return { data: [] };
-          })
-        ]);
+      const users = Array.isArray(responseData?.users) ? responseData.users : [];
+      activeUsersCount = users.filter((user: any) => (user.watched > 0 || user.earnings > 0)).length;
 
-        // 处理团队和组数据
-        let groupsData: any[] = [];
-        const teams = Array.isArray(teamsResult) ? teamsResult : [];
-        const team = teams.find(t => t.leader === teamName);
-        if (team) {
-          try {
-            const groups = await request<any[]>(`/group/list?teamId=${team.id}`, {
-              method: 'GET'
-            });
-            groupsData = groups || [];
-          } catch (error) {
-            console.error('获取组列表失败:', error);
-            // API错误时使用默认组数据
-            groupsData = [
-              {
-                _id: '69b983ac05e593e7e7e4b431',
-                groupName: '我是测试'
-              }
-            ];
-          }
-        } else {
-          // 如果找不到团队，使用默认组数据
-          groupsData = [
-            {
-              _id: '69b983ac05e593e7e7e4b431',
-              groupName: '我是测试'
-            }
-          ];
-        }
-
-        // 处理用户数据，计算活跃用户数
-        const users = Array.isArray(userResult) ? userResult : [];
-        
-        // 团队长只计算自己团队的用户
-        const filteredUsers = users.filter((user: any) => {
-          const userTeam = user.teamName || user.superior || '系统直属';
-          return userTeam === teamName;
-        });
-        
-        // 计算活跃用户数：有收益或观看次数的用户（只计算本团队的用户）
-        activeUsersCount = filteredUsers.filter((user: any) => (user.watched > 0 || user.earnings > 0)).length;
-
-        // 处理员工账号数据，计算已启用的员工账号数量
-        const employees = Array.isArray(employeeResult) ? employeeResult : (employeeResult?.data || []);
-        
-        // 过滤出本团队的员工且状态为active
-        const teamEmployees = employees.filter((emp: any) => {
-          const empTeam = emp.parentName || emp.teamName || emp.superior || '';
-          const isActive = emp.status === 'active' || emp.status === 'enabled' || !emp.status;
-          return empTeam === teamName && isActive;
-        });
-        
-        totalUsersCount = teamEmployees.length;
-
-        // 调用后端API获取团队组长收益（根据提成比例变更历史准确计算）
-        // 并行获取所有组的提成数据，提高加载速度
-
-        // 创建所有组的提成API请求
-        const commissionPromises = groupsData.map(async (group) => {
-          if (group._id || group.id) {
-            const groupId = group._id || group.id;
-            const commissionUrl = `/admin/group-leader-commission/${groupId}?range=${formattedTimeRange}`;
-            
-            try {
-              const commissionData = await request<any>(commissionUrl, {
-                method: 'GET'
-              });
-              // 返回每个组的提成数据，request函数已经处理了data字段的提取
-              const totalCommission = commissionData?.totalCommission || 0;
-              return totalCommission;
-            } catch (err) {
-              console.error('获取组提成数据失败:', err);
-              return 0;
-            }
-          } else {
-            return 0;
-          }
-        });
-
-        // 并行执行所有请求
-        const commissionResults = await Promise.all(commissionPromises);
-
-        // 累加所有组的总提成
-        teamLeaderEarnings = commissionResults.reduce((total, commission) => total + commission, 0);
-      } catch (error) {
-        console.error('获取数据失败:', error);
-      }
+      const employees = Array.isArray(responseData?.employees) ? responseData.employees : [];
+      totalUsersCount = employees.length;
 
       // 计算团队提成收益 = 用户分成的20% - 团队组长收益
       const teamShare = userShare * 0.2 - teamLeaderEarnings;
@@ -241,9 +122,9 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
           },
         {
           title: '广告总曝光',
-          value: responseData?.impressions?.toLocaleString() || '0',
-          growth: showGrowth ? `${responseData?.impressionsGrowth > 0 ? '+' : ''}${responseData?.impressionsGrowth || 0}%` : '',
-          isUp: responseData?.impressionsGrowth > 0,
+          value: responseData?.kpi?.impressions?.toLocaleString() || '0',
+          growth: showGrowth ? `${responseData?.kpi?.impressionsGrowth > 0 ? '+' : ''}${responseData?.kpi?.impressionsGrowth || 0}%` : '',
+          isUp: responseData?.kpi?.impressionsGrowth > 0,
           icon: Eye,
           color: 'text-blue-600',
           bg: 'bg-blue-50'
@@ -251,8 +132,8 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
         {
           title: '单条平均金币',
           value: `${averageCoins.toFixed(2)}`,
-          growth: showGrowth ? `${responseData?.ecpmGrowth > 0 ? '+' : ''}${responseData?.ecpmGrowth || 0}%` : '',
-          isUp: responseData?.ecpmGrowth > 0,
+          growth: showGrowth ? `${responseData?.kpi?.ecpmGrowth > 0 ? '+' : ''}${responseData?.kpi?.ecpmGrowth || 0}%` : '',
+          isUp: responseData?.kpi?.ecpmGrowth > 0,
           icon: Zap,
           color: 'text-yellow-600',
           bg: 'bg-yellow-50'
