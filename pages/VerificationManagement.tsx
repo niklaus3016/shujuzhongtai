@@ -376,7 +376,10 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
 
         {/* 核销记录列表 */}
         {loading ? (
-          <div className="text-center py-10 text-gray-400">加载中...</div>
+          <div className="py-20 text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1E40AF] mx-auto mb-4"></div>
+            <p className="text-xs text-gray-400 font-bold">加载中...</p>
+          </div>
         ) : (
           <div className="space-y-3">
             {filteredRecords.map((record) => {

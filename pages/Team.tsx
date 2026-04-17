@@ -68,55 +68,13 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
       setLoading(true);
       setError(null);
       try {
-        // 使用用户列表API，然后过滤出属于该团队的成员
-        console.log('Team ID:', team.id);
-        console.log('Team leader:', team.leader);
-        
-        const result = await request<any>('/admin/dashboard/users?range=today&limit=1000', {
+        // 使用后端直接计算好的团队成员数据
+        const membersData = await request<any[]>(`/admin/dashboard/team-leader/teams/${team.id}/members?mode=${mode}`, {
           method: 'GET'
         });
-        console.log('Users API response:', result);
         
-        if (result.data || Array.isArray(result)) {
-          const users = result.data || result || [];
-          console.log('All users:', users.length);
-          
-          // 过滤出属于该团队的成员
-          const teamMembers = users.filter((user: any) => {
-            // 尝试多种可能的字段匹配
-            const matchesTeamName = user.parentName === team.leader;
-            const matchesTeamId = user.teamId === team.id;
-            const matchesSuperior = user.superior === team.leader;
-            
-            console.log('User:', user.employeeId || user.id, 'parentName:', user.parentName, 'teamId:', user.teamId, 'superior:', user.superior);
-            console.log('Matches:', { matchesTeamName, matchesTeamId, matchesSuperior });
-            
-            // 返回匹配的用户
-            return matchesTeamName || matchesTeamId || matchesSuperior;
-          });
-          
-          console.log('Filtered team members:', teamMembers.length);
-          console.log('Team members details:', teamMembers);
-          
-          // 转换用户数据为MemberInfo格式
-          const formattedMembers = teamMembers.map((user: any) => ({
-            id: user.employeeId || user.id || user.userId,
-            name: user.realName || user.realname || user.name || user.username || user.userName || user.userId || user.employeeId || '',
-            avatar: user.avatar || '',
-            todayWatched: user.watched || 0,
-            monthlyWatched: user.monthlyWatched || 0,
-            todayEarnings: (user.earnings || 0) / 1000,
-            monthlyEarnings: (user.monthlyEarnings || 0) / 1000,
-            todayEcpm: user.ecpm || 0,
-            monthlyEcpm: user.monthlyEcpm || 0,
-            status: (user.watched || 0) > 0 ? '在线' : '离线'
-          }));
-          
-          console.log('Formatted members:', formattedMembers);
-          setMembers(formattedMembers);
-        } else {
-          throw new Error('获取用户列表失败');
-        }
+        // 后端已处理好数据，直接使用
+        setMembers(membersData || []);
       } catch (error: any) {
         console.error('Error fetching members:', error);
         setError(error.message || '获取成员列表失败');
@@ -127,11 +85,24 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
     };
 
     fetchMembers();
-  }, [team.id, team.leader, mode]);
+  }, [team.id, mode]);
+
+  // 计算成员的平均金币并缓存结果
+  const membersWithAgc = useMemo(() => {
+    return members.map(member => {
+      const agc = mode === 'today' 
+        ? (member.todayEarnings * 1000) / (member.todayWatched || 1)
+        : (member.monthlyEarnings * 1000) / (member.monthlyWatched || 1);
+      return {
+        ...member,
+        agc
+      };
+    });
+  }, [members, mode]);
 
   // Sort by selected criteria and filter by search term
   const sortedAndFilteredMembers = useMemo(() => {
-    return members
+    return membersWithAgc
       .filter(m => m.name.includes(searchTerm) || m.id.includes(searchTerm))
       .sort((a, b) => {
         if (sortBy === 'watched') {
@@ -143,16 +114,10 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
           const valB = mode === 'today' ? b.todayEarnings : b.monthlyEarnings;
           return valB - valA; // High to Low
         } else { // agc - Average Gold Coin
-          const agcA = mode === 'today' 
-            ? (a.todayEarnings * 1000) / (a.todayWatched || 1)
-            : (a.monthlyEarnings * 1000) / (a.monthlyWatched || 1);
-          const agcB = mode === 'today'
-            ? (b.todayEarnings * 1000) / (b.todayWatched || 1)
-            : (b.monthlyEarnings * 1000) / (b.monthlyWatched || 1);
-          return agcB - agcA; // High to Low
+          return b.agc - a.agc; // High to Low
         }
       });
-  }, [members, searchTerm, mode, sortBy]);
+  }, [membersWithAgc, searchTerm, mode, sortBy]);
 
   // 计算实际的成员数量和活跃率
   const actualMemberCount = members.length;
@@ -243,8 +208,8 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
                   </>
                 ) : (
                   <>
-                    <div className={`text-xs font-black ${(mode === 'today' ? (member.todayEarnings * 1000 / (member.todayWatched || 1)) : (member.monthlyEarnings * 1000 / (member.monthlyWatched || 1))) >= 100 ? 'text-green-600' : 'text-red-500'}`}>
-                      {(mode === 'today' ? (member.todayEarnings * 1000 / (member.todayWatched || 1)) : (member.monthlyEarnings * 1000 / (member.monthlyWatched || 1))).toFixed(2)}
+                    <div className={`text-xs font-black ${member.agc >= 100 ? 'text-green-600' : 'text-red-500'}`}>
+                      {member.agc.toFixed(2)}
                     </div>
                     <div className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">
                       {mode === 'today' ? '个人平均金币' : '月均平均金币'}
@@ -267,8 +232,8 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
                 <div className="text-[8px] text-gray-400 font-bold uppercase mb-0.5">
                   {mode === 'today' ? '个人平均金币' : '月均平均金币'}
                 </div>
-                <div className={`text-[11px] font-black ${(mode === 'today' ? (member.todayEarnings * 1000 / (member.todayWatched || 1)) : (member.monthlyEarnings * 1000 / (member.monthlyWatched || 1))) >= 100 ? 'text-green-600' : 'text-red-500'}`}>
-                  {(mode === 'today' ? (member.todayEarnings * 1000 / (member.todayWatched || 1)) : (member.monthlyEarnings * 1000 / (member.monthlyWatched || 1))).toFixed(2)}
+                <div className={`text-[11px] font-black ${member.agc >= 100 ? 'text-green-600' : 'text-red-500'}`}>
+                  {member.agc.toFixed(2)}
                 </div>
               </div>
             </div>
@@ -344,84 +309,13 @@ const Team: React.FC = () => {
   const fetchTeams = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await request<any>('/team/list', {
+      // 使用后端直接计算好的团队数据
+      const teamsData = await request<any[]>('/admin/dashboard/team-leader/teams', {
         method: 'GET'
       });
-      const teamsData = result.data || result || [];
       
-      // 获取所有用户列表来计算实际用户数（排除禁用的用户）
-      try {
-        // 使用不同的 API 路径获取所有用户，而不仅仅是今天活跃的用户
-        const userResult = await request<any>('/admin/employee/list?pageSize=1000', {
-          method: 'GET'
-        });
-        const users = userResult.data || userResult || [];
-        console.log('Team.tsx - 所有用户列表:', users);
-        console.log('Team.tsx - 用户总数:', users.length);
-        console.log('Team.tsx - 用户状态示例:', users.slice(0, 5).map((u: any) => ({ id: u._id || u.userId || u.employeeId, status: u.status, parentName: u.parentName, teamName: u.teamName, superior: u.superior })));
-        
-        // 过滤掉禁用的用户
-        const enabledUsers = users.filter((user: any) => user.status !== 'disabled' && user.status !== '禁用');
-        setAllUsers(enabledUsers);
-        console.log('Team.tsx - 启用的用户数:', enabledUsers.length);
-        
-        // 更新每个团队的memberCount
-        const updatedTeams = teamsData.map((team: TeamItem) => {
-          const teamUsers = enabledUsers.filter((user: any) => {
-            // 尝试多种可能的字段匹配
-            const matchesParentName = user.parentName === team.leader;
-            const matchesTeamName = user.teamName === team.leader;
-            const matchesSuperior = user.superior === team.leader;
-            const matchesParentId = user.parentId === team.id;
-            
-            console.log(`Team.tsx - 团队 ${team.leader} (ID: ${team.id}): 用户过滤条件`, {
-              matchesParentName,
-              matchesTeamName,
-              matchesSuperior,
-              matchesParentId
-            });
-            
-            // 返回匹配的用户
-            return matchesParentName || matchesTeamName || matchesSuperior || matchesParentId;
-          });
-          console.log(`Team.tsx - 团队 ${team.leader}: 用户数=${teamUsers.length}`);
-          return { ...team, memberCount: teamUsers.length };
-        });
-        
-        // 过滤掉成员数为0的团队
-        const validTeams = updatedTeams.filter((team: TeamItem) => team.memberCount > 0);
-        
-        // 去重处理：根据团队名称去重，保留成员数最多的团队
-        const teamMap = new Map<string, TeamItem>();
-        validTeams.forEach((team: TeamItem) => {
-          const existingTeam = teamMap.get(team.leader);
-          if (!existingTeam || team.memberCount > existingTeam.memberCount) {
-            teamMap.set(team.leader, team);
-          }
-        });
-        const uniqueTeams = Array.from(teamMap.values());
-        console.log('Team.tsx - 去重后的团队数:', uniqueTeams.length);
-        console.log('Team.tsx - 去重后的团队列表:', uniqueTeams.map((t: TeamItem) => t.leader));
-        
-        setTeams(uniqueTeams);
-      } catch (error) {
-        console.error('获取用户列表失败:', error);
-        // 即使获取用户列表失败，也过滤掉成员数为0的团队
-        const validTeams = (teamsData as TeamItem[]).filter((team: TeamItem) => team.memberCount > 0);
-        
-        // 去重处理：根据团队名称去重，保留成员数最多的团队
-        const teamMap = new Map<string, TeamItem>();
-        validTeams.forEach((team: TeamItem) => {
-          const existingTeam = teamMap.get(team.leader);
-          if (!existingTeam || team.memberCount > existingTeam.memberCount) {
-            teamMap.set(team.leader, team);
-          }
-        });
-        const uniqueTeams = Array.from(teamMap.values());
-        console.log('Team.tsx - 错误处理时去重后的团队数:', uniqueTeams.length);
-        console.log('Team.tsx - 错误处理时去重后的团队列表:', uniqueTeams.map((t: TeamItem) => t.leader));
-        setTeams(uniqueTeams);
-      }
+      // 后端已处理好数据，直接使用
+      setTeams(teamsData || []);
     } catch (error) {
       console.error('Error fetching teams:', error);
       setTeams(mockTeams);
@@ -457,6 +351,131 @@ const Team: React.FC = () => {
 
   if (!currentUser) return null;
 
+  // 骨架屏组件
+  const TeamSkeleton = () => (
+    <div className="p-4 pb-24">
+      <header className="mb-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-bold text-gray-900 flex items-center">
+            <User className="text-[#1E40AF] mr-2" size={24} />
+            帐号管理
+          </h1>
+          <div className="w-10 h-10 bg-gray-100 rounded-xl animate-pulse"></div>
+        </div>
+      </header>
+      
+      <div className="flex space-x-2 mb-4">
+        <div className="flex-1 h-10 bg-gray-100 rounded-xl animate-pulse"></div>
+        <div className="flex-1 h-10 bg-gray-100 rounded-xl animate-pulse"></div>
+      </div>
+      
+      <div className="relative mb-4">
+        <div className="w-full h-12 bg-gray-100 rounded-xl animate-pulse"></div>
+      </div>
+      
+      <div className="space-y-3">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm animate-pulse">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center space-x-3 flex-1">
+                <div className="w-10 h-10 rounded-xl bg-gray-100"></div>
+                <div className="flex-1 min-w-0">
+                  <div className="h-4 bg-gray-100 rounded-lg mb-1"></div>
+                  <div className="h-3 bg-gray-100 rounded-lg mb-1"></div>
+                  <div className="h-3 bg-gray-100 rounded-lg"></div>
+                </div>
+              </div>
+              <div className="flex flex-col items-end space-y-2">
+                <div className="w-20 h-3 bg-gray-100 rounded-lg"></div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-6 h-6 bg-gray-100 rounded"></div>
+                  <div className="w-6 h-6 bg-gray-100 rounded"></div>
+                  <div className="w-20 h-6 bg-gray-100 rounded-full"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // 团队管理骨架屏
+  const TeamManagementSkeleton = () => (
+    <div className="pb-6 animate-in fade-in duration-300">
+      <header className="sticky top-0 bg-white z-40 px-4 py-3 border-b border-gray-100 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-xl font-bold text-gray-900 flex items-center">
+            <Users2 className="text-[#1E40AF] mr-2" size={24} />
+            团队管理
+          </h1>
+        </div>
+
+        <div className="relative mb-4 group">
+          <div className="w-full h-12 bg-gray-100 rounded-2xl animate-pulse"></div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="bg-gradient-to-br from-indigo-500 to-indigo-700 p-4 rounded-2xl animate-pulse">
+            <div className="h-4 bg-white/20 rounded-lg mb-2"></div>
+            <div className="h-8 bg-white/20 rounded-lg"></div>
+          </div>
+          <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 p-4 rounded-2xl animate-pulse">
+            <div className="h-4 bg-white/20 rounded-lg mb-2"></div>
+            <div className="h-8 bg-white/20 rounded-lg"></div>
+          </div>
+        </div>
+
+        <div className="flex bg-gray-100 p-1 rounded-xl">
+          <div className="flex-1 h-8 bg-gray-200 rounded-lg animate-pulse"></div>
+          <div className="flex-1 h-8 bg-gray-200 rounded-lg animate-pulse"></div>
+        </div>
+      </header>
+
+      <div className="px-4 mt-4">
+        <div className="space-y-3">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden p-4 space-y-4 animate-pulse">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-12 h-12 rounded-2xl bg-gray-200"></div>
+                  <div>
+                    <div className="h-4 bg-gray-200 rounded-lg w-32 mb-1"></div>
+                    <div className="h-3 bg-gray-200 rounded-lg w-40"></div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="h-4 bg-gray-200 rounded-lg w-24 mb-1"></div>
+                  <div className="h-3 bg-gray-200 rounded-lg w-32"></div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-gray-50 p-2 rounded-xl border border-gray-100/50">
+                    <div className="h-3 bg-gray-200 rounded-lg mb-1"></div>
+                    <div className="h-4 bg-gray-200 rounded-lg"></div>
+                  </div>
+                  <div className="bg-gray-50 p-2 rounded-xl border border-gray-100/50">
+                    <div className="h-3 bg-gray-200 rounded-lg mb-1"></div>
+                    <div className="h-4 bg-gray-200 rounded-lg"></div>
+                  </div>
+                  <div className="bg-gray-50 p-2 rounded-xl border border-gray-100/50">
+                    <div className="h-3 bg-gray-200 rounded-lg mb-1"></div>
+                    <div className="h-4 bg-gray-200 rounded-lg"></div>
+                  </div>
+                </div>
+                <div className="bg-blue-50/40 p-3 rounded-xl border border-blue-100/30">
+                  <div className="h-3 bg-blue-200/50 rounded-lg w-60"></div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
   // Normal Admin (Team Leader) view
   if (currentUser.role === UserRole.NORMAL_ADMIN) {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -487,68 +506,17 @@ const Team: React.FC = () => {
     const fetchAccounts = async () => {
       setLoading(true);
       try {
-        console.log('Team.tsx - 当前用户:', currentUser);
-        console.log('Team.tsx - 团队名称:', currentUser.teamName);
-        
-        // 获取当前用户的 teamId
         const teamId = currentUser.id;
-        console.log('Team.tsx - 团队ID:', teamId);
         
-        // 获取组长列表（使用新API）
-        const groupLeadersResponse = await request<any>(`/admin/employee/group-leaders?teamId=${teamId}`, { 
-          method: 'GET'
-        });
-        const groupLeaders = Array.isArray(groupLeadersResponse) ? groupLeadersResponse : (groupLeadersResponse?.data || []);
-        console.log('Team.tsx - 组长列表:', groupLeaders);
-        // 查看第一个组长的完整结构
-        if (groupLeaders.length > 0) {
-          console.log('Team.tsx - 第一个组长的完整结构:', groupLeaders[0]);
-        }
+        // 并行调用两个接口
+        const [groupLeaders, employees] = await Promise.all([
+          request<any[]>('/admin/employee/group-leaders-simple?teamId=' + teamId, { method: 'GET' }),
+          request<any[]>('/admin/employee/employees-simple?teamId=' + teamId, { method: 'GET' })
+        ]);
         
-        // 获取员工账号
-        const employeeAccounts = await request<any>('/admin/employee/list?pageSize=100', { method: 'GET' });
-        const employees = Array.isArray(employeeAccounts) ? employeeAccounts : (employeeAccounts?.data || []);
-        console.log('Team.tsx - 所有员工账号:', employees);
-        
-        // 过滤出本团队的员工
-        const teamName = currentUser.teamName || '';
-        const userId = currentUser.id || '';
-        // 过滤条件：员工的父级ID等于当前用户的ID，或者员工的父级名称等于当前用户的团队名称
-        const filteredEmployees = employees.filter((acc: any) => 
-          acc.parentId === userId || acc.parentName === teamName
-        );
-        
-        console.log('Team.tsx - 过滤后的员工账号:', filteredEmployees);
-        
-        // 从组长数据中提取组信息
-        const groupsMap = new Map();
-        groupLeaders.forEach((leader: any) => {
-          if (leader._id && leader.groupName) {
-            groupsMap.set(leader._id, {
-              _id: leader._id,
-              groupName: leader.groupName,
-              teamName: teamName
-            });
-          }
-        });
-        setGroups(Array.from(groupsMap.values()));
-        
-        // 转换组长数据为账号格式
-        const formattedGroupLeaders = groupLeaders.map((leader: any) => ({
-          _id: leader.groupLeaderId || leader._id,
-          realName: leader.groupLeaderName || '未知组长',
-          username: leader.username || leader.groupLeaderName || '未知账号',
-          role: 'GROUP_LEADER',
-          status: 'enabled',
-          groupName: leader.groupName,
-          teamGroupId: leader._id,
-          groupLeaderId: leader.groupLeaderId,
-          commission: leader.commission,
-          memberCount: leader.memberCount
-        }));
-        
-        // 合并组长和员工账号
-        setAccounts([...formattedGroupLeaders, ...filteredEmployees]);
+        // 直接使用后端返回的数据，不需要任何转换
+        setGroups(groupLeaders || []);
+        setAccounts([...(groupLeaders || []), ...(employees || [])]);
       } catch (error) {
         console.error('Error fetching accounts:', error);
         setAccounts([]);
@@ -579,6 +547,14 @@ const Team: React.FC = () => {
                 a.employeeId?.toLowerCase().includes(searchKeyword.toLowerCase()) ||
                 a.phone?.toLowerCase().includes(searchKeyword.toLowerCase()));
       }
+    }).sort((a, b) => {
+      // 员工账号按注册时间从最新的往早的排序
+      if (accountType === 'employee') {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeB - timeA; // 降序，最新的在前
+      }
+      return 0;
     });
     
     const toggleAccountStatus = async (account: any) => {
@@ -776,13 +752,16 @@ const Team: React.FC = () => {
     };
     
     return (
-      <div className="p-4 pb-24">
-        <header className="mb-6">
-          <div className="flex items-center justify-between">
-            <h1 className="text-xl font-bold text-gray-900 flex items-center">
-              <User className="text-[#1E40AF] mr-2" size={24} />
-              帐号管理
-            </h1>
+      loading ? (
+        <TeamSkeleton />
+      ) : (
+        <div className="p-4 pb-24">
+          <header className="mb-6">
+            <div className="flex items-center justify-between">
+              <h1 className="text-xl font-bold text-gray-900 flex items-center">
+                <User className="text-[#1E40AF] mr-2" size={24} />
+                帐号管理
+              </h1>
             <button 
               onClick={() => setShowAddModal(true)}
               className="bg-[#1E40AF] text-white p-2 rounded-xl shadow-lg shadow-blue-100 active:scale-95 transition-all"
@@ -821,7 +800,7 @@ const Team: React.FC = () => {
         )}
         
         {loading ? (
-          <div className="text-center py-10 text-gray-400">加载中...</div>
+          <TeamSkeleton />
         ) : (
           <div className="space-y-3">
             {filteredAccounts.map((account) => (
@@ -854,7 +833,7 @@ const Team: React.FC = () => {
                             {account.phone && <span>{account.phone}</span>}
                           </p>
                           <p className="text-[10px] text-gray-400 mt-0.5">
-                            组别：{groups.find(g => g._id === account.teamGroupId)?.groupName || account.groupName || '无'}
+                            组别：{account.groupName || '无'}
                           </p>
                           <p className="text-[10px] text-gray-400 mt-0.5">
                             地区：{account.region || '无'}
@@ -906,8 +885,8 @@ const Team: React.FC = () => {
                         <div className={`w-5 h-5 rounded-full bg-white shadow-sm transition-all ${(account.status === 'enabled' || account.status === '1' || !account.status) ? 'translate-x-4' : 'translate-x-0'}`}></div>
                       </button>
                     </div>
-                    {/* 显示开通状态（移到启用按钮下面） */}
-                    {((account.teamGroupId || account.groupName) && (
+                    {/* 显示开通状态（只有组长账号才显示） */}
+                    {(account.role !== 'EMPLOYEE' && account.groupName && (
                       <div className="mt-2 space-y-1">
                         {!account.groupLeaderId ? (
                           <span className="text-xs font-bold bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
@@ -1256,7 +1235,8 @@ const Team: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
+        </div>
+      )
     );
   }
 
@@ -1347,10 +1327,7 @@ const Team: React.FC = () => {
       <div className="px-4 mt-4">
         <div className="space-y-3">
             {loading ? (
-              <div className="py-20 text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1E40AF] mx-auto mb-4"></div>
-                <p className="text-xs text-gray-400 font-bold">加载中...</p>
-              </div>
+              <TeamManagementSkeleton />
             ) : filteredAndSortedTeams.length > 0 ? (
               filteredAndSortedTeams.map((team, index) => (
             <div key={team.id} className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden p-4 space-y-4 transition-colors">

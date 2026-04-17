@@ -341,12 +341,9 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
 
   if (loading) {
     return (
-      <div className="p-4 space-y-4 animate-pulse">
-        <div className="h-12 bg-gray-200 rounded-2xl w-full"></div>
-        <div className="h-10 bg-gray-200 rounded-xl w-full"></div>
-        <div className="space-y-3">
-            {[1, 2, 3, 4, 5].map(i => <div key={i} className="h-32 bg-gray-200 rounded-2xl"></div>)}
-        </div>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#F9FAFB]">
+        <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+        <p className="mt-4 text-gray-600">加载中...</p>
       </div>
     );
   }

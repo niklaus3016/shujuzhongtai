@@ -258,7 +258,10 @@ const WelfareLotteryManagement: React.FC<WelfareLotteryManagementProps> = ({ onB
         {activeTab === 'prizes' && (
           <div className="space-y-3">
             {loading ? (
-              <div className="text-center py-10 text-gray-400">加载中...</div>
+              <div className="py-20 text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1E40AF] mx-auto mb-4"></div>
+                <p className="text-xs text-gray-400 font-bold">加载中...</p>
+              </div>
             ) : prizes.length === 0 ? (
               <div className="text-center py-10 text-gray-400">
                 <AlertCircle size={40} className="mx-auto mb-2 opacity-20" />
@@ -336,7 +339,10 @@ const WelfareLotteryManagement: React.FC<WelfareLotteryManagementProps> = ({ onB
         {activeTab === 'withdrawals' && (
           <div className="space-y-3">
             {loading ? (
-              <div className="text-center py-10 text-gray-400">加载中...</div>
+              <div className="py-20 text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1E40AF] mx-auto mb-4"></div>
+                <p className="text-xs text-gray-400 font-bold">加载中...</p>
+              </div>
             ) : withdrawals.length === 0 ? (
               <div className="text-center py-10 text-gray-400">
                 <AlertCircle size={40} className="mx-auto mb-2 opacity-20" />
@@ -402,7 +408,10 @@ const WelfareLotteryManagement: React.FC<WelfareLotteryManagementProps> = ({ onB
         {activeTab === 'records' && (
           <div className="space-y-3">
             {loading ? (
-              <div className="text-center py-10 text-gray-400">加载中...</div>
+              <div className="py-20 text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1E40AF] mx-auto mb-4"></div>
+                <p className="text-xs text-gray-400 font-bold">加载中...</p>
+              </div>
             ) : records.length === 0 ? (
               <div className="text-center py-10 text-gray-400">
                 <AlertCircle size={40} className="mx-auto mb-2 opacity-20" />

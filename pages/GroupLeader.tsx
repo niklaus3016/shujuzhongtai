@@ -16,10 +16,24 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [kpiData, setKpiData] = useState<any[]>([]);
-  const [localTimeRange, setLocalTimeRange] = useState<string>(timeRange);
+  // 时间范围映射
+  const timeRangeMap: Record<string, string> = {
+    '今日': 'today',
+    '昨日': 'yesterday',
+    '本周': 'week',
+    '本月': 'month'
+  };
+  
+  // 使用映射后的时间范围
+  const [localTimeRange, setLocalTimeRange] = useState<string>(timeRangeMap[timeRange] || 'today');
   
   // 使用 useMemo 缓存 currentUser，避免每次渲染都返回新对象
   const currentUser = useMemo(() => authService.getCurrentUser(), []);
+  
+  // 监听timeRange变化
+  useEffect(() => {
+    setLocalTimeRange(timeRangeMap[timeRange] || 'today');
+  }, [timeRange]);
   
   // 获取用户对应的团队和组信息
   const getUserGroupInfo = () => {
@@ -58,15 +72,8 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
         groupId: updatedUser?.teamGroupId || ''
       };
       
-      console.log('最新的用户信息:', {
-        teamName,
-        groupName,
-        groupId
-      });
-      
       // 使用本地时间范围
       const formattedTimeRange = localTimeRange;
-      console.log('处理后的时间范围:', formattedTimeRange);
       
       // 使用正确的 API 路径 - KPI 接口
       const apiUrl = `/admin/dashboard/kpi?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(groupId || '')}`;
@@ -76,9 +83,7 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
           method: 'GET'
         });
         responseData = result;
-        console.log('KPI API返回数据:', responseData);
       } catch (error) {
-        console.error('获取KPI数据失败:', error);
         // 即使KPI数据获取失败，也继续获取其他数据
         responseData = {};
       }
@@ -102,23 +107,22 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
 
       // 并行获取所有需要的数据，提高加载速度
       try {
-        // 并行执行API请求
+        // 并行执行API请求，添加超时处理
         const [userResult, employeeResult] = await Promise.all([
-          request<any[]>(`/admin/dashboard/users?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(groupId || '')}&limit=100`).catch(error => {
-            console.error('获取用户列表失败:', error);
-            return [];
-          }),
-          request<any>('/admin/employee/list?pageSize=100', { method: 'GET' }).catch(error => {
-            console.error('获取员工账号列表失败:', error);
-            return { data: [] };
-          })
+          // 为用户列表请求添加超时处理
+          Promise.race([
+            request<any[]>(`/admin/dashboard/users?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(groupId || '')}&limit=100`),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('用户列表请求超时')), 5000))
+          ]).catch(() => []),
+          // 为员工账号列表请求添加超时处理
+          Promise.race([
+            request<any>('/admin/employee/list?pageSize=100', { method: 'GET' }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('员工账号列表请求超时')), 5000))
+          ]).catch(() => ({ data: [] }))
         ]);
 
         // 处理用户数据，计算活跃用户数
         const users = Array.isArray(userResult) ? userResult : [];
-        console.log('团队名称:', teamName);
-        console.log('组名称:', groupName);
-        console.log('用户列表总数:', users.length);
         
         // 组长只计算自己组的用户
         const filteredUsers = users.filter((user: any) => {
@@ -126,11 +130,9 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
           const userGroup = user.groupName || user.teamGroup || '';
           return userTeam === teamName && userGroup === groupName;
         });
-        console.log('过滤后用户数:', filteredUsers.length);
         
         // 计算活跃用户数：有收益或观看次数的用户（只计算本组的用户）
         activeUsersCount = filteredUsers.filter((user: any) => (user.watched > 0 || user.earnings > 0)).length;
-        console.log('活跃用户数:', activeUsersCount);
 
         // 处理员工账号数据，计算已启用的员工账号数量
         const employees = Array.isArray(employeeResult) ? employeeResult : (employeeResult?.data || []);
@@ -144,29 +146,22 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
         });
         
         totalUsersCount = groupEmployees.length;
-        console.log('账号管理中的员工账号数量（已启用）:', totalUsersCount);
 
         // 调用后端API获取组长收益（根据提成比例变更历史准确计算）
         if (groupId) {
           const commissionUrl = `/admin/group-leader-commission/${groupId}?range=${formattedTimeRange}`;
-          console.log(`请求组 ${groupName} 的提成数据，URL:`, commissionUrl);
           
           try {
             const commissionData = await request<any>(commissionUrl, {
               method: 'GET'
             });
-            console.log(`组 ${groupName} API返回数据:`, commissionData);
             groupLeaderEarnings = commissionData?.totalCommission || 0;
-            console.log(`组 ${groupName}: 组长提成=${groupLeaderEarnings}`);
           } catch (err) {
-            console.error(`组 ${groupName} API请求异常:`, err);
             groupLeaderEarnings = 0;
           }
         }
-
-        console.log('组长收益总计（从后端API获取）:', groupLeaderEarnings);
       } catch (error) {
-        console.error('获取数据失败:', error);
+        // 静默处理错误，不影响其他数据的显示
       }
 
       // 转换KPI数据为前端格式
@@ -189,12 +184,8 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
         }
       ];
 
-      console.log('转换后的KPI数据:', transformedKpis);
-      console.log('activeUsersCount:', activeUsersCount);
-      console.log('totalUsersCount:', totalUsersCount);
       setKpiData(transformedKpis);
     } catch (error) {
-      console.error('获取数据失败:', error);
       // 保持数据为空，不显示模拟数据
       setKpiData([]);
     } finally {
@@ -202,6 +193,11 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
       setRefreshing(false);
     }
   }, [localTimeRange, currentUser]);
+
+  // 当timeRange属性变化时，更新localTimeRange状态
+  useEffect(() => {
+    setLocalTimeRange(timeRangeMap[timeRange] || 'today');
+  }, [timeRange]);
 
   useEffect(() => {
     fetchData();
@@ -265,18 +261,10 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
           <div className="px-4 py-4 grid grid-cols-2 gap-3">
             {loading ? (
               // 加载状态
-              Array(5).fill(0).map((_, idx) => (
-                <div key={idx} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-md animate-pulse">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="p-2.5 rounded-xl bg-gray-100 shadow-sm">
-                      <Clock size={20} className="text-gray-400" />
-                    </div>
-                    <div className="w-12 h-4 bg-gray-100 rounded-full"></div>
-                  </div>
-                  <div className="w-24 h-3 bg-gray-100 rounded-full mb-2"></div>
-                  <div className="w-16 h-5 bg-gray-100 rounded-full"></div>
-                </div>
-              ))
+              <div className="col-span-2 flex flex-col items-center justify-center py-12">
+                <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+                <p className="text-gray-600">加载中...</p>
+              </div>
             ) : kpiData.length > 0 ? (
               kpiData.map((kpi, idx) => {
                 const Icon = kpi.icon;

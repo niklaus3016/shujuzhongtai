@@ -10,11 +10,12 @@ import { UserRole } from '../types';
 interface TeamLeaderDashboardProps {
   timeRange: string;
   onRefresh: () => void;
+  onDataLoaded?: () => void;
 }
 
 type TimeRange = 'today' | 'yesterday' | 'this_week' | 'this_month';
 
-const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, onRefresh }) => {
+const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, onRefresh, onDataLoaded }) => {
   const [loading, setLoading] = useState(true);
   const [kpiData, setKpiData] = useState<any[]>([]);
   
@@ -55,33 +56,92 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
       if (!currentUser) {
         throw new Error('用户未登录');
       }
+      
+      // 即使没有 teamName 也继续获取数据
+      // if (!currentUser?.teamName) {
+      //   throw new Error('团队名称不存在');
+      // }
 
-      const formattedTimeRange = timeRange === 'this_week' ? 'week' : timeRange === 'this_month' ? 'month' : timeRange;
-
+      // 处理时间范围 - 将中文时间范围映射到英文
+      const timeRangeMap: Record<string, string> = {
+        '今日': 'today',
+        '昨日': 'yesterday',
+        '本周': 'week',
+        '本月': 'month'
+      };
+      const formattedTimeRange = timeRangeMap[timeRange] || 'today';
+      console.log('处理后的时间范围:', formattedTimeRange);
+      
+      // 使用正确的 API 路径 - 团队长KPI接口
+      const teamName = getUserTeamName();
+      const apiUrl = `/admin/dashboard/team-leader?range=${formattedTimeRange}`;
+      
       try {
-        const result = await request<any>('/admin/dashboard/team-leader', {
+        const result = await request<any>(apiUrl, {
           method: 'GET'
         });
-        responseData = result;
+        // 检查返回的数据结构
+        if (result?.kpi) {
+          // 格式: { kpi: {...} }
+          responseData = result.kpi;
+          console.log('使用格式: result.kpi');
+        } else {
+          // 格式: 直接返回kpi数据
+          responseData = result;
+          console.log('使用格式: result');
+        }
+        console.log('KPI API返回数据:', responseData);
       } catch (error) {
-        console.error('获取团队长数据失败:', error);
+        console.error('获取KPI数据失败:', error);
+        // 即使KPI数据获取失败，也继续获取其他数据
         responseData = {};
       }
 
-      showGrowth = timeRange === 'today';
+      // 时间前缀
+      const timePrefixMap: Record<string, string> = {
+        '今日': '今日',
+        '昨日': '昨日',
+        '本周': '本周',
+        '本月': '本月'
+      };
+      const timePrefix = timePrefixMap[timeRange] || '今日';
+      // 只在今日显示增长率，其他时间范围不显示
+      showGrowth = timeRange === '今日';
 
-      userShare = Number(responseData?.kpi?.coins || 0) / 1000;
-      averageCoins = responseData?.kpi?.impressions > 0 ? (userShare * 1000) / Number(responseData?.kpi?.impressions) : 0;
-      teamLeaderEarnings = Number(responseData?.totalCommission || 0) / 1000;
+      // 直接使用后端返回的KPI数据
+      userShare = Number(responseData?.teamUserRevenue || 0);
+      teamLeaderEarnings = Number(responseData?.groupLeadersCommission || 0);
+      activeUsersCount = Number(responseData?.activeUsers || 0);
+      let totalUsersCount = 0; // 初始设为0
+      
+      // 获取员工账号总数
+      try {
+        const employeeResult = await request<any>('/admin/employee/list?pageSize=100', { method: 'GET' });
+        const employees = Array.isArray(employeeResult) ? employeeResult : (employeeResult?.data || []);
+        
+        // 过滤出本团队的员工且状态为active
+        const teamName = getUserTeamName();
+        const teamEmployees = employees.filter((emp: any) => {
+          const empTeam = emp.parentName || emp.teamName || emp.superior || '';
+          const isActive = emp.status === 'active' || emp.status === 'enabled' || !emp.status;
+          return empTeam === teamName && isActive;
+        });
+        
+        totalUsersCount = teamEmployees.length;
+        console.log('账号管理中的员工账号数量（已启用）:', totalUsersCount);
+      } catch (error) {
+        console.error('获取员工账号列表失败:', error);
+      }
+      
+      console.log('从后端获取的KPI数据:');
+      console.log('团队用户收益:', userShare);
+      console.log('团队组长收益:', teamLeaderEarnings);
+      console.log('今日活跃用户:', activeUsersCount);
+      console.log('广告总曝光:', responseData?.impressions);
+      console.log('单条平均金币:', responseData?.avgGoldPerAd);
 
-      const users = Array.isArray(responseData?.users) ? responseData.users : [];
-      activeUsersCount = users.filter((user: any) => (user.watched > 0 || user.earnings > 0)).length;
-
-      const employees = Array.isArray(responseData?.employees) ? responseData.employees : [];
-      totalUsersCount = employees.length;
-
-      // 计算团队提成收益 = 用户分成的20% - 团队组长收益
-      const teamShare = userShare * 0.2 - teamLeaderEarnings;
+      // 计算团队提成收益 = 团队长提成收益
+      const teamShare = Number(responseData?.teamLeadCommission || 0);
 
       // 转换KPI数据为前端格式
       const transformedKpis = [
@@ -89,8 +149,8 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
           title: '团队提成收益',
           value: `¥${teamShare.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
           subValue: userShare > 0 ? `${((teamShare / userShare) * 100).toFixed(2)}%` : '0%',
-          growth: showGrowth ? `${responseData?.kpi?.coinsGrowth > 0 ? '+' : ''}${responseData?.kpi?.coinsGrowth || 0}%` : '',
-          isUp: responseData?.kpi?.coinsGrowth > 0,
+          growth: showGrowth ? `${responseData?.revenueGrowth > 0 ? '+' : ''}${responseData?.revenueGrowth || 0}%` : '',
+          isUp: responseData?.revenueGrowth > 0,
           icon: Users,
           color: 'text-purple-600',
           bg: 'bg-purple-50'
@@ -98,8 +158,8 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
         {
           title: '团队用户收益',
           value: `¥${userShare.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
-          growth: showGrowth ? `${responseData?.kpi?.coinsGrowth > 0 ? '+' : ''}${responseData?.kpi?.coinsGrowth || 0}%` : '',
-          isUp: responseData?.kpi?.coinsGrowth > 0,
+          growth: showGrowth ? `${responseData?.revenueGrowth > 0 ? '+' : ''}${responseData?.revenueGrowth || 0}%` : '',
+          isUp: responseData?.revenueGrowth > 0,
           icon: Coins,
           color: 'text-orange-600',
           bg: 'bg-orange-50'
@@ -113,7 +173,7 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
             bg: 'bg-indigo-50'
           },
           {
-            title: '今日活跃用户',
+            title: `${timePrefix}活跃用户`,
             value: activeUsersCount.toLocaleString(),
             subValue: totalUsersCount.toString(),
             icon: TrendingUp,
@@ -122,24 +182,27 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
           },
         {
           title: '广告总曝光',
-          value: responseData?.kpi?.impressions?.toLocaleString() || '0',
-          growth: showGrowth ? `${responseData?.kpi?.impressionsGrowth > 0 ? '+' : ''}${responseData?.kpi?.impressionsGrowth || 0}%` : '',
-          isUp: responseData?.kpi?.impressionsGrowth > 0,
+          value: responseData?.impressions?.toLocaleString() || '0',
+          growth: showGrowth ? `${responseData?.impressionsGrowth > 0 ? '+' : ''}${responseData?.impressionsGrowth || 0}%` : '',
+          isUp: responseData?.impressionsGrowth > 0,
           icon: Eye,
           color: 'text-blue-600',
           bg: 'bg-blue-50'
         },
         {
           title: '单条平均金币',
-          value: `${averageCoins.toFixed(2)}`,
-          growth: showGrowth ? `${responseData?.kpi?.ecpmGrowth > 0 ? '+' : ''}${responseData?.kpi?.ecpmGrowth || 0}%` : '',
-          isUp: responseData?.kpi?.ecpmGrowth > 0,
+          value: `${(responseData?.avgGoldPerAd || 0).toFixed(2)}`,
+          growth: showGrowth ? `${responseData?.avgGoldPerAdGrowth > 0 ? '+' : ''}${responseData?.avgGoldPerAdGrowth || 0}%` : '',
+          isUp: responseData?.avgGoldPerAdGrowth > 0,
           icon: Zap,
           color: 'text-yellow-600',
           bg: 'bg-yellow-50'
         }
       ];
 
+      console.log('转换后的KPI数据:', transformedKpis);
+      console.log('activeUsersCount:', activeUsersCount);
+      console.log('totalUsersCount:', totalUsersCount);
       setKpiData(transformedKpis);
     } catch (error) {
       console.error('获取数据失败:', error);
@@ -147,6 +210,8 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
       setKpiData([]);
     } finally {
       setLoading(false);
+      // 调用数据加载完成回调
+      onDataLoaded?.();
     }
   }, [timeRange, currentUser]);
 

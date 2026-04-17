@@ -143,7 +143,13 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
         }));
 
         console.log('转换后的用户数据:', transformedUsers);
-        setUsers(transformedUsers);
+        
+        // 去重：根据id去重
+        const uniqueUsers = Array.from(new Map(transformedUsers.map(user => [user.id, user])).values());
+        console.log('去重后的用户数:', uniqueUsers.length);
+        console.log('去重后的用户列表:', uniqueUsers.map(u => u.id));
+        
+        setUsers(uniqueUsers);
         
         // 同时获取昨日用户数据用于计算次数对比
         try {
@@ -196,10 +202,11 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
   }, []);
 
   const filteredAndSortedUsers = useMemo(() => {
+    // 只根据id进行搜索，避免name字段的fallback值影响搜索结果
     return users
       .filter(user => 
-        user.id.includes(searchTerm) || 
-        user.name.toLowerCase().includes(searchTerm.toLowerCase())
+        searchTerm === '' || 
+        user.id.includes(searchTerm)
       )
       .sort((a, b) => {
         if (sortBy === 'agc') {
@@ -274,8 +281,9 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
 
       <div className="px-4 space-y-3">
         {loading ? (
-          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-10 text-center text-gray-400">
-            加载中...
+          <div className="py-20 text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1E40AF] mx-auto mb-4"></div>
+            <p className="text-xs text-gray-400 font-bold">加载中...</p>
           </div>
         ) : (
           <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-50">

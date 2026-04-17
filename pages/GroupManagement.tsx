@@ -275,12 +275,13 @@ const GroupManagement: React.FC = () => {
         setTeams(teamsResponse);
 
         // Fetch groups - 使用 /admin/employee/group-leaders 接口
+        // 使用 includeStats=true 让后端返回统计信息，减少前端计算
         let groupsResponse: Group[] = [];
         
         if (user.role === UserRole.NORMAL_ADMIN) {
           // Team leaders only see their own teams' groups
           try {
-            const groupLeadersData = await request<{ data?: any[] } | any[]>(`/admin/employee/group-leaders?teamId=${user.id}`, {
+            const groupLeadersData = await request<{ data?: any[] } | any[]>(`/admin/employee/group-leaders?teamId=${user.id}&includeStats=true`, {
               method: 'GET'
             });
             
@@ -306,12 +307,11 @@ const GroupManagement: React.FC = () => {
           }
         } else {
           // Super admins - 获取所有团队的组
-          // 遍历所有团队获取组列表
-          const allGroups: Group[] = [];
-          for (const team of teamsResponse) {
+          // 使用并行请求提升性能，includeStats=true 获取统计信息
+          const teamPromises = teamsResponse.map(async (team: any) => {
             try {
               console.log(`Fetching groups for team: ${team.name} (${team.id})`);
-              const groupLeadersData = await request<{ data?: any[] } | any[]>(`/admin/employee/group-leaders?teamId=${team.id}`, {
+              const groupLeadersData = await request<{ data?: any[] } | any[]>(`/admin/employee/group-leaders?teamId=${team.id}&includeStats=true`, {
                 method: 'GET'
               });
               console.log(`Group leaders data for team ${team.name}:`, groupLeadersData);
@@ -339,21 +339,21 @@ const GroupManagement: React.FC = () => {
                 // 过滤掉成员数为0的组
                 const validGroups = teamGroups.filter(group => group.memberCount > 0);
                 console.log(`Valid groups for team ${team.name}:`, validGroups);
-                
-                if (validGroups.length > 0) {
-                  allGroups.push(...validGroups);
-                } else {
-                  console.log(`Team ${team.name} has no valid groups (all memberCount is 0), skipping...`);
-                }
+                return validGroups;
               } else {
                 console.log(`Team ${team.name} has no groups, skipping...`);
+                return [];
               }
             } catch (err) {
               console.error(`Error fetching groups for team ${team.name}:`, err);
+              return [];
             }
-          }
-          console.log('All groups after fetching:', allGroups);
-          groupsResponse = allGroups;
+          });
+          
+          // 并行执行所有请求
+          const allGroupsArrays = await Promise.all(teamPromises);
+          groupsResponse = allGroupsArrays.flat();
+          console.log('All groups after fetching:', groupsResponse);
         }
         
         setGroups(groupsResponse);
