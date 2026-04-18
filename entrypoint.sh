@@ -1,4 +1,4 @@
 #!/bin/bash
+export NODE_ENV=production
 npm run build
-cp -r dist/* /usr/share/nginx/html/
-nginx -g "daemon off;"
+npx vite preview --host 0.0.0.0 --port 3000
