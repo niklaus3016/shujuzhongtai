@@ -16,6 +16,16 @@ export default defineConfig(({ mode }) => {
           }
         }
       },
+      preview: {
+        host: '0.0.0.0',
+        port: 3000,
+        allowedHosts: [
+          'wfqmaepvjkdd.sealoshzh.site',
+          '.sealoshzh.site',
+          'localhost',
+          '127.0.0.1'
+        ]
+      },
       plugins: [react()],
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
