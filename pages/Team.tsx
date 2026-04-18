@@ -480,6 +480,7 @@ const Team: React.FC = () => {
   if (currentUser.role === UserRole.NORMAL_ADMIN) {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [accountType, setAccountType] = useState<'group' | 'employee'>('group');
+    const [filter, setFilter] = useState<string>('all');
     const [accounts, setAccounts] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [showEditModal, setShowEditModal] = useState(false);
@@ -534,6 +535,14 @@ const Team: React.FC = () => {
       employee: accounts.filter(a => a.employeeId).length
     };
     
+    const filterCounts = {
+      all: accounts.filter(a => a.employeeId).length,
+      normal: accounts.filter(a => a.employeeId && (a.zeroEarningsDays || 0) < 3).length,
+      '3-7': accounts.filter(a => a.employeeId && (a.zeroEarningsDays || 0) >= 3 && (a.zeroEarningsDays || 0) <= 7).length,
+      '7-15': accounts.filter(a => a.employeeId && (a.zeroEarningsDays || 0) > 7 && (a.zeroEarningsDays || 0) <= 15).length,
+      '15+': accounts.filter(a => a.employeeId && (a.zeroEarningsDays || 0) > 15).length
+    };
+    
     const filteredAccounts = accounts.filter(a => {
       if (accountType === 'group') {
         // 组长账号：没有employeeId且有groupName
@@ -543,10 +552,27 @@ const Team: React.FC = () => {
       } else {
         // 员工账号：有employeeId
         return a.employeeId && 
-               (a.realName?.toLowerCase().includes(searchKeyword.toLowerCase()) || 
+               (a.realName?.toLowerCase().includes(searchKeyword.toLowerCase()) ||
                 a.employeeId?.toLowerCase().includes(searchKeyword.toLowerCase()) ||
                 a.phone?.toLowerCase().includes(searchKeyword.toLowerCase()));
       }
+    }).filter(a => {
+      // 员工账号根据zeroEarningsDays进行筛选
+      if (accountType === 'employee') {
+        const days = a.zeroEarningsDays || 0;
+        if (filter === 'all') {
+          return true; // 显示所有账号
+        } else if (filter === 'normal') {
+          return days < 3; // 3天内有收益
+        } else if (filter === '3-7') {
+          return days >= 3 && days <= 7;
+        } else if (filter === '7-15') {
+          return days > 7 && days <= 15;
+        } else if (filter === '15+') {
+          return days > 15;
+        }
+      }
+      return true;
     }).sort((a, b) => {
       // 员工账号按注册时间从最新的往早的排序
       if (accountType === 'employee') {
@@ -787,16 +813,53 @@ const Team: React.FC = () => {
         </div>
         
         {accountType === 'employee' && (
-          <div className="relative mb-4">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="搜索员工姓名、员工号或手机号"
-              value={searchKeyword}
-              onChange={(e) => setSearchKeyword(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
-            />
-          </div>
+          <>
+            <div className="relative mb-4">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="搜索员工姓名、员工号或手机号"
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+            <div className="flex space-x-2 mb-4">
+              <button
+                onClick={() => setFilter('all')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${filter === 'all' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-blue-600'}`}
+              >
+                全部 ({filterCounts.all})
+              </button>
+              <button
+                onClick={() => setFilter('normal')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${filter === 'normal' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-green-700'}`}
+              >
+                正常 ({filterCounts.normal})
+              </button>
+              <button
+                onClick={() => setFilter('3-7')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${filter === '3-7' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-yellow-700'}`}
+                style={{ minWidth: '60px', textAlign: 'center' }}
+              >
+                3～7天<br />预警 ({filterCounts['3-7']})
+              </button>
+              <button
+                onClick={() => setFilter('7-15')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${filter === '7-15' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-orange-700'}`}
+                style={{ minWidth: '60px', textAlign: 'center' }}
+              >
+                7～15天<br />封禁 ({filterCounts['7-15']})
+              </button>
+              <button
+                onClick={() => setFilter('15+')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${filter === '15+' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-red-700'}`}
+                style={{ minWidth: '60px', textAlign: 'center' }}
+              >
+                &gt;15天<br />删除 ({filterCounts['15+']})
+              </button>
+            </div>
+          </>
         )}
         
         {loading ? (
@@ -833,10 +896,10 @@ const Team: React.FC = () => {
                             {account.phone && <span>{account.phone}</span>}
                           </p>
                           <p className="text-[10px] text-gray-400 mt-0.5">
-                            组别：{account.groupName || '无'}
-                          </p>
-                          <p className="text-[10px] text-gray-400 mt-0.5">
                             地区：{account.region || '无'}
+                          </p>
+                          <p className="text-[10px] text-orange-600 mt-0.5">
+                            组别：{account.groupName || '无'}
                           </p>
                         </>
                       ) : (
@@ -857,8 +920,46 @@ const Team: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex flex-col items-end space-y-2">
-                    {account.createdAt && (
-                      <span className="text-[10px] text-gray-400">
+                    {account.role === 'EMPLOYEE' && (
+                      <div className="flex items-center space-x-2">
+                        {(() => {
+                          const days = account.zeroEarningsDays || 0;
+                          if (days < 3) {
+                            return (
+                              <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold bg-green-100 text-green-700 rounded-full">
+                                收益正常
+                              </span>
+                            );
+                          } else if (days >= 3 && days <= 7) {
+                            return (
+                              <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold bg-yellow-100 text-yellow-700 rounded-full">
+                                3～7天0收益
+                              </span>
+                            );
+                          } else if (days > 7 && days <= 15) {
+                            return (
+                              <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold bg-orange-100 text-orange-700 rounded-full">
+                                7～15天0收益
+                              </span>
+                            );
+                          } else if (days > 15) {
+                            return (
+                              <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold bg-red-100 text-red-700 rounded-full">
+                                &gt;15天0收益
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
+                        {account.createdAt && (
+                          <span className="text-[10px] text-[#1E40AF]">
+                            {new Date(account.createdAt).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {account.role !== 'EMPLOYEE' && account.createdAt && (
+                      <span className="text-[10px] text-[#1E40AF]">
                         {new Date(account.createdAt).toLocaleDateString()}
                       </span>
                     )}
@@ -888,7 +989,7 @@ const Team: React.FC = () => {
                     {/* 显示开通状态（只有组长账号才显示） */}
                     {(account.role !== 'EMPLOYEE' && account.groupName && (
                       <div className="mt-2 space-y-1">
-                        {!account.groupLeaderId ? (
+                        {!(account.teamGroupId || account.groupName) ? (
                           <span className="text-xs font-bold bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
                             待开通
                           </span>
@@ -899,6 +1000,7 @@ const Team: React.FC = () => {
                         )}
                       </div>
                     ))}
+
                   </div>
                 </div>
               </div>

@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { 
   Zap, Globe, Smartphone, ChevronRight, UserPlus, 
-  Search, Filter, Calendar, Users
+  Search, Filter, Calendar, Users, RefreshCw
 } from 'lucide-react';
 import { request } from '../services/api';
 import { authService } from '../services/authService';
@@ -47,6 +47,27 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
   const [yesterdayUserData, setYesterdayUserData] = useState<Record<string, number>>({});
   // 添加昨日用户收益数据，用于计算收益对比
   const [yesterdayEarningsData, setYesterdayEarningsData] = useState<Record<string, number>>({});
+  
+  // 数据缓存
+  const dataCacheRef = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
+  
+  // 获取缓存数据
+  const getCachedData = (key: string) => {
+    const cached = dataCacheRef.current.get(key);
+    if (cached && Date.now() - cached.timestamp < 60000) { // 1分钟缓存
+      return cached.data;
+    }
+    return null;
+  };
+  
+  // 设置缓存数据
+  const setCachedData = (key: string, data: any) => {
+    dataCacheRef.current.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+  };
+  
   // 计算今日新增用户数（注册天数为1的用户）
   const todayNewUsers = useMemo(() => {
     const teamNameToMatch = currentUser?.teamName || '';
@@ -71,7 +92,19 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
   }, [users]);
 
   // 使用useCallback缓存数据获取函数
-  const fetchNewUsers = useCallback(async () => {
+  const fetchNewUsers = useCallback(async (isRefresh = false) => {
+    // 检查缓存
+    const cacheKey = `new_users_${currentUser?.id || 'unknown'}`;
+    const cachedData = getCachedData(cacheKey);
+    if (cachedData && !isRefresh) {
+      const { users: cachedUsers, yesterdayUserData: cachedYesterdayUserData, yesterdayEarningsData: cachedYesterdayEarningsData } = cachedData;
+      setUsers(cachedUsers);
+      setYesterdayUserData(cachedYesterdayUserData);
+      setYesterdayEarningsData(cachedYesterdayEarningsData);
+      setLoading(false);
+      return;
+    }
+    
     setLoading(true);
     const startTime = performance.now();
     
@@ -213,6 +246,13 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
       
       setUsers(filteredUsers);
       
+      // 缓存数据
+      setCachedData(cacheKey, {
+        users: filteredUsers,
+        yesterdayUserData: yesterdayUserDataMap,
+        yesterdayEarningsData: yesterdayEarningsDataMap
+      });
+      
       const totalTime = performance.now() - startTime;
       console.log(`新人数据总加载时间: ${totalTime.toFixed(2)}ms`);
     } catch (error) {
@@ -260,6 +300,14 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
         console.log('回退API过滤后的新人用户列表:', filteredUsers.map(u => u.id));
         
         setUsers(filteredUsers);
+        
+        // 缓存数据
+        const cacheKey = `new_users_${currentUser?.id || 'unknown'}`;
+        setCachedData(cacheKey, {
+          users: filteredUsers,
+          yesterdayUserData: {},
+          yesterdayEarningsData: {}
+        });
         
         console.log('旧API加载成功');
       } catch (fallbackError) {
@@ -357,8 +405,17 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
             新人监控
             <span className="ml-2 px-2 py-0.5 bg-blue-50 text-[#1E40AF] text-[10px] rounded-lg font-bold">近15天</span>
           </h1>
-          <div className="bg-green-50 px-2 py-1 rounded-full text-green-600 text-[10px] font-black border border-green-100">
-             今日新增: {todayNewUsers}
+          <div className="flex items-center gap-2">
+            <div className="bg-green-50 px-2 py-1 rounded-full text-green-600 text-[10px] font-black border border-green-100">
+               今日新增: {todayNewUsers}
+            </div>
+            <button 
+              onClick={() => fetchNewUsers(true)}
+              className="flex items-center gap-1 px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            >
+              <RefreshCw size={14} />
+              <span className="text-[10px] font-bold">刷新</span>
+            </button>
           </div>
         </div>
 

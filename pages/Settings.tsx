@@ -166,130 +166,19 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     try {
       // 团队长获取自己团队的收益数据
       if (isTeamLeader) {
-        // 使用 getUserTeamName() 函数获取团队名称
-        const teamName = getUserTeamName();
-        
-        // 并行获取所有需要的数据，提高加载速度
-        const [todayResponse, monthResponse, lastMonthResponse, totalResponse, teamsResponse] = await Promise.all([
-          // 获取团队今日数据（使用与首页相同的API）
-          request<any>(`/admin/dashboard/kpi?range=today&team=${encodeURIComponent(teamName)}`, {
-            method: 'GET'
-          }).catch(error => {
-            console.error('Error fetching today data:', error);
-            return {};
-          }),
-          // 获取团队本月数据
-          request<any>(`/admin/dashboard/kpi?range=month&team=${encodeURIComponent(teamName)}`, {
-            method: 'GET'
-          }).catch(error => {
-            console.error('Error fetching month data:', error);
-            return {};
-          }),
-          // 获取团队上月数据
-          request<any>(`/admin/dashboard/kpi?range=lastMonth&team=${encodeURIComponent(teamName)}`, {
-            method: 'GET'
-          }).catch(error => {
-            console.error('Error fetching last month data:', error);
-            return {};
-          }),
-          // 获取团队累计金币
-          request<any>(`/admin/dashboard/kpi?range=all&team=${encodeURIComponent(teamName)}`, {
-            method: 'GET'
-          }).catch(error => {
-            console.error('Error fetching total data:', error);
-            return {};
-          }),
-          // 获取团队列表
-          request<any[]>('/team/list', { method: 'GET' }).catch(error => {
-            console.error('获取团队列表失败:', error);
-            return [];
-          })
-        ]);
-
-        // 处理团队和组数据
-        let groupsData: any[] = [];
-        const teams = Array.isArray(teamsResponse) ? teamsResponse : [];
-        const team = teams.find(t => t.leader === teamName);
-        if (team) {
-          try {
-            const groups = await request<any[]>(`/group/list?teamId=${team.id}`, {
-              method: 'GET'
-            });
-            groupsData = groups || [];
-          } catch (error) {
-            console.error('获取组列表失败:', error);
-            // API错误时使用默认组数据
-            groupsData = [
-              {
-                _id: '69b983ac05e593e7e7e4b431',
-                groupName: '我是测试'
-              }
-            ];
-          }
-        } else {
-          // 如果找不到团队，使用默认组数据
-          groupsData = [
-            {
-              _id: '69b983ac05e593e7e7e4b431',
-              groupName: '我是测试'
-            }
-          ];
-        }
-
-        // 并行获取所有组的提成数据，提高加载速度
-        const commissionPromises = groupsData.map(async (group) => {
-          if (group._id || group.id) {
-            const groupId = group._id || group.id;
-            const groupName = group.groupName || group.name || '未知组';
-            const commissionUrl = `/admin/group-leader-commission/${groupId}?range=today`;
-            
-            try {
-              const commissionData = await request<any>(commissionUrl, {
-                method: 'GET'
-              });
-              // 返回每个组的提成数据，request函数已经处理了data字段的提取
-              const totalCommission = commissionData?.totalCommission || 0;
-              return totalCommission;
-            } catch (err) {
-              console.error(`组 ${groupName} API请求异常:`, err);
-              return 0;
-            }
-          } else {
-            console.log('组没有ID:', group);
-            return 0;
-          }
+        // 使用新的团队长收益数据接口
+        const revenueResponse = await request<any>('/admin/dashboard/team-leader/revenue', {
+          method: 'GET'
         });
-
-        // 并行执行所有请求
-        const commissionResults = await Promise.all(commissionPromises);
-
-        // 累加所有组的总提成
-        const teamLeaderEarnings = commissionResults.reduce((total, commission) => total + commission, 0);
-        console.log('团队组长总收益:', teamLeaderEarnings);
-
-        // 从首页API获取的数据直接使用
-        // 团队长收益 = （团队金币 * 20%）- 团队组长收益
-        const todayTeamCoins = Number(todayResponse?.coins || todayResponse?.data?.coins || 0) / 1000;
-        const monthTeamCoins = Number(monthResponse?.coins || monthResponse?.data?.coins || 0) / 1000;
-        const lastMonthTeamCoins = Number(lastMonthResponse?.coins || lastMonthResponse?.data?.coins || 0) / 1000;
-        const totalTeamCoins = Number(totalResponse?.coins || totalResponse?.data?.coins || 0) / 1000;
         
-        console.log('Calculated coins:', { todayTeamCoins, monthTeamCoins, lastMonthTeamCoins, totalTeamCoins });
+        console.log('团队长收益数据:', revenueResponse);
         
-        // 计算收益 - 团队长收益 = （团队金币 * 20%）- 团队组长收益
-        // 确保收益不会出现负数
-        const todayEarnings = Math.max(0, todayTeamCoins * 0.2 - teamLeaderEarnings);
-        const monthEarnings = Math.max(0, monthTeamCoins * 0.2 - teamLeaderEarnings);
-        const lastMonthEarnings = Math.max(0, lastMonthTeamCoins * 0.2); // 上月收益直接使用团队金币 * 20%，不减去团队组长收益
-        const totalEarnings = Math.max(0, totalTeamCoins * 0.2); // 累计收益直接使用团队金币 * 20%，不减去团队组长收益
-        
-        console.log('Calculated earnings:', { todayEarnings, monthEarnings, lastMonthEarnings, totalEarnings });
-        
+        // 直接使用后端返回的数据
         setEarnings({
-          today: todayEarnings,
-          month: monthEarnings,
-          lastMonth: lastMonthEarnings,
-          total: totalEarnings
+          today: revenueResponse.today || 0,
+          month: revenueResponse.thisMonth || 0,
+          lastMonth: revenueResponse.lastMonth || 0,
+          total: revenueResponse.total || 0
         });
       } else if (currentUser?.role === UserRole.GROUP_LEADER) {
         // 组长获取自己组的收益数据
@@ -446,9 +335,14 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
 
 
   useEffect(() => {
-    fetchEarnings();
-    fetchWithdrawRecords();
-    loadWithdrawStatus();
+    // 并行执行所有数据获取操作，提高加载速度
+    Promise.all([
+      fetchEarnings(),
+      fetchWithdrawRecords(),
+      loadWithdrawStatus()
+    ]).catch(error => {
+      console.error('Error loading data:', error);
+    });
   }, [isTeamLeader, isGroupLeader, isSuperAdmin, currentUser?.teamName, currentUser?.teamGroupId, fetchEarnings]);
   
 

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { 
   Coins, Eye, Zap, Users, BarChart3, 
   TrendingUp, TrendingDown, Clock
@@ -30,6 +30,26 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
     // 可以根据需要添加更多映射
   };
   
+  // 数据缓存
+  const dataCacheRef = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
+  
+  // 获取缓存数据
+  const getCachedData = (key: string) => {
+    const cached = dataCacheRef.current.get(key);
+    if (cached && Date.now() - cached.timestamp < 60000) { // 1分钟缓存
+      return cached.data;
+    }
+    return null;
+  };
+  
+  // 设置缓存数据
+  const setCachedData = (key: string, data: any) => {
+    dataCacheRef.current.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+  };
+  
   // 获取用户对应的团队名称
   const getUserTeamName = () => {
     if (currentUser?.teamName) {
@@ -41,7 +61,19 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
     return '团队';
   };
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isRefresh = false) => {
+    if (!isRefresh) {
+      // 检查缓存
+      const cacheKey = `${timeRange}_${currentUser?.id || 'unknown'}`;
+      const cachedData = getCachedData(cacheKey);
+      if (cachedData) {
+        setKpiData(cachedData);
+        setLoading(false);
+        onDataLoaded?.();
+        return;
+      }
+    }
+    
     setLoading(true);
 
     let responseData: any = null;
@@ -70,7 +102,6 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
         '本月': 'month'
       };
       const formattedTimeRange = timeRangeMap[timeRange] || 'today';
-      console.log('处理后的时间范围:', formattedTimeRange);
       
       // 使用正确的 API 路径 - 团队长KPI接口
       const teamName = getUserTeamName();
@@ -84,13 +115,10 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
         if (result?.kpi) {
           // 格式: { kpi: {...} }
           responseData = result.kpi;
-          console.log('使用格式: result.kpi');
         } else {
           // 格式: 直接返回kpi数据
           responseData = result;
-          console.log('使用格式: result');
         }
-        console.log('KPI API返回数据:', responseData);
       } catch (error) {
         console.error('获取KPI数据失败:', error);
         // 即使KPI数据获取失败，也继续获取其他数据
@@ -128,17 +156,9 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
         });
         
         totalUsersCount = teamEmployees.length;
-        console.log('账号管理中的员工账号数量（已启用）:', totalUsersCount);
       } catch (error) {
         console.error('获取员工账号列表失败:', error);
       }
-      
-      console.log('从后端获取的KPI数据:');
-      console.log('团队用户收益:', userShare);
-      console.log('团队组长收益:', teamLeaderEarnings);
-      console.log('今日活跃用户:', activeUsersCount);
-      console.log('广告总曝光:', responseData?.impressions);
-      console.log('单条平均金币:', responseData?.avgGoldPerAd);
 
       // 计算团队提成收益 = 团队长提成收益
       const teamShare = Number(responseData?.teamLeadCommission || 0);
@@ -200,9 +220,10 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
         }
       ];
 
-      console.log('转换后的KPI数据:', transformedKpis);
-      console.log('activeUsersCount:', activeUsersCount);
-      console.log('totalUsersCount:', totalUsersCount);
+      // 缓存数据
+      const cacheKey = `${timeRange}_${currentUser?.id || 'unknown'}`;
+      setCachedData(cacheKey, transformedKpis);
+      
       setKpiData(transformedKpis);
     } catch (error) {
       console.error('获取数据失败:', error);
@@ -213,7 +234,7 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
       // 调用数据加载完成回调
       onDataLoaded?.();
     }
-  }, [timeRange, currentUser]);
+  }, [timeRange, currentUser, onDataLoaded]);
 
   useEffect(() => {
     fetchData();
