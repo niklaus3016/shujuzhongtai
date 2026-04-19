@@ -1,6 +1,4 @@
 #!/bin/bash
-# 设置环境变量
+# React 应用启动
 export NODE_ENV=production
-
-# 启动 nginx
-nginx -g "daemon off;"
+npx serve -s dist -l 3003
