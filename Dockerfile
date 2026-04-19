@@ -31,8 +31,8 @@ COPY entrypoint.sh /entrypoint.sh
 # 设置执行权限
 RUN chmod +x /entrypoint.sh
 
-# 暴露3005端口
-EXPOSE 3005
+# 暴露3003端口
+EXPOSE 3003
 
 # 启动nginx
 CMD ["/entrypoint.sh"]

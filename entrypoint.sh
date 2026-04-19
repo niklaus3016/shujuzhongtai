@@ -1,4 +1,6 @@
 #!/bin/bash
+# 设置环境变量
 export NODE_ENV=production
-npm run build
-npx vite preview --host 0.0.0.0 --port 3003
+
+# 启动 nginx
+nginx -g "daemon off;"
