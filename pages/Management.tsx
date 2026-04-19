@@ -12,12 +12,13 @@ import DeviceLimitManagement from './DeviceLimitManagement';
 import LotteryManagement from './LotteryManagement';
 import VerificationManagement from './VerificationManagement';
 import GoldAdjustment from './GoldAdjustment';
+import GoldAdjustmentToday from './GoldAdjustmentToday';
 import WelfareLotteryManagement from './WelfareLotteryManagement';
 
 interface ManagementProps {}
 
 const Management: React.FC<ManagementProps> = () => {
-  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification' | 'gold-adjustment' | 'welfare-lottery'>('main');
+  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification' | 'gold-adjustment' | 'gold-adjustment-today' | 'welfare-lottery'>('main');
   const [withdrawEnabled, setWithdrawEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showDeductionModal, setShowDeductionModal] = useState(false);
@@ -539,6 +540,10 @@ const Management: React.FC<ManagementProps> = () => {
     return <GoldAdjustment onBack={() => setActivePage('main')} />;
   }
 
+  if (activePage === 'gold-adjustment-today') {
+    return <GoldAdjustmentToday onBack={() => setActivePage('main')} />;
+  }
+
   const menuItems = [
     {
       id: 'account',
@@ -636,6 +641,14 @@ const Management: React.FC<ManagementProps> = () => {
       description: '调整用户金币数量',
       color: 'text-green-500',
       bg: 'bg-green-50'
+    },
+    {
+      id: 'gold-adjustment-today',
+      icon: DollarSign,
+      title: '今日金币调整',
+      description: '手动增加用户今日金币记录',
+      color: 'text-yellow-500',
+      bg: 'bg-yellow-50'
     }
   ];
 
@@ -679,6 +692,8 @@ const Management: React.FC<ManagementProps> = () => {
                   setActivePage('verification');
                 } else if (item.id === 'gold-adjustment') {
                   setActivePage('gold-adjustment');
+                } else if (item.id === 'gold-adjustment-today') {
+                  setActivePage('gold-adjustment-today');
                 }
               }}
               className={`bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-between cursor-pointer active:bg-gray-50 transition-all ${loading && item.isToggle ? 'opacity-50' : ''}`}
