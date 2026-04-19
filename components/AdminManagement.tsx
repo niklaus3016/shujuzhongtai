@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { 
   UserPlus, Key, Shield, ShieldOff, Search, X, 
   User, Award, MoreVertical, Trash2
@@ -20,11 +20,40 @@ const AdminManagement: React.FC<AdminManagementProps> = ({ currentUser }) => {
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   
+  // 数据缓存
+  const dataCacheRef = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
+  
+  // 获取缓存数据
+  const getCachedData = useCallback((key: string) => {
+    const cached = dataCacheRef.current.get(key);
+    if (cached && Date.now() - cached.timestamp < 60000) { // 1分钟缓存
+      return cached.data;
+    }
+    return null;
+  }, []);
+  
+  // 设置缓存数据
+  const setCachedData = useCallback((key: string, data: any) => {
+    dataCacheRef.current.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+  }, []);
+  
   // Admins (Team Leaders) data
   const [admins, setAdmins] = useState<AdminUser[]>([]);
 
   useEffect(() => {
     const fetchAdmins = async () => {
+      // 检查缓存
+      const cacheKey = `admins_${currentUser?.id || 'unknown'}`;
+      const cachedData = getCachedData(cacheKey);
+      if (cachedData) {
+        setAdmins(cachedData);
+        setLoading(false);
+        return;
+      }
+      
       setLoading(true);
       try {
         // Fetch admin list from backend
@@ -35,22 +64,27 @@ const AdminManagement: React.FC<AdminManagementProps> = ({ currentUser }) => {
           })
         });
         setAdmins(adminList);
+        // 缓存数据
+        setCachedData(cacheKey, adminList);
       } catch (error) {
         console.error('Error fetching admins:', error);
         // Fallback to mock data on error
-        setAdmins([
+        const mockData = [
           { id: 'A001', username: '张管理', role: UserRole.NORMAL_ADMIN, status: 'enabled', commission: 5420.5 },
           { id: 'A002', username: '李管理', role: UserRole.NORMAL_ADMIN, status: 'enabled', commission: 3150.8 },
           { id: 'A003', username: '王主管', role: UserRole.NORMAL_ADMIN, status: 'enabled', commission: 1280.0 },
           { id: 'A004', username: '陈队长', role: UserRole.NORMAL_ADMIN, status: 'enabled', commission: 450.2 },
-        ]);
+        ];
+        setAdmins(mockData);
+        // 缓存mock数据
+        setCachedData(cacheKey, mockData);
       } finally {
         setLoading(false);
       }
     };
 
     fetchAdmins();
-  }, []);
+  }, [currentUser?.id, getCachedData, setCachedData]);
 
   const filteredAdmins = useMemo(() => {
     return admins.filter(a => 
@@ -59,16 +93,16 @@ const AdminManagement: React.FC<AdminManagementProps> = ({ currentUser }) => {
     );
   }, [admins, searchTerm]);
 
-  const handleToggleStatus = (id: string) => {
+  const handleToggleStatus = useCallback((id: string) => {
     setAdmins(prev => prev.map(a => {
       if (a.id === id) {
         return { ...a, status: a.status === 'enabled' ? 'disabled' : 'enabled' };
       }
       return a;
     }));
-  };
+  }, []);
 
-  const handleAddAdmin = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddAdmin = useCallback((e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const username = formData.get('username') as string;
@@ -83,15 +117,15 @@ const AdminManagement: React.FC<AdminManagementProps> = ({ currentUser }) => {
     
     setAdmins(prev => [newAdmin, ...prev]);
     setIsAddModalOpen(false);
-  };
+  }, []);
 
-  const handleChangePassword = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleChangePassword = useCallback((e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsPasswordModalOpen(false);
     setSelectedAdmin(null);
-  };
+  }, []);
 
-  const handleDeleteAdmin = async () => {
+  const handleDeleteAdmin = useCallback(async () => {
     if (!deletingId) return;
     
     try {
@@ -106,6 +140,10 @@ const AdminManagement: React.FC<AdminManagementProps> = ({ currentUser }) => {
       // 更新本地状态，从列表中移除被删除的团队长
       setAdmins(prev => prev.filter(a => a.id !== deletingId));
       
+      // 清除缓存
+      const cacheKey = `admins_${currentUser?.id || 'unknown'}`;
+      dataCacheRef.current.delete(cacheKey);
+      
       // 关闭删除确认模态框
       setIsDeleteModalOpen(false);
       setDeletingId(null);
@@ -115,7 +153,7 @@ const AdminManagement: React.FC<AdminManagementProps> = ({ currentUser }) => {
       setIsDeleteModalOpen(false);
       setDeletingId(null);
     }
-  };
+  }, [deletingId, currentUser?.id]);
 
   return (
     <div className="space-y-4 animate-in fade-in duration-300">

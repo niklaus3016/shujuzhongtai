@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { 
   UserPlus, Search, X, 
   MoreVertical, Check, AlertCircle, Loader2, User, Phone, MapPin, Smartphone,
@@ -38,11 +38,39 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
     groupName: ''
   });
   
+  // 数据缓存
+  const dataCacheRef = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
+  
+  // 获取缓存数据
+  const getCachedData = useCallback((key: string) => {
+    const cached = dataCacheRef.current.get(key);
+    if (cached && Date.now() - cached.timestamp < 60000) { // 1分钟缓存
+      return cached.data;
+    }
+    return null;
+  }, []);
+  
+  // 设置缓存数据
+  const setCachedData = useCallback((key: string, data: any) => {
+    dataCacheRef.current.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+  }, []);
+  
   // Groups data
   const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
     const fetchGroups = async () => {
+      // 检查缓存
+      const cacheKey = `groups_${currentUser?.id || 'unknown'}`;
+      const cachedData = getCachedData(cacheKey);
+      if (cachedData) {
+        setGroups(cachedData);
+        return;
+      }
+      
       try {
         // Fetch groups from employee data
         const employeeResponse = await request<any>('/admin/employee/list?pageSize=1000', {
@@ -64,27 +92,41 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
         
         const groupsList = Array.from(groupsMap.values());
         setGroups(groupsList);
+        // 缓存数据
+        setCachedData(cacheKey, groupsList);
       } catch (error) {
         console.error('Error fetching groups:', error);
         // Fallback to mock data on error
-        setGroups([
+        const mockData = [
           { id: 'G001', name: '一组' },
           { id: 'G002', name: '二组' },
           { id: 'G003', name: '三组' },
-        ]);
+        ];
+        setGroups(mockData);
+        // 缓存mock数据
+        setCachedData(cacheKey, mockData);
       }
     };
 
     if (currentUser.role === UserRole.SUPER_ADMIN || currentUser.role === UserRole.NORMAL_ADMIN || currentUser.role === UserRole.GROUP_LEADER) {
       fetchGroups();
     }
-  }, [currentUser]);
+  }, [currentUser, getCachedData, setCachedData]);
   
   // Employees data
   const [employees, setEmployees] = useState<AdminUser[]>([]);
 
   useEffect(() => {
     const fetchEmployees = async () => {
+      // 检查缓存
+      const cacheKey = `employees_${currentUser?.id || 'unknown'}`;
+      const cachedData = getCachedData(cacheKey);
+      if (cachedData) {
+        setEmployees(cachedData);
+        setLoading(false);
+        return;
+      }
+      
       setLoading(true);
       try {
         // Fetch employee list from backend
@@ -104,22 +146,27 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
           console.log(`Employee ${index} - 'phoneCount' in employee:`, 'phoneCount' in employee);
         });
         setEmployees(employeeList);
+        // 缓存数据
+        setCachedData(cacheKey, employeeList);
       } catch (error) {
         console.error('Error fetching employees:', error);
         // Fallback to mock data on error
-        setEmployees([
+        const mockData = [
           { id: 'E101', username: '张三', role: UserRole.EMPLOYEE, parentId: '2', coins: 5000, status: 'enabled', phoneCount: 2 },
           { id: 'E102', username: '李四', role: UserRole.EMPLOYEE, parentId: '2', coins: 3200, status: 'enabled', phoneCount: 1 },
           { id: 'E103', username: '王五', role: UserRole.EMPLOYEE, parentId: '2', coins: 1500, status: 'disabled', phoneCount: 0 },
           { id: 'E104', username: '赵六', role: UserRole.EMPLOYEE, parentId: '3', coins: 8000, status: 'enabled', phoneCount: 3 },
-        ]);
+        ];
+        setEmployees(mockData);
+        // 缓存mock数据
+        setCachedData(cacheKey, mockData);
       } finally {
         setLoading(false);
       }
     };
 
     fetchEmployees();
-  }, [currentUser.id]); // 只依赖 currentUser.id，避免整个对象变化
+  }, [currentUser.id, getCachedData, setCachedData]); // 只依赖 currentUser.id，避免整个对象变化
 
   // 过滤后的员工列表
   const filteredEmployees = useMemo(() => {
@@ -138,16 +185,16 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
     );
   }, [employees, searchTerm, currentUser]);
 
-  const handleToggleStatus = (id: string) => {
+  const handleToggleStatus = useCallback((id: string) => {
     setEmployees(prev => prev.map(e => {
       if (e.id === id) {
         return { ...e, status: e.status === 'enabled' ? 'disabled' : 'enabled' };
       }
       return e;
     }));
-  };
+  }, []);
 
-  const handleAddEmployee = async () => {
+  const handleAddEmployee = useCallback(async () => {
     if (!formData.name || !formData.phone) {
       return;
     }
@@ -181,15 +228,19 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
       setIsAddModalOpen(false);
       setFormData({ name: '', phone: '', region: '', phoneCount: '', teamGroupId: '', groupName: '' });
       setError(null);
+      
+      // 清除缓存
+      const cacheKey = `employees_${currentUser?.id || 'unknown'}`;
+      dataCacheRef.current.delete(cacheKey);
     } catch (error: any) {
       console.error('Failed to add employee:', error);
       setError(error.message || '添加失败，请重试');
     } finally {
       setSaving(false);
     }
-  };
+  }, [formData, currentUser, setIsAddModalOpen]);
 
-  const handleEditEmployee = async () => {
+  const handleEditEmployee = useCallback(async () => {
     if (!selectedEmployee) return;
     setError(null);
 
@@ -234,6 +285,9 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
       });
       const employeeList = Array.isArray(employeeResponse) ? employeeResponse : (employeeResponse?.data || []);
       setEmployees(employeeList);
+      // 缓存数据
+      const cacheKey = `employees_${currentUser?.id || 'unknown'}`;
+      setCachedData(cacheKey, employeeList);
       setError(null);
     } catch (error: any) {
       console.error('Error updating employee:', error);
@@ -241,9 +295,9 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
     } finally {
       setSaving(false);
     }
-  };
+  }, [selectedEmployee, formData, currentUser, setIsEditModalOpen, setCachedData]);
 
-  const handleDeleteEmployee = async () => {
+  const handleDeleteEmployee = useCallback(async () => {
     if (!deletingEmployee) return;
     
     setSaving(true);
@@ -264,6 +318,9 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
       });
       const employeeList = Array.isArray(employeeResponse) ? employeeResponse : (employeeResponse?.data || []);
       setEmployees(employeeList);
+      // 缓存数据
+      const cacheKey = `employees_${currentUser?.id || 'unknown'}`;
+      setCachedData(cacheKey, employeeList);
       setError(null);
     } catch (error: any) {
       console.error('Error deleting employee:', error);
@@ -271,16 +328,16 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
     } finally {
       setSaving(false);
     }
-  };
+  }, [deletingEmployee, currentUser, setIsDeleteModalOpen, setCachedData]);
 
-  const handleChangePassword = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleChangePassword = useCallback((e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     // In real app, call API
     setIsPasswordModalOpen(false);
     setSelectedEmployee(null);
-  };
+  }, []);
 
-  const openEditModal = (employee: AdminUser) => {
+  const openEditModal = useCallback((employee: AdminUser) => {
     setSelectedEmployee(employee);
     setFormData({
       name: employee.username || '',
@@ -291,21 +348,21 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
       groupName: employee.groupName || ''
     });
     setIsEditModalOpen(true);
-  };
+  }, [setIsEditModalOpen]);
 
-  const openDeleteModal = (employee: AdminUser) => {
+  const openDeleteModal = useCallback((employee: AdminUser) => {
     setDeletingEmployee(employee);
     setIsDeleteModalOpen(true);
-  };
+  }, [setIsDeleteModalOpen]);
 
-  const getRoleColor = (role: UserRole) => {
+  const getRoleColor = useCallback((role: UserRole) => {
     switch (role) {
       case UserRole.SUPER_ADMIN: return 'bg-purple-50 text-purple-600';
       case UserRole.NORMAL_ADMIN: return 'bg-blue-50 text-blue-600';
       case UserRole.EMPLOYEE: return 'bg-green-50 text-green-600';
       default: return 'bg-gray-50 text-gray-600';
     }
-  };
+  }, []);
 
   return (
     <div className="space-y-4 animate-in fade-in duration-300 employee-management">
