@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   ChevronLeft, UserPlus, Users, Search, ChevronRight,
   Shield, User, Crown, Star, ToggleLeft, ToggleRight, Trash2, Phone, MapPin, Users2, Edit2, ChevronDown, CheckCircle
@@ -58,6 +58,31 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     password: ''
   });
   
+  // 数据缓存
+  const dataCacheRef = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
+  
+  // 获取缓存数据
+  const getCachedData = useCallback((key: string) => {
+    const cached = dataCacheRef.current.get(key);
+    if (cached && Date.now() - cached.timestamp < 60000) { // 1分钟缓存
+      return cached.data;
+    }
+    return null;
+  }, []);
+  
+  // 设置缓存数据
+  const setCachedData = useCallback((key: string, data: any) => {
+    dataCacheRef.current.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+  }, []);
+  
+  // 清除缓存
+  const clearCache = useCallback(() => {
+    dataCacheRef.current.clear();
+  }, []);
+  
   // 使用左滑返回hook
   const swipeRef = useSwipeBack({ onBack });
   
@@ -90,12 +115,28 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     return null;
   };
 
-  const fetchAccounts = async () => {
+  const fetchAccounts = useCallback(async () => {
     setLoading(true);
     // 保存当前滚动位置
     const scrollPosition = window.scrollY || document.documentElement.scrollTop;
     const startTime = performance.now();
     try {
+      // 尝试从缓存获取数据
+      const cachedData = getCachedData('accounts_all');
+      if (cachedData) {
+        console.log('从缓存加载账号数据');
+        const { accounts: cachedAccounts, teamLeaders: cachedTeamLeaders, groups: cachedGroups } = cachedData;
+        setAccounts(cachedAccounts);
+        setTeamLeaders(cachedTeamLeaders);
+        setGroups(cachedGroups);
+        setLoading(false);
+        // 恢复滚动位置
+        setTimeout(() => {
+          window.scrollTo(0, scrollPosition);
+        }, 0);
+        return;
+      }
+      
       // 获取当前用户信息
       const user = await fetchCurrentUser();
       const isTeamLeader = user?.role === 'NORMAL_ADMIN';
@@ -106,7 +147,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       console.log('团队名称:', teamName);
       
       // 并行获取所有数据，提高加载速度
-      const [teamResponse, employeeResponse, teamsListResponse] = await Promise.all([
+      const [teamResponse, employeeResponse] = await Promise.all([
         request<any>('/admin/account/list', { method: 'GET' }).catch(error => {
           console.error('Error fetching team accounts:', error);
           return null;
@@ -114,39 +155,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         request<any>('/admin/employee/list?pageSize=1000', { method: 'GET' }).catch(error => {
           console.error('Error fetching employee accounts:', error);
           return null;
-        }),
-        request<any>('/team/list', { method: 'GET' }).catch(error => {
-          console.error('Error fetching teams list:', error);
-          return null;
         })
       ]);
-      
-      // 获取所有团队的组长账号
-      let apiGroupLeaders: any[] = [];
-      if (teamsListResponse) {
-        const teams = Array.isArray(teamsListResponse) ? teamsListResponse : (teamsListResponse?.data || []);
-        console.log('Teams list:', teams);
-        
-        // 并行获取所有团队的组长账号（带统计数据）
-        const groupLeadersPromises = teams.map(async (team: any) => {
-          try {
-            const teamGroupLeaders = await request<any>(`/admin/employee/group-leaders?teamId=${team.id}&includeStats=true`, { method: 'GET' });
-            const leaders = Array.isArray(teamGroupLeaders) ? teamGroupLeaders : (teamGroupLeaders?.data || []);
-            // 为每个组长添加团队名称
-            return leaders.map((leader: any) => ({
-              ...leader,
-              teamName: team.leader || team.name || team.teamName || '未知团队'
-            }));
-          } catch (error) {
-            console.error(`Error fetching group leaders for team ${team.id}:`, error);
-            return [];
-          }
-        });
-        
-        const groupLeadersResults = await Promise.all(groupLeadersPromises);
-        apiGroupLeaders = groupLeadersResults.flat();
-        console.log('All group leaders from API:', apiGroupLeaders);
-      }
       
       const apiTime = performance.now() - startTime;
       console.log(`API请求时间: ${apiTime.toFixed(2)}ms`);
@@ -154,7 +164,6 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       // 打印原始API响应
       console.log('团队账号API响应:', teamResponse);
       console.log('员工账号API响应:', employeeResponse);
-      console.log('团队列表API响应:', teamsListResponse);
       
       // 处理团队账号数据
       const rawTeamAccounts = teamResponse 
@@ -189,29 +198,9 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         password: '123456'
       }));
       
-      console.log('API组长数据:', apiGroupLeaders);
-      console.log('API组长数量:', apiGroupLeaders.length);
-      
-      // 转换API组长数据为账号格式
-      const convertedApiGroupLeaders = apiGroupLeaders.map((leader: any) => ({
-        _id: leader._id,
-        groupLeaderId: leader.groupLeaderId,
-        realName: leader.groupLeaderName || leader.realName || '未知组长',
-        username: leader.username || leader.userName || leader.groupLeaderName || '未知用户名',
-        role: 'GROUP_LEADER',
-        status: 'active',
-        groupName: leader.groupName,
-        teamName: leader.teamName,
-        parentId: leader.teamLeaderId,
-        commission: leader.commission,
-        phone: leader.phone || leader.mobile || '',
-        region: leader.region || leader.area || '',
-        createdAt: leader.createdAt
-      }));
-      
       // 合并组长账号并去重
       const groupLeadersMap = new Map();
-      const allLeaders = [...employeeGroupLeaders, ...teamGroupLeaders, ...convertedApiGroupLeaders];
+      const allLeaders = [...employeeGroupLeaders, ...teamGroupLeaders];
       
       allLeaders.forEach(leader => {
         // 优先使用 realName 和 teamName 的组合作为去重键
@@ -306,9 +295,6 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         employeeId: a.employeeId 
       })));
       
-      setAccounts(allAccounts);
-      setTeamLeaders(teamAccounts);
-      
       // 从所有员工数据中提取组信息，而不是只从过滤后的员工数据中提取
       const groupsMap = new Map();
       employeeAccounts.forEach((e: any) => {
@@ -323,7 +309,18 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           }
         }
       });
-      setGroups(Array.from(groupsMap.values()));
+      const groups = Array.from(groupsMap.values());
+      
+      // 保存到缓存
+      setCachedData('accounts_all', {
+        accounts: allAccounts,
+        teamLeaders: teamAccounts,
+        groups: groups
+      });
+      
+      setAccounts(allAccounts);
+      setTeamLeaders(teamAccounts);
+      setGroups(groups);
       
       const totalTime = performance.now() - startTime;
       console.log(`总加载时间: ${totalTime.toFixed(2)}ms`);
@@ -339,11 +336,11 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         window.scrollTo(0, scrollPosition);
       }, 0);
     }
-  };
+  }, [getCachedData, setCachedData]);
 
   useEffect(() => {
     fetchAccounts();
-  }, []);
+  }, [fetchAccounts]);
 
 
 
@@ -452,25 +449,22 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           }
         }
       } else {
-        // 获取选中的组信息
-        const selectedGroup = groups.find(g => g._id === formData.parentId);
-        const selectedTeam = teamLeaders.find(t => t._id === selectedGroup?.teamLeaderId);
-        
-        await request<any>('/admin/account/add-employee', {
-          method: 'POST',
-          body: JSON.stringify({
-            username: formData.realName,
-            password: '123456', // 默认密码
-            parentId: selectedGroup?.teamLeaderId || formData.parentId,
-            realName: formData.realName,
-            phone: formData.phone,
-            region: formData.region,
-            groupId: formData.parentId,
-            groupName: selectedGroup?.groupName,
-            teamName: selectedTeam?.teamName
-          })
-        });
-      }
+          // 获取选中的组信息
+          const selectedGroup = groups.find(g => g._id === formData.groupId);
+          const selectedTeam = teamLeaders.find(t => t._id === formData.parentId);
+          
+          await request<any>('/admin/employee/create', {
+            method: 'POST',
+            body: JSON.stringify({
+              parentId: formData.parentId,
+              realName: formData.realName,
+              phone: formData.phone,
+              region: formData.region,
+              teamGroupId: formData.groupId || '',
+              groupName: selectedGroup?.groupName || ''
+            })
+          });
+        }
       
       setShowAddModal(false);
       setFormData({
@@ -486,6 +480,9 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         groupName: '',
         commissionRate: ''
       });
+      
+      // 清除缓存并刷新账号列表
+      clearCache();
       fetchAccounts();
     } catch (error: any) {
       console.error('Error adding account:', error);
@@ -656,7 +653,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           });
           console.log('管理员删除API响应:', adminResponse);
         }
-      } else if (deletingAccount.role === 'employee') {
+      } else if (deletingAccount.role === 'employee' || deletingAccount.employeeId) {
         // 普通员工使用员工删除API
         const employeeApiUrl = `/admin/employee/${deletingAccount._id}`;
         console.log('使用员工删除API:', employeeApiUrl);
@@ -677,6 +674,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       console.error('Error deleting account:', error);
       setError(error.message || '删除账号失败');
     } finally {
+      // 清除缓存，确保重新获取最新数据
+      dataCacheRef.current.delete('accounts_all');
       // 无论删除成功与否，都关闭弹窗并刷新账号列表
       setShowDeleteModal(false);
       setDeletingAccount(null);

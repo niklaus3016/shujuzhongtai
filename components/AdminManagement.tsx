@@ -70,10 +70,10 @@ const AdminManagement: React.FC<AdminManagementProps> = ({ currentUser }) => {
         console.error('Error fetching admins:', error);
         // Fallback to mock data on error
         const mockData = [
-          { id: 'A001', username: '张管理', role: UserRole.NORMAL_ADMIN, status: 'enabled', commission: 5420.5 },
-          { id: 'A002', username: '李管理', role: UserRole.NORMAL_ADMIN, status: 'enabled', commission: 3150.8 },
-          { id: 'A003', username: '王主管', role: UserRole.NORMAL_ADMIN, status: 'enabled', commission: 1280.0 },
-          { id: 'A004', username: '陈队长', role: UserRole.NORMAL_ADMIN, status: 'enabled', commission: 450.2 },
+          { id: 'A001', username: '张管理', role: UserRole.NORMAL_ADMIN, status: 'enabled' as const, commission: 5420.5 },
+          { id: 'A002', username: '李管理', role: UserRole.NORMAL_ADMIN, status: 'enabled' as const, commission: 3150.8 },
+          { id: 'A003', username: '王主管', role: UserRole.NORMAL_ADMIN, status: 'enabled' as const, commission: 1280.0 },
+          { id: 'A004', username: '陈队长', role: UserRole.NORMAL_ADMIN, status: 'enabled' as const, commission: 450.2 },
         ];
         setAdmins(mockData);
         // 缓存mock数据

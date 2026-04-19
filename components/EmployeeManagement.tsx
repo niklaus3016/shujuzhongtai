@@ -152,10 +152,10 @@ const EmployeeManagement: React.FC<EmployeeManagementProps> = ({ currentUser, is
         console.error('Error fetching employees:', error);
         // Fallback to mock data on error
         const mockData = [
-          { id: 'E101', username: '张三', role: UserRole.EMPLOYEE, parentId: '2', coins: 5000, status: 'enabled', phoneCount: 2 },
-          { id: 'E102', username: '李四', role: UserRole.EMPLOYEE, parentId: '2', coins: 3200, status: 'enabled', phoneCount: 1 },
-          { id: 'E103', username: '王五', role: UserRole.EMPLOYEE, parentId: '2', coins: 1500, status: 'disabled', phoneCount: 0 },
-          { id: 'E104', username: '赵六', role: UserRole.EMPLOYEE, parentId: '3', coins: 8000, status: 'enabled', phoneCount: 3 },
+          { id: 'E101', username: '张三', role: UserRole.EMPLOYEE, parentId: '2', coins: 5000, status: 'enabled' as const, phoneCount: 2 },
+          { id: 'E102', username: '李四', role: UserRole.EMPLOYEE, parentId: '2', coins: 3200, status: 'enabled' as const, phoneCount: 1 },
+          { id: 'E103', username: '王五', role: UserRole.EMPLOYEE, parentId: '2', coins: 1500, status: 'disabled' as const, phoneCount: 0 },
+          { id: 'E104', username: '赵六', role: UserRole.EMPLOYEE, parentId: '3', coins: 8000, status: 'enabled' as const, phoneCount: 3 },
         ];
         setEmployees(mockData);
         // 缓存mock数据
