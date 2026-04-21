@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { request } from '../services/api';
 import { authService } from '../services/authService';
+import { cacheManager } from '../services/cacheManager';
 import TeamLeaderDashboard from '../components/TeamLeaderDashboard';
 import GroupLeader from './GroupLeader';
 
@@ -27,6 +28,25 @@ interface DashboardUser {
   teamGroupId?: string;
   groupName?: string;
   regDays: number;
+}
+
+interface NewUser {
+  id: string;
+  userId: string;
+  name: string;
+  avatar: string;
+  watched: number;
+  earnings: number;
+  ipCount: number;
+  deviceCount: number;
+  ecpm: number;
+  regDays: number;
+  superior?: string;
+  isOnline?: boolean;
+  groupName?: string;
+  groupLeaderName?: string;
+  lastActiveTime?: string;
+  loginDays?: number;
 }
 
 interface DashboardProps {
@@ -55,7 +75,31 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
   useEffect(() => {
     const user = authService.getCurrentUser();
     setCurrentUser(user);
+    
+    // 恢复滚动位置
+    const savedPosition = sessionStorage.getItem('dashboard_scroll_position');
+    if (savedPosition) {
+      setTimeout(() => {
+        window.scrollTo(0, parseInt(savedPosition, 10));
+        // 清除保存的位置
+        sessionStorage.removeItem('dashboard_scroll_position');
+      }, 100);
+    }
   }, []);
+
+  // 当currentUser变化时，恢复昨日数据
+  useEffect(() => {
+    if (currentUser) {
+      const todayCacheKey = `today_${currentUser.id}`;
+      const cachedData = cacheManager.get(todayCacheKey, 300000);
+      if (cachedData && cachedData.yesterdayUserData && cachedData.yesterdayEarningsData) {
+        console.log('[Dashboard] 从缓存恢复昨日数据，键:', todayCacheKey, '数据:', cachedData.yesterdayEarningsData);
+        setYesterdayUserData(cachedData.yesterdayUserData);
+        setYesterdayEarningsData(cachedData.yesterdayEarningsData);
+        yesterdayUserDataRef.current = cachedData.yesterdayUserData;
+      }
+    }
+  }, [currentUser]);
   
   const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
   const isGroupLeader = currentUser?.role === UserRole.GROUP_LEADER;
@@ -104,24 +148,17 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
   // 使用ref存储昨日数据，避免闭包问题
   const yesterdayUserDataRef = React.useRef<Record<string, number>>({});
   
-  // 数据缓存
-  const dataCacheRef = React.useRef<Map<string, { data: any; timestamp: number }>>(new Map());
-  
   // 获取缓存数据
   const getCachedData = (key: string) => {
-    const cached = dataCacheRef.current.get(key);
-    if (cached && Date.now() - cached.timestamp < 60000) { // 1分钟缓存
-      return cached.data;
-    }
-    return null;
+    // 为不同时间范围设置不同的缓存时间
+    const cacheTime = key.includes('today') ? 300000 : 600000; // 今日数据5分钟，其他10分钟
+    return cacheManager.get(key, cacheTime);
   };
   
   // 设置缓存数据
   const setCachedData = (key: string, data: any) => {
-    dataCacheRef.current.set(key, {
-      data,
-      timestamp: Date.now()
-    });
+    console.log('[Dashboard] 设置缓存，键:', key, '数据:', data ? `存在(${data.users?.length || data.teams?.length || 'unknown'}条)` : '空');
+    cacheManager.set(key, data);
   };
 
   // Time range mapping
@@ -152,50 +189,126 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       const rangeParam = timeRangeMap[timeRange];
       const cacheKey = `${rangeParam}_${currentUser.id}`;
       
+      // 声明昨日数据映射变量
+      let yesterdayUserMap: Record<string, number> = {};
+      let yesterdayEarningsMap: Record<string, number> = {};
+      
       // 检查缓存
       const cachedData = getCachedData(cacheKey);
       if (cachedData && !isRefresh) {
-        const { kpiData: cachedKpiData, userData: cachedUserData } = cachedData;
+        const { kpiData: cachedKpiData, userData: cachedUserData, yesterdayUserData: cachedYesterdayUserData, yesterdayEarningsData: cachedYesterdayEarningsData } = cachedData;
         setKpiData(cachedKpiData);
         setUserData(cachedUserData);
+        // 同时设置昨日数据
+        if (cachedYesterdayUserData && cachedYesterdayEarningsData) {
+          setYesterdayUserData(cachedYesterdayUserData);
+          setYesterdayEarningsData(cachedYesterdayEarningsData);
+          yesterdayUserDataRef.current = cachedYesterdayUserData;
+        }
+        // 无论是否有昨日数据，都使用缓存的今日数据
         if (!isTeamLeader) {
           setLoading(false);
         }
         setRefreshing(false);
+        
+        // 后台预加载其他时间范围的数据（包括昨日数据）
+        preloadOtherTimeRanges();
         return;
       }
 
-      // 1. 优先获取KPI数据（最关键）
+      // 1. 并行获取所有数据，减少等待时间
       let kpiResponse: any = null;
       let yesterdayKpiResponse: any = null;
+      let userResponse: any = null;
+      let yesterdayUserResponse: any = null;
       let transformedKpis: any[] = [];
       
-      if (showKPIDashboard) {
-        let kpiUrl = `/admin/dashboard/kpi?range=${rangeParam}`;
+      try {
+        console.log('[Dashboard] 开始并行获取数据', { timeRange, showKPIDashboard, isTeamLeader, isGroupLeader, isSuperAdmin });
+        const startTime = Date.now();
         
-        // 组长获取自己组的KPI数据
-        if (isGroupLeader) {
-          const teamGroupId = currentUser.teamGroupId;
-          kpiUrl = `/admin/dashboard/kpi?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}`;
-        }
+        // 构建API请求
+        const requests: Promise<any>[] = [];
         
-        kpiResponse = await request<any>(kpiUrl, { method: 'GET' });
-
-        // 如果是今日数据，同时获取昨日数据用于计算增长率
-        if (timeRange === TimeRange.TODAY) {
-          let yesterdayKpiUrl = `/admin/dashboard/kpi?range=yesterday`;
-          
-          // 组长获取自己组的昨日KPI数据
+        // KPI数据请求
+        if (showKPIDashboard) {
+          let kpiUrl = `/admin/dashboard/kpi?range=${rangeParam}`;
           if (isGroupLeader) {
             const teamGroupId = currentUser.teamGroupId;
-            yesterdayKpiUrl = `/admin/dashboard/kpi?range=yesterday&group=${encodeURIComponent(teamGroupId || '')}`;
+            kpiUrl = `/admin/dashboard/kpi?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}`;
           }
+          console.log('[Dashboard] 添加KPI请求:', kpiUrl);
+          requests.push(request<any>(kpiUrl, { method: 'GET' }));
           
-          yesterdayKpiResponse = await request<any>(yesterdayKpiUrl, { method: 'GET' });
-          setYesterdayKpiData(yesterdayKpiResponse);
+          // 今日数据时，同时获取昨日KPI数据
+          if (timeRange === TimeRange.TODAY) {
+            let yesterdayKpiUrl = `/admin/dashboard/kpi?range=yesterday`;
+            if (isGroupLeader) {
+              const teamGroupId = currentUser.teamGroupId;
+              yesterdayKpiUrl = `/admin/dashboard/kpi?range=yesterday&group=${encodeURIComponent(teamGroupId || '')}`;
+            }
+            console.log('[Dashboard] 添加昨日KPI请求:', yesterdayKpiUrl);
+            requests.push(request<any>(yesterdayKpiUrl, { method: 'GET' }));
+          }
+        } else {
+          // 非KPI面板时，添加占位Promise
+          requests.push(Promise.resolve(null));
+          if (timeRange === TimeRange.TODAY) {
+            requests.push(Promise.resolve(null));
+          }
         }
-
-        // 2. 立即更新KPI数据，让用户看到初步结果
+        
+        // 用户数据请求
+        let userUrl = `/admin/dashboard/users?range=${rangeParam}`;
+        if (isGroupLeader) {
+          const teamGroupId = currentUser.teamGroupId;
+          userUrl = `/admin/dashboard/users?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}`;
+        } else if (isTeamLeader) {
+          const teamName = getUserTeamName();
+          userUrl = `/admin/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}`;
+        }
+        console.log('[Dashboard] 添加用户请求:', userUrl);
+        requests.push(request<any[]>(userUrl, { method: 'GET' }));
+        
+        // 今日数据时，同时获取昨日用户数据
+        if (timeRange === TimeRange.TODAY) {
+          let yesterdayUserUrl = `/admin/dashboard/users?range=yesterday`;
+          if (isGroupLeader) {
+            const teamGroupId = currentUser.teamGroupId;
+            yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&group=${encodeURIComponent(teamGroupId || '')}`;
+          } else if (isTeamLeader) {
+            const teamName = getUserTeamName();
+            yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}`;
+          }
+          console.log('[Dashboard] 添加昨日用户请求:', yesterdayUserUrl);
+          requests.push(request<any[]>(yesterdayUserUrl, { method: 'GET' }));
+        } else {
+          // 非今日数据时，添加占位Promise
+          requests.push(Promise.resolve(null));
+        }
+        
+        console.log(`[Dashboard] 共有 ${requests.length} 个请求需要并行执行`);
+        
+        // 并行执行所有请求
+        const responses = await Promise.all(requests);
+        
+        console.log(`[Dashboard] 所有请求完成，耗时: ${Date.now() - startTime}ms`);
+        
+        // 处理响应结果
+        let responseIndex = 0;
+        if (showKPIDashboard) {
+          kpiResponse = responses[responseIndex++];
+          if (timeRange === TimeRange.TODAY) {
+            yesterdayKpiResponse = responses[responseIndex++];
+            setYesterdayKpiData(yesterdayKpiResponse);
+          }
+        }
+        userResponse = responses[responseIndex++];
+        if (timeRange === TimeRange.TODAY) {
+          yesterdayUserResponse = responses[responseIndex++];
+        }
+        
+        // 2. 处理KPI数据
         if (kpiResponse) {
           // Time prefix for dynamic titles
           const timePrefixMap: Record<string, string> = {
@@ -211,16 +324,29 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
           const userShare = Number(kpiResponse.coins || 0) / 1000;
           const platformCost = userShare * 0.2;
 
+          // 计算今日利润
+          const todayProfit = Number(kpiResponse.revenue || 0) - userShare - platformCost;
+          
           // 计算利润率
-          const todayProfitMargin = kpiResponse.revenue > 0 ? ((Number(kpiResponse.revenue || 0) - userShare - platformCost) / Number(kpiResponse.revenue) * 100) : 0;
+          const todayProfitMargin = kpiResponse.revenue > 0 ? ((todayProfit) / Number(kpiResponse.revenue) * 100) : 0;
 
           // 计算利润率增长率（今日 - 昨日）
           let profitMarginGrowth = 0;
+          // 计算利润增长率（今日 - 昨日）
+          let profitGrowth = 0;
           if (timeRange === TimeRange.TODAY && yesterdayKpiResponse) {
             const yesterdayUserShare = Number(yesterdayKpiResponse.coins || 0) / 1000;
             const yesterdayPlatformCost = yesterdayUserShare * 0.2;
-            const yesterdayProfitMargin = yesterdayKpiResponse.revenue > 0 ? ((Number(yesterdayKpiResponse.revenue || 0) - yesterdayUserShare - yesterdayPlatformCost) / Number(yesterdayKpiResponse.revenue) * 100) : 0;
+            const yesterdayProfit = Number(yesterdayKpiResponse.revenue || 0) - yesterdayUserShare - yesterdayPlatformCost;
+            const yesterdayProfitMargin = yesterdayKpiResponse.revenue > 0 ? ((yesterdayProfit) / Number(yesterdayKpiResponse.revenue) * 100) : 0;
             profitMarginGrowth = todayProfitMargin - yesterdayProfitMargin;
+            
+            // 计算利润增长率
+            if (yesterdayProfit > 0) {
+              profitGrowth = ((todayProfit - yesterdayProfit) / yesterdayProfit) * 100;
+            } else if (todayProfit > 0) {
+              profitGrowth = 100; // 昨日为0，今日有利润，增长率100%
+            }
           }
 
           // 计算活跃用户增长率（今日 - 昨日）
@@ -294,7 +420,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
           } else {
             // 为其他角色显示通用的KPI数据结构
             transformedKpis = [
-              { title: `${timePrefix}利润`, value: `¥${(Number(kpiResponse.revenue || 0) - userShare - platformCost).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: BarChart3, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+              { title: `${timePrefix}利润`, value: `¥${todayProfit.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${profitGrowth > 0 ? '+' : ''}${profitGrowth.toFixed(2)}%` : '', isUp: profitGrowth > 0, icon: BarChart3, color: 'text-indigo-600', bg: 'bg-indigo-50' },
               { title: `${timePrefix}利润率`, value: `${todayProfitMargin.toFixed(2)}%`, growth: showGrowth ? `${profitMarginGrowth > 0 ? '+' : ''}${profitMarginGrowth.toFixed(2)}%` : '', isUp: profitMarginGrowth > 0, icon: Percent, color: 'text-pink-600', bg: 'bg-pink-50' },
               { title: '业务总收入', value: `¥${Number(kpiResponse.revenue || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: Wallet, color: 'text-green-600', bg: 'bg-green-50' },
               { title: '用户分成金额', value: `¥${(Number(kpiResponse.coins || 0) / 1000).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, subValue: `${kpiResponse.revenue > 0 ? ((Number(kpiResponse.coins || 0) / 1000 / Number(kpiResponse.revenue)) * 100).toFixed(2) : '0.00'}%`, growth: showGrowth ? `${kpiResponse.coinsGrowth > 0 ? '+' : ''}${kpiResponse.coinsGrowth || 0}%` : '', isUp: kpiResponse.coinsGrowth > 0, icon: Coins, color: 'text-orange-600', bg: 'bg-orange-50' },
@@ -305,116 +431,346 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
             ];
           }
 
+          // 立即更新KPI数据，让用户看到初步结果
           setKpiData(transformedKpis);
         }
-      }
+        
+        // 3. 处理昨日用户数据
+        if (timeRange === TimeRange.TODAY && yesterdayUserResponse) {
+          // 构建昨日用户数据映射
+          if (yesterdayUserResponse && !Array.isArray(yesterdayUserResponse) && yesterdayUserResponse.data && Array.isArray(yesterdayUserResponse.data)) {
+            yesterdayUserResponse.data.forEach((user: any) => {
+              const userId = user.userId || user.employeeId || '';
+              yesterdayUserMap[userId] = user.watched || 0;
+              yesterdayEarningsMap[userId] = (user.earnings || 0) / 1000;
+            });
+          } else if (Array.isArray(yesterdayUserResponse)) {
+            yesterdayUserResponse.forEach((user: any) => {
+              const userId = user.userId || user.employeeId || '';
+              yesterdayUserMap[userId] = user.watched || 0;
+              yesterdayEarningsMap[userId] = (user.earnings || 0) / 1000;
+            });
+          }
+          yesterdayUserDataRef.current = yesterdayUserMap;
+          setYesterdayUserData(yesterdayUserMap);
+          setYesterdayEarningsData(yesterdayEarningsMap);
+        }
 
-      // 3. 异步获取用户数据
-      let userResponse: any = null;
-      let yesterdayUserResponse: any = null;
-      
-      // 构建用户数据URL
-      let userUrl = `/admin/dashboard/users?range=${rangeParam}`;
-      if (isGroupLeader) {
-        const teamGroupId = currentUser.teamGroupId;
-        userUrl = `/admin/dashboard/users?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}`;
-      } else if (isTeamLeader) {
-        // 团队长获取自己团队的用户数据
-        const teamName = getUserTeamName();
-        userUrl = `/admin/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}`;
-      }
-      
-      userResponse = await request<any[]>(userUrl, { method: 'GET' });
+        // 4. 处理用户数据
+        if (userResponse) {
+          // Transform user data to match frontend format
+          const userArray = typeof userResponse === 'object' && userResponse !== null && 'data' in userResponse && Array.isArray(userResponse.data) ? userResponse.data : Array.isArray(userResponse) ? userResponse : [];
+          const transformedUsers: DashboardUser[] = userArray.map((user: any) => ({
+            id: user.employeeId || user.userId || '',
+            userId: user.userId || user.employeeId || '',
+            name: user.realName || user.realname || user.name || user.username || user.userName || user.employeeId || user.userId || '',
+            avatar: '',
+            watched: user.watched || 0,
+            earnings: (user.earnings || 0) / 1000,
+            ipCount: user.ipCount || 1,
+            deviceCount: user.deviceCount || 1,
+            ecpm: user.ecpm || 0,
+            trend: 'up' as const,
+            superior: user.superior || user.teamName || '系统直属',
+            teamName: user.teamName || user.superior || '系统直属',
+            teamGroupId: user.teamGroupId || user.groupId || '',
+            groupName: user.groupName || '',
+            regDays: user.regDays || 1
+          }));
 
-      // 如果是今日数据，同时获取昨日用户数据用于计算次数对比
-      if (timeRange === TimeRange.TODAY) {
-        let yesterdayUserUrl = `/admin/dashboard/users?range=yesterday`;
+
+          // 组长只显示自己组的成员数据，团队长只显示自己团队的成员数据
+          let filteredUsers = transformedUsers;
+          
+          if (isGroupLeader) {
+            const teamGroupId = currentUser?.teamGroupId;
+            
+            // 确保teamGroupId存在
+            if (teamGroupId) {
+              filteredUsers = transformedUsers.filter(user => {
+                // 检查用户的组ID是否与组长的组ID匹配
+                return user.teamGroupId === teamGroupId;
+              });
+            } else {
+              // 如果组长没有组ID，不显示任何用户数据
+              filteredUsers = [];
+            }
+          } else if (isTeamLeader) {
+            // 团队长只显示自己团队的成员数据
+            const teamName = getUserTeamName();
+            filteredUsers = transformedUsers.filter(user => {
+              const userTeam = user.teamName || user.superior || '系统直属';
+              return userTeam === teamName;
+            });
+          }
+          
+          // 只取前30个用户
+          const finalUsers = filteredUsers.slice(0, 30);
+          setUserData(finalUsers);
+          
+          // 5. 缓存数据
+          setCachedData(cacheKey, { kpiData: showKPIDashboard && kpiResponse ? transformedKpis : kpiData, userData: finalUsers });
+        }
+      } catch (error) {
+        console.error('Error in parallel data fetching:', error);
+        // 并行请求失败时，回退到串行请求
+        // 1. 获取KPI数据
+        if (showKPIDashboard) {
+          let kpiUrl = `/admin/dashboard/kpi?range=${rangeParam}`;
+          if (isGroupLeader) {
+            const teamGroupId = currentUser.teamGroupId;
+            kpiUrl = `/admin/dashboard/kpi?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}`;
+          }
+          kpiResponse = await request<any>(kpiUrl, { method: 'GET' });
+
+          // 如果是今日数据，同时获取昨日数据用于计算增长率
+          if (timeRange === TimeRange.TODAY) {
+            let yesterdayKpiUrl = `/admin/dashboard/kpi?range=yesterday`;
+            if (isGroupLeader) {
+              const teamGroupId = currentUser.teamGroupId;
+              yesterdayKpiUrl = `/admin/dashboard/kpi?range=yesterday&group=${encodeURIComponent(teamGroupId || '')}`;
+            }
+            yesterdayKpiResponse = await request<any>(yesterdayKpiUrl, { method: 'GET' });
+            setYesterdayKpiData(yesterdayKpiResponse);
+          }
+
+          // 处理KPI数据
+          if (kpiResponse) {
+            // Time prefix for dynamic titles
+            const timePrefixMap: Record<string, string> = {
+              [TimeRange.TODAY]: '今日',
+              [TimeRange.YESTERDAY]: '昨日',
+              [TimeRange.THIS_WEEK]: '本周',
+              [TimeRange.THIS_MONTH]: '本月'
+            };
+            const timePrefix = timePrefixMap[timeRange];
+            const showGrowth = timeRange === TimeRange.TODAY || timeRange === TimeRange.THIS_MONTH;
+
+            // Transform KPI data to match frontend format
+            const userShare = Number(kpiResponse.coins || 0) / 1000;
+            const platformCost = userShare * 0.2;
+
+            // 计算今日利润
+            const todayProfit = Number(kpiResponse.revenue || 0) - userShare - platformCost;
+            
+            // 计算利润率
+            const todayProfitMargin = kpiResponse.revenue > 0 ? ((todayProfit) / Number(kpiResponse.revenue) * 100) : 0;
+
+            // 计算利润率增长率（今日 - 昨日）
+            let profitMarginGrowth = 0;
+            // 计算利润增长率（今日 - 昨日）
+            let profitGrowth = 0;
+            if (timeRange === TimeRange.TODAY && yesterdayKpiResponse) {
+              const yesterdayUserShare = Number(yesterdayKpiResponse.coins || 0) / 1000;
+              const yesterdayPlatformCost = yesterdayUserShare * 0.2;
+              const yesterdayProfit = Number(yesterdayKpiResponse.revenue || 0) - yesterdayUserShare - yesterdayPlatformCost;
+              const yesterdayProfitMargin = yesterdayKpiResponse.revenue > 0 ? ((yesterdayProfit) / Number(yesterdayKpiResponse.revenue) * 100) : 0;
+              profitMarginGrowth = todayProfitMargin - yesterdayProfitMargin;
+              
+              // 计算利润增长率
+              if (yesterdayProfit > 0) {
+                profitGrowth = ((todayProfit - yesterdayProfit) / yesterdayProfit) * 100;
+              } else if (todayProfit > 0) {
+                profitGrowth = 100; // 昨日为0，今日有利润，增长率100%
+              }
+            }
+
+            // 计算活跃用户增长率（今日 - 昨日）
+            let activeUsersGrowth = 0;
+            if (timeRange === TimeRange.TODAY && yesterdayKpiResponse) {
+              const todayActiveUsers = Number(kpiResponse.activeUsers || 0);
+              const yesterdayActiveUsers = Number(yesterdayKpiResponse.activeUsers || 0);
+              if (yesterdayActiveUsers > 0) {
+                activeUsersGrowth = ((todayActiveUsers - yesterdayActiveUsers) / yesterdayActiveUsers) * 100;
+              } else if (todayActiveUsers > 0) {
+                activeUsersGrowth = 100; // 昨日为0，今日有数据，增长率100%
+              }
+            }
+
+            // 为组长显示特定的组数据结构
+            if (isGroupLeader) {
+              // 计算组提成收益（使用提成比例计算）
+              const commissionRate = currentUser?.commission || 0.12; // 默认12%
+              const groupLeaderEarnings = userShare * commissionRate;
+              
+              // 计算单条平均金币
+              const averageCoins = kpiResponse?.impressions > 0 ? (userShare * 1000) / Number(kpiResponse?.impressions) : 0;
+              
+              transformedKpis = [
+                {
+                  title: '组提成收益',
+                  value: `¥${groupLeaderEarnings.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
+                  subValue: userShare > 0 ? `${((groupLeaderEarnings / userShare) * 100).toFixed(2)}%` : '0%',
+                  growth: showGrowth ? `${kpiResponse?.coinsGrowth > 0 ? '+' : ''}${kpiResponse?.coinsGrowth || 0}%` : '',
+                  isUp: kpiResponse?.coinsGrowth > 0,
+                  icon: Users,
+                  color: 'text-purple-600',
+                  bg: 'bg-purple-50'
+                },
+                {
+                  title: '团队用户收益',
+                  value: `¥${userShare.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
+                  growth: showGrowth ? `${kpiResponse?.coinsGrowth > 0 ? '+' : ''}${kpiResponse?.coinsGrowth || 0}%` : '',
+                  isUp: kpiResponse?.coinsGrowth > 0,
+                  icon: Coins,
+                  color: 'text-orange-600',
+                  bg: 'bg-orange-50'
+                },
+                {
+                  title: '今日活跃用户',
+                  value: kpiResponse?.activeUsers?.toLocaleString() || '0',
+                  subValue: '0', // 暂时显示0，后续可以从API获取
+                  icon: TrendingUp,
+                  color: 'text-emerald-600',
+                  bg: 'bg-emerald-50'
+                },
+                {
+                  title: '广告总曝光',
+                  value: kpiResponse?.impressions?.toLocaleString() || '0',
+                  growth: showGrowth ? `${kpiResponse?.impressionsGrowth > 0 ? '+' : ''}${kpiResponse?.impressionsGrowth || 0}%` : '',
+                  isUp: kpiResponse?.impressionsGrowth > 0,
+                  icon: Eye,
+                  color: 'text-blue-600',
+                  bg: 'bg-blue-50'
+                },
+                {
+                  title: '单条平均金币',
+                  value: `${averageCoins.toFixed(2)}`,
+                  growth: showGrowth ? `${kpiResponse?.ecpmGrowth > 0 ? '+' : ''}${kpiResponse?.ecpmGrowth || 0}%` : '',
+                  isUp: kpiResponse?.ecpmGrowth > 0,
+                  icon: Zap,
+                  color: 'text-yellow-600',
+                  bg: 'bg-yellow-50'
+                }
+              ];
+            } else {
+              // 为其他角色显示通用的KPI数据结构
+              transformedKpis = [
+                { title: `${timePrefix}利润`, value: `¥${todayProfit.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${profitGrowth > 0 ? '+' : ''}${profitGrowth.toFixed(2)}%` : '', isUp: profitGrowth > 0, icon: BarChart3, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+                { title: `${timePrefix}利润率`, value: `${todayProfitMargin.toFixed(2)}%`, growth: showGrowth ? `${profitMarginGrowth > 0 ? '+' : ''}${profitMarginGrowth.toFixed(2)}%` : '', isUp: profitMarginGrowth > 0, icon: Percent, color: 'text-pink-600', bg: 'bg-pink-50' },
+                { title: '业务总收入', value: `¥${Number(kpiResponse.revenue || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: Wallet, color: 'text-green-600', bg: 'bg-green-50' },
+                { title: '用户分成金额', value: `¥${(Number(kpiResponse.coins || 0) / 1000).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, subValue: `${kpiResponse.revenue > 0 ? ((Number(kpiResponse.coins || 0) / 1000 / Number(kpiResponse.revenue)) * 100).toFixed(2) : '0.00'}%`, growth: showGrowth ? `${kpiResponse.coinsGrowth > 0 ? '+' : ''}${kpiResponse.coinsGrowth || 0}%` : '', isUp: kpiResponse.coinsGrowth > 0, icon: Coins, color: 'text-orange-600', bg: 'bg-orange-50' },
+                { title: '广告总曝光', value: kpiResponse.impressions?.toLocaleString() || '0', growth: showGrowth ? `${kpiResponse.impressionsGrowth > 0 ? '+' : ''}${kpiResponse.impressionsGrowth || 0}%` : '', isUp: kpiResponse.impressionsGrowth > 0, icon: Eye, color: 'text-blue-600', bg: 'bg-blue-50' },
+                { title: '团队分成', value: `¥${(Number(kpiResponse.coins || 0) / 1000 * 0.2).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.coinsGrowth > 0 ? '+' : ''}${kpiResponse.coinsGrowth || 0}%` : '', isUp: kpiResponse.coinsGrowth > 0, icon: Users, color: 'text-purple-600', bg: 'bg-purple-50' },
+                { title: `${timePrefix}平均 eCPM`, value: `${kpiResponse.ecpm || 0}`, growth: showGrowth ? `${kpiResponse.ecpmGrowth > 0 ? '+' : ''}${kpiResponse.ecpmGrowth || 0}%` : '', isUp: kpiResponse.ecpmGrowth > 0, icon: Zap, color: 'text-yellow-600', bg: 'bg-yellow-50' },
+                { title: `${timePrefix}活跃用户`, value: kpiResponse.activeUsers?.toLocaleString() || '0', growth: showGrowth ? `${activeUsersGrowth > 0 ? '+' : ''}${activeUsersGrowth.toFixed(2)}%` : '', isUp: activeUsersGrowth > 0, icon: Users, color: 'text-cyan-600', bg: 'bg-cyan-50' },
+              ];
+            }
+
+            setKpiData(transformedKpis);
+          }
+        }
+
+        // 2. 获取用户数据
+        let userUrl = `/admin/dashboard/users?range=${rangeParam}`;
         if (isGroupLeader) {
           const teamGroupId = currentUser.teamGroupId;
-          yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&group=${encodeURIComponent(teamGroupId || '')}`;
+          userUrl = `/admin/dashboard/users?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}`;
         } else if (isTeamLeader) {
-          // 团队长获取自己团队的昨日用户数据
           const teamName = getUserTeamName();
-          yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}`;
+          userUrl = `/admin/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}`;
         }
-        yesterdayUserResponse = await request<any[]>(yesterdayUserUrl, { method: 'GET' });
-        
-        // 构建昨日用户数据映射
-        const yesterdayUserMap: Record<string, number> = {};
-        const yesterdayEarningsMap: Record<string, number> = {};
+        userResponse = await request<any[]>(userUrl, { method: 'GET' });
 
-        if (yesterdayUserResponse?.data && Array.isArray(yesterdayUserResponse.data)) {
-          yesterdayUserResponse.data.forEach((user: any) => {
-            const userId = user.employeeId || user.userId || '';
-            yesterdayUserMap[userId] = user.watched || 0;
-            yesterdayEarningsMap[userId] = (user.earnings || 0) / 1000;
-          });
-        } else if (Array.isArray(yesterdayUserResponse)) {
-          yesterdayUserResponse.forEach((user: any) => {
-            const userId = user.employeeId || user.userId || '';
-            yesterdayUserMap[userId] = user.watched || 0;
-            yesterdayEarningsMap[userId] = (user.earnings || 0) / 1000;
-          });
-        }
-        yesterdayUserDataRef.current = yesterdayUserMap;
-        setYesterdayUserData(yesterdayUserMap);
-        setYesterdayEarningsData(yesterdayEarningsMap);
-      }
-
-      // 4. 处理用户数据
-      if (userResponse) {
-        // Transform user data to match frontend format
-        const userArray = Array.isArray(userResponse?.data) ? userResponse.data : Array.isArray(userResponse) ? userResponse : [];
-        const transformedUsers: DashboardUser[] = userArray.map((user: any) => ({
-          id: user.employeeId || user.userId || '',
-          userId: user.userId || '',
-          name: user.realName || user.realname || user.name || user.username || user.userName || user.employeeId || user.userId || '',
-          avatar: '',
-          watched: user.watched || 0,
-          earnings: (user.earnings || 0) / 1000,
-          ipCount: user.ipCount || 1,
-          deviceCount: user.deviceCount || 1,
-          ecpm: user.ecpm || 0,
-          trend: 'up' as const,
-          superior: user.superior || user.teamName || '系统直属',
-          teamName: user.teamName || user.superior || '系统直属',
-          teamGroupId: user.teamGroupId || user.groupId || '',
-          groupName: user.groupName || '',
-          regDays: user.regDays || 1
-        }));
-
-        // 组长只显示自己组的成员数据，团队长只显示自己团队的成员数据
-        let filteredUsers = transformedUsers;
-        
-        if (isGroupLeader) {
-          const teamGroupId = currentUser?.teamGroupId;
-          
-          // 确保teamGroupId存在
-          if (teamGroupId) {
-            filteredUsers = transformedUsers.filter(user => {
-              // 检查用户的组ID是否与组长的组ID匹配
-              return user.teamGroupId === teamGroupId;
-            });
-          } else {
-            // 如果组长没有组ID，不显示任何用户数据
-            filteredUsers = [];
+        // 如果是今日数据，同时获取昨日用户数据用于计算次数对比
+        if (timeRange === TimeRange.TODAY) {
+          let yesterdayUserUrl = `/admin/dashboard/users?range=yesterday`;
+          if (isGroupLeader) {
+            const teamGroupId = currentUser.teamGroupId;
+            yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&group=${encodeURIComponent(teamGroupId || '')}`;
+          } else if (isTeamLeader) {
+            const teamName = getUserTeamName();
+            yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}`;
           }
-        } else if (isTeamLeader) {
-          // 团队长只显示自己团队的成员数据
-          const teamName = getUserTeamName();
-          filteredUsers = transformedUsers.filter(user => {
-            const userTeam = user.teamName || user.superior || '系统直属';
-            return userTeam === teamName;
+          yesterdayUserResponse = await request<any[]>(yesterdayUserUrl, { method: 'GET' });
+          
+          // 构建昨日用户数据映射
+          const yesterdayUserMap: Record<string, number> = {};
+          const yesterdayEarningsMap: Record<string, number> = {};
+
+          if (yesterdayUserResponse?.data && Array.isArray(yesterdayUserResponse.data)) {
+            yesterdayUserResponse.data.forEach((user: any) => {
+              const userId = user.userId || user.employeeId || '';
+              yesterdayUserMap[userId] = user.watched || 0;
+              yesterdayEarningsMap[userId] = (user.earnings || 0) / 1000;
+            });
+          } else if (Array.isArray(yesterdayUserResponse)) {
+            yesterdayUserResponse.forEach((user: any) => {
+              const userId = user.userId || user.employeeId || '';
+              yesterdayUserMap[userId] = user.watched || 0;
+              yesterdayEarningsMap[userId] = (user.earnings || 0) / 1000;
+            });
+          }
+          yesterdayUserDataRef.current = yesterdayUserMap;
+          setYesterdayUserData(yesterdayUserMap);
+          setYesterdayEarningsData(yesterdayEarningsMap);
+        }
+
+        // 3. 处理用户数据
+        if (userResponse) {
+          // Transform user data to match frontend format
+          const userArray = typeof userResponse === 'object' && userResponse !== null && 'data' in userResponse && Array.isArray(userResponse.data) ? userResponse.data : Array.isArray(userResponse) ? userResponse : [];
+          const transformedUsers: DashboardUser[] = userArray.map((user: any) => ({
+            id: user.employeeId || user.userId || '',
+            userId: user.userId || user.employeeId || '',
+            name: user.realName || user.realname || user.name || user.username || user.userName || user.employeeId || user.userId || '',
+            avatar: '',
+            watched: user.watched || 0,
+            earnings: (user.earnings || 0) / 1000,
+            ipCount: user.ipCount || 1,
+            deviceCount: user.deviceCount || 1,
+            ecpm: user.ecpm || 0,
+            trend: 'up' as const,
+            superior: user.superior || user.teamName || '系统直属',
+            teamName: user.teamName || user.superior || '系统直属',
+            teamGroupId: user.teamGroupId || user.groupId || '',
+            groupName: user.groupName || '',
+            regDays: user.regDays || 1
+          }));
+
+
+          // 组长只显示自己组的成员数据，团队长只显示自己团队的成员数据
+          let filteredUsers = transformedUsers;
+          
+          if (isGroupLeader) {
+            const teamGroupId = currentUser?.teamGroupId;
+            
+            // 确保teamGroupId存在
+            if (teamGroupId) {
+              filteredUsers = transformedUsers.filter(user => {
+                // 检查用户的组ID是否与组长的组ID匹配
+                return user.teamGroupId === teamGroupId;
+              });
+            } else {
+              // 如果组长没有组ID，不显示任何用户数据
+              filteredUsers = [];
+            }
+          } else if (isTeamLeader) {
+            // 团队长只显示自己团队的成员数据
+            const teamName = getUserTeamName();
+            filteredUsers = transformedUsers.filter(user => {
+              const userTeam = user.teamName || user.superior || '系统直属';
+              return userTeam === teamName;
+            });
+          }
+          
+          // 只取前30个用户
+          const finalUsers = filteredUsers.slice(0, 30);
+          setUserData(finalUsers);
+          
+          // 4. 缓存数据
+          setCachedData(cacheKey, { 
+            kpiData: showKPIDashboard && kpiResponse ? transformedKpis : kpiData, 
+            userData: finalUsers,
+            // 缓存昨日数据
+            yesterdayUserData: yesterdayUserMap,
+            yesterdayEarningsData: yesterdayEarningsMap
           });
         }
-        
-        // 只取前30个用户
-        const finalUsers = filteredUsers.slice(0, 30);
-        setUserData(finalUsers);
-        
-        // 5. 缓存数据
-        setCachedData(cacheKey, { kpiData: showKPIDashboard && kpiResponse ? transformedKpis : kpiData, userData: finalUsers });
       }
+      
+      // 后台预加载其他时间范围的数据
+      preloadOtherTimeRanges();
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
       // 数据获取失败，保持数据为空，不显示模拟数据
@@ -440,14 +796,489 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeRange, currentUser, isTeamLeader, isGroupLeader, showKPIDashboard]);
 
+  // 后台预加载其他时间范围的数据
+  const preloadOtherTimeRanges = useCallback(async () => {
+    if (!currentUser) return;
+    
+    // 所有时间范围
+    const allTimeRanges = Object.values(TimeRange);
+    // 排除当前时间范围
+    const otherTimeRanges = allTimeRanges.filter(range => range !== timeRange);
+    
+    // 并行预加载所有其他时间范围的数据
+    await Promise.all(
+      otherTimeRanges.map(async (range) => {
+        const rangeParam = timeRangeMap[range];
+        const cacheKey = `${rangeParam}_${currentUser.id}`;
+        
+        // 检查是否已经有缓存
+        if (getCachedData(cacheKey)) {
+          return; // 已有缓存，跳过预加载
+        }
+        
+        try {
+          // 预加载KPI数据
+          let kpiUrl = `/admin/dashboard/kpi?range=${rangeParam}`;
+          if (isGroupLeader) {
+            const teamGroupId = currentUser.teamGroupId;
+            kpiUrl = `/admin/dashboard/kpi?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}`;
+          }
+          const kpiResponse = await request<any>(kpiUrl, { method: 'GET' });
+          
+          // 预加载用户数据
+          let userUrl = `/admin/dashboard/users?range=${rangeParam}`;
+          if (isGroupLeader) {
+            const teamGroupId = currentUser.teamGroupId;
+            userUrl = `/admin/dashboard/users?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}`;
+          } else if (isTeamLeader) {
+            const teamName = getUserTeamName();
+            userUrl = `/admin/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}`;
+          }
+          const userResponse = await request<any[]>(userUrl, { method: 'GET' });
+          
+          // 处理数据并缓存
+          if (kpiResponse && userResponse) {
+            // 转换KPI数据
+            let transformedKpis: any[] = [];
+            if (showKPIDashboard) {
+              const timePrefixMap: Record<string, string> = {
+                [TimeRange.TODAY]: '今日',
+                [TimeRange.YESTERDAY]: '昨日',
+                [TimeRange.THIS_WEEK]: '本周',
+                [TimeRange.THIS_MONTH]: '本月'
+              };
+              const timePrefix = timePrefixMap[range];
+              const showGrowth = range === TimeRange.TODAY || range === TimeRange.THIS_MONTH;
+
+              const userShare = Number(kpiResponse.coins || 0) / 1000;
+              const platformCost = userShare * 0.2;
+              const todayProfit = Number(kpiResponse.revenue || 0) - userShare - platformCost;
+              const todayProfitMargin = kpiResponse.revenue > 0 ? ((todayProfit) / Number(kpiResponse.revenue) * 100) : 0;
+
+              if (isGroupLeader) {
+                const commissionRate = currentUser?.commission || 0.12;
+                const groupLeaderEarnings = userShare * commissionRate;
+                const averageCoins = kpiResponse?.impressions > 0 ? (userShare * 1000) / Number(kpiResponse?.impressions) : 0;
+                
+                transformedKpis = [
+                  {
+                    title: '组提成收益',
+                    value: `¥${groupLeaderEarnings.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
+                    subValue: userShare > 0 ? `${((groupLeaderEarnings / userShare) * 100).toFixed(2)}%` : '0%',
+                    growth: showGrowth ? `${kpiResponse?.coinsGrowth > 0 ? '+' : ''}${kpiResponse?.coinsGrowth || 0}%` : '',
+                    isUp: kpiResponse?.coinsGrowth > 0,
+                    icon: Users,
+                    color: 'text-purple-600',
+                    bg: 'bg-purple-50'
+                  },
+                  {
+                    title: '团队用户收益',
+                    value: `¥${userShare.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
+                    growth: showGrowth ? `${kpiResponse?.coinsGrowth > 0 ? '+' : ''}${kpiResponse?.coinsGrowth || 0}%` : '',
+                    isUp: kpiResponse?.coinsGrowth > 0,
+                    icon: Coins,
+                    color: 'text-orange-600',
+                    bg: 'bg-orange-50'
+                  },
+                  {
+                    title: '今日活跃用户',
+                    value: kpiResponse?.activeUsers?.toLocaleString() || '0',
+                    subValue: '0',
+                    icon: TrendingUp,
+                    color: 'text-emerald-600',
+                    bg: 'bg-emerald-50'
+                  },
+                  {
+                    title: '广告总曝光',
+                    value: kpiResponse?.impressions?.toLocaleString() || '0',
+                    growth: showGrowth ? `${kpiResponse?.impressionsGrowth > 0 ? '+' : ''}${kpiResponse?.impressionsGrowth || 0}%` : '',
+                    isUp: kpiResponse?.impressionsGrowth > 0,
+                    icon: Eye,
+                    color: 'text-blue-600',
+                    bg: 'bg-blue-50'
+                  },
+                  {
+                    title: '单条平均金币',
+                    value: `${averageCoins.toFixed(2)}`,
+                    growth: showGrowth ? `${kpiResponse?.ecpmGrowth > 0 ? '+' : ''}${kpiResponse?.ecpmGrowth || 0}%` : '',
+                    isUp: kpiResponse?.ecpmGrowth > 0,
+                    icon: Zap,
+                    color: 'text-yellow-600',
+                    bg: 'bg-yellow-50'
+                  }
+                ];
+              } else {
+                transformedKpis = [
+                  { title: `${timePrefix}利润`, value: `¥${todayProfit.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: BarChart3, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+                  { title: `${timePrefix}利润率`, value: `${todayProfitMargin.toFixed(2)}%`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: Percent, color: 'text-pink-600', bg: 'bg-pink-50' },
+                  { title: '业务总收入', value: `¥${Number(kpiResponse.revenue || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: Wallet, color: 'text-green-600', bg: 'bg-green-50' },
+                  { title: '用户分成金额', value: `¥${(Number(kpiResponse.coins || 0) / 1000).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, subValue: `${kpiResponse.revenue > 0 ? ((Number(kpiResponse.coins || 0) / 1000 / Number(kpiResponse.revenue)) * 100).toFixed(2) : '0.00'}%`, growth: showGrowth ? `${kpiResponse.coinsGrowth > 0 ? '+' : ''}${kpiResponse.coinsGrowth || 0}%` : '', isUp: kpiResponse.coinsGrowth > 0, icon: Coins, color: 'text-orange-600', bg: 'bg-orange-50' },
+                  { title: '广告总曝光', value: kpiResponse.impressions?.toLocaleString() || '0', growth: showGrowth ? `${kpiResponse.impressionsGrowth > 0 ? '+' : ''}${kpiResponse.impressionsGrowth || 0}%` : '', isUp: kpiResponse.impressionsGrowth > 0, icon: Eye, color: 'text-blue-600', bg: 'bg-blue-50' },
+                  { title: '团队分成', value: `¥${(Number(kpiResponse.coins || 0) / 1000 * 0.2).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, growth: showGrowth ? `${kpiResponse.coinsGrowth > 0 ? '+' : ''}${kpiResponse.coinsGrowth || 0}%` : '', isUp: kpiResponse.coinsGrowth > 0, icon: Users, color: 'text-purple-600', bg: 'bg-purple-50' },
+                  { title: `${timePrefix}平均 eCPM`, value: `${kpiResponse.ecpm || 0}`, growth: showGrowth ? `${kpiResponse.ecpmGrowth > 0 ? '+' : ''}${kpiResponse.ecpmGrowth || 0}%` : '', isUp: kpiResponse.ecpmGrowth > 0, icon: Zap, color: 'text-yellow-600', bg: 'bg-yellow-50' },
+                  { title: `${timePrefix}活跃用户`, value: kpiResponse.activeUsers?.toLocaleString() || '0', growth: showGrowth ? `${kpiResponse.revenueGrowth > 0 ? '+' : ''}${kpiResponse.revenueGrowth || 0}%` : '', isUp: kpiResponse.revenueGrowth > 0, icon: Users, color: 'text-cyan-600', bg: 'bg-cyan-50' },
+                ];
+              }
+            }
+            
+            // 转换用户数据
+            const userArray = typeof userResponse === 'object' && userResponse !== null && 'data' in userResponse && Array.isArray(userResponse.data) ? userResponse.data : Array.isArray(userResponse) ? userResponse : [];
+            const transformedUsers: DashboardUser[] = userArray.map((user: any) => ({
+              id: user.employeeId || user.userId || '',
+              userId: user.employeeId || user.userId || '',
+              name: user.realName || user.realname || user.name || user.username || user.userName || user.employeeId || user.userId || '',
+              avatar: '',
+              watched: user.watched || 0,
+              earnings: (user.earnings || 0) / 1000,
+              ipCount: user.ipCount || 1,
+              deviceCount: user.deviceCount || 1,
+              ecpm: user.ecpm || 0,
+              trend: 'up' as const,
+              superior: user.superior || user.teamName || '系统直属',
+              teamName: user.teamName || user.superior || '系统直属',
+              teamGroupId: user.teamGroupId || user.groupId || '',
+              groupName: user.groupName || '',
+              regDays: user.regDays || 1
+            }));
+
+            // 过滤用户数据
+            let filteredUsers = transformedUsers;
+            if (isGroupLeader) {
+              const teamGroupId = currentUser?.teamGroupId;
+              if (teamGroupId) {
+                filteredUsers = transformedUsers.filter(user => user.teamGroupId === teamGroupId);
+              } else {
+                filteredUsers = [];
+              }
+            } else if (isTeamLeader) {
+              const teamName = getUserTeamName();
+              filteredUsers = transformedUsers.filter(user => {
+                const userTeam = user.teamName || user.superior || '系统直属';
+                return userTeam === teamName;
+              });
+            }
+            
+            const finalUsers = filteredUsers.slice(0, 30);
+            
+            // 如果是今日数据，同时预加载昨日数据
+            if (range === TimeRange.TODAY) {
+              try {
+                // 预加载昨日KPI数据
+                let yesterdayKpiUrl = `/admin/dashboard/kpi?range=yesterday`;
+                if (isGroupLeader) {
+                  const teamGroupId = currentUser.teamGroupId;
+                  yesterdayKpiUrl = `/admin/dashboard/kpi?range=yesterday&group=${encodeURIComponent(teamGroupId || '')}`;
+                }
+                const yesterdayKpiResponse = await request<any>(yesterdayKpiUrl, { method: 'GET' });
+                
+                // 预加载昨日用户数据
+                let yesterdayUserUrl = `/admin/dashboard/users?range=yesterday`;
+                if (isGroupLeader) {
+                  const teamGroupId = currentUser.teamGroupId;
+                  yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&group=${encodeURIComponent(teamGroupId || '')}`;
+                } else if (isTeamLeader) {
+                  const teamName = getUserTeamName();
+                  yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}`;
+                }
+                const yesterdayUserResponse = await request<any[]>(yesterdayUserUrl, { method: 'GET' });
+                
+                // 构建昨日用户数据映射
+                let yesterdayUserMap: Record<string, number> = {};
+                let yesterdayEarningsMap: Record<string, number> = {};
+                
+                if (yesterdayUserResponse && !Array.isArray(yesterdayUserResponse) && yesterdayUserResponse.data && Array.isArray(yesterdayUserResponse.data)) {
+                  yesterdayUserResponse.data.forEach((user: any) => {
+                    const userId = user.userId || user.employeeId || '';
+                    yesterdayUserMap[userId] = user.watched || 0;
+                    yesterdayEarningsMap[userId] = (user.earnings || 0) / 1000;
+                  });
+                } else if (Array.isArray(yesterdayUserResponse)) {
+                  yesterdayUserResponse.forEach((user: any) => {
+                    const userId = user.userId || user.employeeId || '';
+                    yesterdayUserMap[userId] = user.watched || 0;
+                    yesterdayEarningsMap[userId] = (user.earnings || 0) / 1000;
+                  });
+                }
+                
+                // 缓存数据，包含昨日数据
+                setCachedData(cacheKey, { 
+                  kpiData: transformedKpis, 
+                  userData: finalUsers,
+                  yesterdayUserData: yesterdayUserMap,
+                  yesterdayEarningsData: yesterdayEarningsMap
+                });
+                
+                // 如果当前时间范围就是今日，更新组件的昨日数据状态
+                if (timeRange === TimeRange.TODAY) {
+                  setYesterdayUserData(yesterdayUserMap);
+                  setYesterdayEarningsData(yesterdayEarningsMap);
+                  yesterdayUserDataRef.current = yesterdayUserMap;
+                }
+              } catch (error) {
+                console.error('Error preloading yesterday data:', error);
+                // 即使预加载昨日数据失败，也缓存今日数据
+                setCachedData(cacheKey, { kpiData: transformedKpis, userData: finalUsers });
+              }
+            } else {
+              // 非今日数据，直接缓存
+              setCachedData(cacheKey, { kpiData: transformedKpis, userData: finalUsers });
+            }
+          }
+        } catch (error) {
+          console.error(`Error preloading ${range} data:`, error);
+        }
+      })
+    );
+    
+    // 预加载完整用户列表数据（用于查看全部用户功能）
+    try {
+      const userListCacheKey = `user_list_today_${currentUser.id}`;
+      
+      // 检查是否已经有缓存
+      if (getCachedData(userListCacheKey)) {
+        return; // 已有缓存，跳过预加载
+      }
+      
+      // 构建完整用户列表API路径
+      let userListUrl = `/admin/dashboard/users?range=today&limit=1000`;
+      if (isTeamLeader) {
+        const teamName = getUserTeamName();
+        userListUrl = `/admin/dashboard/users?range=today&team=${encodeURIComponent(teamName)}&limit=1000`;
+      } else if (isGroupLeader) {
+        const teamGroupId = currentUser.teamGroupId;
+        const teamName = currentUser.teamName || '团队';
+        userListUrl = `/admin/dashboard/users?range=today&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(teamGroupId || '')}&limit=1000`;
+      }
+      
+      // 获取完整用户数据
+      const userListResponse = await request<any[]>(userListUrl).catch(error => {
+        console.error('获取完整用户列表失败:', error);
+        return [];
+      });
+      
+      // 处理用户数据
+      const users = Array.isArray(userListResponse) ? userListResponse : [];
+      
+      // 过滤用户数据
+      let filteredUsers = users;
+      if (isTeamLeader) {
+        const teamName = getUserTeamName();
+        filteredUsers = users.filter((user: any) => {
+          const userTeam = user.teamName || user.superior || '系统直属';
+          return userTeam === teamName;
+        });
+      } else if (isGroupLeader) {
+        const teamGroupId = currentUser?.teamGroupId;
+        if (teamGroupId) {
+          filteredUsers = users.filter((user: any) => {
+            const userTeamGroupId = user.teamGroupId || user.groupId || '';
+            return userTeamGroupId === teamGroupId;
+          });
+        } else {
+          filteredUsers = [];
+        }
+      }
+      
+      // 转换用户数据
+      const transformedUsers = filteredUsers.map((user: any) => ({
+        id: user.employeeId || user.userId || '',
+        userId: user.userId || user.employeeId || '',
+        name: user.realName || user.realname || user.name || user.username || user.userName || user.userId || user.employeeId || '',
+        avatar: '',
+        watched: user.watched || 0,
+        earnings: (user.earnings || 0) / 1000,
+        ipCount: user.ipCount || 1,
+        deviceCount: user.deviceCount || 1,
+        ecpm: user.ecpm || 0,
+        superior: user.superior || user.teamName || '系统直属',
+        teamName: user.teamName || user.superior || '系统直属',
+        groupName: user.groupName || user.teamGroup || ''
+      }));
+      
+      // 去重
+      const uniqueUsers = Array.from(new Map(transformedUsers.map(user => [user.id, user])).values());
+      
+      // 同时获取昨日用户数据用于计算对比
+      let yesterdayUserData: Record<string, number> = {};
+      let yesterdayEarningsData: Record<string, number> = {};
+      
+      try {
+        // 构建昨日用户数据API路径
+        let yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&limit=1000`;
+        if (isTeamLeader) {
+          const teamName = getUserTeamName();
+          yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}&limit=1000`;
+        } else if (isGroupLeader) {
+          const teamGroupId = currentUser.teamGroupId;
+          const teamName = currentUser.teamName || '团队';
+          yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(teamGroupId || '')}&limit=1000`;
+        }
+        
+        // 获取昨日用户数据
+        const yesterdayUserResponse = await request<any>(yesterdayUserUrl, {
+          method: 'GET',
+          headers: new Headers({
+            'Content-Type': 'application/json'
+          })
+        });
+        
+        // 处理昨日用户数据
+        const yesterdayUsers = Array.isArray(yesterdayUserResponse) ? yesterdayUserResponse : [];
+        yesterdayUsers.forEach((user: any) => {
+          const userId = user.employeeId || user.userId || '';
+          yesterdayUserData[userId] = user.watched || 0;
+          yesterdayEarningsData[userId] = (user.earnings || 0) / 1000;
+        });
+      } catch (error) {
+        console.error('Error fetching yesterday user data for user list:', error);
+      }
+      
+      // 缓存完整用户列表数据
+      setCachedData(userListCacheKey, {
+        users: uniqueUsers,
+        yesterdayUserData,
+        yesterdayEarningsData
+      });
+    } catch (error) {
+      console.error('Error preloading user list data:', error);
+    }
+    
+    // 预加载新人页面数据
+    try {
+      const newUsersCacheKey = `new_users_${currentUser.id}`;
+      
+      // 检查是否已经有缓存
+      const existingCache = getCachedData(newUsersCacheKey);
+      console.log('[Dashboard] 检查新人缓存，键:', newUsersCacheKey, '已有缓存:', !!existingCache);
+      
+      if (existingCache) {
+        console.log('[Dashboard] 新人缓存已存在，跳过预加载');
+        // 已有缓存，跳过预加载
+      } else {
+        console.log('[Dashboard] 开始预加载新人数据');
+        const teamName = currentUser?.teamName || '';
+        const teamId = currentUser?.id || '';
+        
+        let newUsersUrl = '/user/new-users?days=15';
+        
+        // 团队长添加团队筛选参数
+        if (isTeamLeader) {
+          if (teamId) {
+            newUsersUrl += `&teamId=${encodeURIComponent(teamId)}`;
+          } else if (teamName) {
+            newUsersUrl += `&team=${encodeURIComponent(teamName)}`;
+          }
+        }
+        
+        // 构建今日详细数据API URL
+        const todayDataUrl = isTeamLeader
+          ? `/admin/dashboard/users?range=today&team=${encodeURIComponent(teamName)}&limit=1000`
+          : '/admin/dashboard/users?range=today&limit=1000';
+        
+        // 构建昨日详细数据API URL
+        const yesterdayDataUrl = isTeamLeader
+          ? `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}&limit=1000`
+          : '/admin/dashboard/users?range=yesterday&limit=1000';
+        
+        // 并行请求新人数据和今日、昨日数据
+        const [newUsersResponse, todayDataResponse, yesterdayDataResponse] = await Promise.all([
+          request<any>(newUsersUrl, { method: 'GET' }).catch(() => []),
+          request<any>(todayDataUrl, { method: 'GET' }).catch(() => []),
+          request<any>(yesterdayDataUrl, { method: 'GET' }).catch(() => [])
+        ]);
+        
+        // 构建今日详细数据映射
+        const todayDataMap: Record<string, any> = {};
+        if (Array.isArray(todayDataResponse)) {
+          todayDataResponse.forEach((user: any) => {
+            const userId = user.userId || user.employeeId || '';
+            if (userId) {
+              todayDataMap[userId] = user;
+            }
+          });
+        }
+        
+        // 处理昨日数据
+        const yesterdayUserDataMap: Record<string, number> = {};
+        const yesterdayEarningsDataMap: Record<string, number> = {};
+        if (Array.isArray(yesterdayDataResponse)) {
+          yesterdayDataResponse.forEach((user: any) => {
+            const userId = user.userId || user.employeeId || '';
+            if (userId) {
+              yesterdayUserDataMap[userId] = user.watched || 0;
+              yesterdayEarningsDataMap[userId] = (user.earnings || 0) / 1000;
+            }
+          });
+        }
+        
+        // 转换用户数据
+        const list = Array.isArray(newUsersResponse) ? newUsersResponse : [];
+        const transformedUsers: NewUser[] = list.map((user: any) => {
+          const userId = user.employeeId || user.userId || '';
+          const todayData = todayDataMap[userId] || {};
+          
+          return {
+            id: userId,
+            userId: user.employeeId || user.userId || '',
+            name: user.realName || user.realname || user.name || user.username || user.userName || userId,
+            avatar: '',
+            watched: todayData.watched || 0,
+            earnings: (todayData.earnings || 0) / 1000,
+            ipCount: todayData.ipCount || 1,
+            deviceCount: todayData.deviceCount || 1,
+            ecpm: todayData.ecpm || 0,
+            regDays: user.regDays || 1,
+            superior: user.superior || user.teamName || '系统直属',
+            groupName: user.groupName || user.teamGroup || '',
+            groupLeaderName: user.groupLeaderName || ''
+          };
+        });
+        
+        // 缓存新人数据
+        setCachedData(newUsersCacheKey, {
+          users: transformedUsers,
+          yesterdayUserData: yesterdayUserDataMap,
+          yesterdayEarningsData: yesterdayEarningsDataMap
+        });
+        console.log('[Dashboard] 新人数据已缓存，用户数:', transformedUsers.length);
+      }
+    } catch (error) {
+      console.error('[Dashboard] 预加载新人数据失败:', error);
+    }
+    
+    // 预加载团队页面数据
+    try {
+      const teamsCacheKey = `teams_${currentUser.id}`;
+      
+      // 检查是否已经有缓存
+      if (getCachedData(teamsCacheKey)) {
+        // 已有缓存，跳过预加载
+      } else {
+        // 获取团队数据
+        const teamsData = await request<any[]>('/admin/dashboard/team-leader/teams', {
+          method: 'GET'
+        }).catch(() => []);
+        
+        // 缓存团队数据
+        setCachedData(teamsCacheKey, {
+          teams: teamsData || []
+        });
+      }
+    } catch (error) {
+      console.error('Error preloading teams data:', error);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeRange, currentUser, isTeamLeader, isGroupLeader, showKPIDashboard]);
+
   useEffect(() => {
     // 只有当currentUser存在时才加载数据
     if (currentUser) {
       // 初始加载数据
       fetchData();
       
-      // 设置自动刷新定时器，每60秒刷新一次，使用刷新模式
+      // 设置自动刷新定时器，每60秒刷新一次，使用静默刷新模式
       const interval = setInterval(() => {
+        // 静默刷新：不显示刷新动画，只更新缓存
         fetchData(true);
       }, 60000);
       
@@ -628,7 +1459,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                     <div 
                       key={`${user.id}-${idx}`}
                       className="p-4 space-y-3 active:bg-gray-50 transition-all duration-200 cursor-pointer hover:bg-gray-50/50 animate-in fade-in duration-300"
-                      onClick={() => onSelectUser?.(user)}
+                      onClick={() => {
+                        // 保存当前滚动位置
+                        sessionStorage.setItem('dashboard_scroll_position', String(window.scrollY));
+                        onSelectUser?.(user);
+                      }}
                     >
                         <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-3">
@@ -682,22 +1517,22 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                                     {sortBy === 'earnings' ? (
                                         <>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayEarningsData[user.id] !== undefined ? (user.earnings > yesterdayEarningsData[user.id] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.id] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>¥{user.earnings.toFixed(2)}</span>
+                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayEarningsData[user.userId] !== undefined ? (user.earnings > yesterdayEarningsData[user.userId] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.userId] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>¥{user.earnings.toFixed(2)}</span>
                                                 <span className="text-[9px] text-gray-400 font-medium">收益</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayUserData[user.id] !== undefined ? (user.watched > yesterdayUserData[user.id] ? 'text-green-600' : user.watched < yesterdayUserData[user.id] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>{user.watched}</span>
+                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayUserData[user.userId] !== undefined ? (user.watched > yesterdayUserData[user.userId] ? 'text-green-600' : user.watched < yesterdayUserData[user.userId] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>{user.watched}</span>
                                                 <span className="text-[9px] text-gray-400 font-bold">次数</span>
                                             </div>
                                         </>
                                     ) : sortBy === 'watched' ? (
                                         <>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayUserData[user.id] !== undefined ? (user.watched > yesterdayUserData[user.id] ? 'text-green-600' : user.watched < yesterdayUserData[user.id] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>{user.watched}</span>
+                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayUserData[user.userId] !== undefined ? (user.watched > yesterdayUserData[user.userId] ? 'text-green-600' : user.watched < yesterdayUserData[user.userId] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>{user.watched}</span>
                                                 <span className="text-[9px] text-gray-400 font-bold">次数</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayEarningsData[user.id] !== undefined ? (user.earnings > yesterdayEarningsData[user.id] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.id] ? 'text-red-500' : 'text-gray-500') : 'text-gray-500'}`}>¥{user.earnings.toFixed(2)}</span>
+                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayEarningsData[user.userId] !== undefined ? (user.earnings > yesterdayEarningsData[user.userId] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.userId] ? 'text-red-500' : 'text-gray-500') : 'text-gray-500'}`}>¥{user.earnings.toFixed(2)}</span>
                                                 <span className="text-[9px] text-gray-400 font-medium">收益</span>
                                             </div>
                                         </>
@@ -710,7 +1545,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                                                 <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">平均金币</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayEarningsData[user.id] !== undefined ? (user.earnings > yesterdayEarningsData[user.id] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.id] ? 'text-red-500' : 'text-gray-500') : 'text-gray-500'}`}>¥{user.earnings.toFixed(2)}</span>
+                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayEarningsData[user.userId] !== undefined ? (user.earnings > yesterdayEarningsData[user.userId] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.userId] ? 'text-red-500' : 'text-gray-500') : 'text-gray-500'}`}>¥{user.earnings.toFixed(2)}</span>
                                                 <span className="text-[9px] text-gray-400 font-medium">收益</span>
                                             </div>
                                         </>
@@ -744,7 +1579,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
             </div>
             
             <button 
-              onClick={onViewAllUsers}
+              onClick={() => {
+                // 保存当前滚动位置
+                sessionStorage.setItem('dashboard_scroll_position', String(window.scrollY));
+                onViewAllUsers?.();
+              }}
               className="w-full py-3 bg-gray-50 text-[11px] font-bold text-gray-500 hover:text-[#1E40AF] border-t border-gray-50 transition-colors"
             >
                 查看全部用户

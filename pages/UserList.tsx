@@ -7,6 +7,7 @@ import { request } from '../services/api';
 import { authService } from '../services/authService';
 import { UserRole } from '../types';
 import { useSwipeBack } from '../hooks/useSwipeBack';
+import { cacheManager } from '../services/cacheManager';
 
 interface ListUser {
   id: string;
@@ -73,6 +74,20 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
         });
         console.log('用户角色:', { isTeamLeader, isGroupLeader });
         console.log('团队和组信息:', { teamName, groupName, groupId });
+        
+        // 检查是否有缓存数据
+        const userListCacheKey = `user_list_today_${updatedUser?.id}`;
+        const cachedData = cacheManager.get(userListCacheKey, 300000); // 5分钟缓存
+        
+        if (cachedData) {
+          // 使用缓存数据
+          console.log('使用缓存的用户列表数据');
+          setUsers(cachedData.users);
+          setYesterdayUserData(cachedData.yesterdayUserData);
+          setYesterdayEarningsData(cachedData.yesterdayEarningsData);
+          setLoading(false);
+          return;
+        }
         
         // 构建API路径（与GroupLeader.tsx完全一致）
         let userUrl = `/admin/dashboard/users?range=today&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(groupId || '')}&limit=1000`;
@@ -152,6 +167,9 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
         setUsers(uniqueUsers);
         
         // 同时获取昨日用户数据用于计算次数对比
+        let yesterdayUserData: Record<string, number> = {};
+        let yesterdayEarningsData: Record<string, number> = {};
+        
         try {
           // 构建昨日用户数据API路径（与GroupLeader.tsx保持一致）
           let yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&limit=1000`;
@@ -172,23 +190,30 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
           });
           
           // 检查API返回类型，确保是数组
-          const yesterdayUserData = Array.isArray(yesterdayUserResponse) ? yesterdayUserResponse : [];
-          console.log('昨日用户数据长度:', yesterdayUserData.length);
-          console.log('昨日用户数据:', yesterdayUserData);
+          const yesterdayUsers = Array.isArray(yesterdayUserResponse) ? yesterdayUserResponse : [];
+          console.log('昨日用户数据长度:', yesterdayUsers.length);
+          console.log('昨日用户数据:', yesterdayUsers);
           
           // 构建用户ID到次数和收益的映射
-          const yesterdayUserMap: Record<string, number> = {};
-          const yesterdayEarningsMap: Record<string, number> = {};
-          yesterdayUserData.forEach((user: any) => {
+          yesterdayUsers.forEach((user: any) => {
             const userId = user.employeeId || user.userId || '';
-            yesterdayUserMap[userId] = user.watched || 0;
-            yesterdayEarningsMap[userId] = (user.earnings || 0) / 1000;
+            yesterdayUserData[userId] = user.watched || 0;
+            yesterdayEarningsData[userId] = (user.earnings || 0) / 1000;
           });
           
-          setYesterdayUserData(yesterdayUserMap);
-          setYesterdayEarningsData(yesterdayEarningsMap);
+          setYesterdayUserData(yesterdayUserData);
+          setYesterdayEarningsData(yesterdayEarningsData);
         } catch (error) {
           console.error('Error fetching yesterday user data:', error);
+        }
+        
+        // 缓存数据
+        if (updatedUser?.id) {
+          cacheManager.set(userListCacheKey, {
+            users: uniqueUsers,
+            yesterdayUserData,
+            yesterdayEarningsData
+          });
         }
       } catch (error) {
         console.error('Error fetching users:', error);

@@ -10,6 +10,7 @@ import EmployeeManagement from '../components/EmployeeManagement';
 import TeamLeaderDashboard from '../components/TeamLeaderDashboard';
 import { request } from '../services/api';
 import { useSwipeBack } from '../hooks/useSwipeBack';
+import { cacheManager } from '../services/cacheManager';
 
 interface TeamItem {
   id: string;
@@ -307,6 +308,17 @@ const Team: React.FC = () => {
 
   // 提取fetchTeams为useCallback，避免重复定义
   const fetchTeams = useCallback(async () => {
+    // 先检查全局缓存管理服务中的预加载数据
+    const currentUser = authService.getCurrentUser();
+    const globalCacheKey = `teams_${currentUser?.id || 'unknown'}`;
+    const globalCachedData = cacheManager.get(globalCacheKey, 300000); // 5分钟全局缓存
+    if (globalCachedData) {
+      console.log('使用全局缓存的团队数据');
+      setTeams(globalCachedData.teams || []);
+      setLoading(false);
+      return;
+    }
+    
     setLoading(true);
     try {
       // 使用后端直接计算好的团队数据
