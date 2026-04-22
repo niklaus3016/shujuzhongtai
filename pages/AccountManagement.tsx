@@ -44,7 +44,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
-  const [addType, setAddType] = useState<'team' | 'employee' | 'group'>('team');
+  const [addType, setAddType] = useState<'team' | 'employee' | 'group'>('employee');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState<Account | null>(null);
@@ -57,6 +57,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     username: '',
     password: ''
   });
+  const [pendingGroupLeaders, setPendingGroupLeaders] = useState<any[]>([]);
   
   // 数据缓存
   const dataCacheRef = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
@@ -184,7 +185,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       // 从员工账号中提取组长（有groupId且是组长的员工）
       const employeeGroupLeaders = employeeAccounts.filter((e: any) => {
         const isLeader = e.isGroupLeader || e.role === 'group_leader' || e.role === 'GROUP_LEADER' || (e.groupId && e.groupId !== '');
-        console.log('检查员工:', e.realName, 'isGroupLeader:', e.isGroupLeader, 'role:', e.role, 'groupId:', e.groupId, 'isLeader:', isLeader);
+        console.log('检查员工:', e.realName, 'isGroupLeader:', e.isGroupLeader, 'role:', e.role, 'groupId:', e.groupId, 'groupName:', e.groupName, 'isLeader:', isLeader);
         return isLeader;
       });
       
@@ -226,7 +227,13 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
               // 超管创建的账号是从团队账号中提取的，包含真实的username和password
               ...(isAdminAccount ? { _id: leader._id, username: leader.username, password: leader.password } : {}),
               // 保留现有的超管创建的账号的ID、用户名和密码（如果已经存在）
-              ...(existingIsAdminAccount ? { _id: existingLeader._id, username: existingLeader.username, password: existingLeader.password } : {})
+              ...(existingIsAdminAccount ? { _id: existingLeader._id, username: existingLeader.username, password: existingLeader.password } : {}),
+              // 确保groupName字段正确保留
+              groupName: leader.groupName || existingLeader.groupName || leader.groupName,
+              // 确保commission字段正确保留
+              commission: leader.commission !== undefined ? leader.commission : existingLeader.commission,
+              // 确保isGroupLeader字段正确保留
+              isGroupLeader: leader.isGroupLeader || existingLeader.isGroupLeader
             };
             groupLeadersMap.set(key, updatedLeader);
           }
@@ -236,6 +243,9 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       console.log('所有组长账号数:', allLeaders.length);
       console.log('去重后组长账号数:', groupLeadersMap.size);
       const groupLeaders = Array.from(groupLeadersMap.values());
+      
+      // 打印所有组长的完整信息
+      console.log('所有组长完整信息:', groupLeaders);
       
       // 收集组长的ID、用户名和真实姓名，用于过滤团队账号
       const groupLeaderIds = new Set(groupLeaders.map((g: any) => g._id));
@@ -298,13 +308,14 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       // 从所有员工数据中提取组信息，而不是只从过滤后的员工数据中提取
       const groupsMap = new Map();
       employeeAccounts.forEach((e: any) => {
-        if (e.groupId && e.groupName) {
-          if (!groupsMap.has(e.groupId)) {
-            groupsMap.set(e.groupId, {
-              _id: e.groupId,
+        if ((e.groupId || e.teamGroupId) && e.groupName) {
+          const groupId = e.groupId || e.teamGroupId;
+          if (!groupsMap.has(groupId)) {
+            groupsMap.set(groupId, {
+              _id: groupId,
               groupName: e.groupName,
               teamLeaderId: e.parentId || '',
-              teamName: e.teamName || e.superior || ''
+              teamName: e.teamName || e.parentName || e.superior || ''
             });
           }
         }
@@ -338,9 +349,24 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     }
   }, [getCachedData, setCachedData]);
 
+  // 获取待开通的组长账号
+  const fetchPendingGroupLeaders = useCallback(async () => {
+    try {
+      const response = await request<any[]>('/admin/account/pending-group-leaders', {
+        method: 'GET'
+      });
+      console.log('待开通组长账号:', response);
+      setPendingGroupLeaders(response || []);
+    } catch (error) {
+      console.error('获取待开通组长账号失败:', error);
+      setPendingGroupLeaders([]);
+    }
+  }, []);
+
   useEffect(() => {
     fetchAccounts();
-  }, [fetchAccounts]);
+    fetchPendingGroupLeaders();
+  }, [fetchAccounts, fetchPendingGroupLeaders]);
 
 
 
@@ -611,6 +637,9 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         groupName: '',
         commissionRate: ''
       });
+      
+      // 清除缓存并刷新账号列表
+      clearCache();
       fetchAccounts();
     } catch (error: any) {
       console.error('Error updating account:', error);
@@ -696,6 +725,24 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     });
     setShowOpenAccountModal(true);
   };
+
+  // 开通待开通的组长账号
+  const handleOpenPendingGroupLeader = (pending: any) => {
+    if (!pending) return;
+    
+    setOpeningAccount({
+      ...pending,
+      _id: pending.id,
+      groupName: pending.groupName,
+      teamName: pending.teamName,
+      parentId: pending.teamLeaderId
+    });
+    setOpenAccountForm({
+      username: '',
+      password: ''
+    });
+    setShowOpenAccountModal(true);
+  };
   
   const handleConfirmOpenAccount = async () => {
     if (!openingAccount || !openAccountForm.username || !openAccountForm.password) {
@@ -714,9 +761,9 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           parentId: openingAccount.parentId || '',
           teamName: openingAccount.teamName || '',
           groupName: openingAccount.groupName || '',
-          realName: openingAccount.realName || openAccountForm.username || '',
+          realName: openingAccount.realName || openingAccount.groupName || '',
           phone: openingAccount.phone || '',
-          teamGroupId: openingAccount.teamGroupId || openingAccount._id
+          teamGroupId: openingAccount.teamGroupId || openingAccount._id || openingAccount.id
         })
       });
       
@@ -728,10 +775,12 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       }
       
       // 2. 更新组长的groupLeaderId字段
-      await request<any>(`/admin/employee/group-leader/${openingAccount.teamGroupId || openingAccount._id}`, {
+      const groupId = openingAccount.teamGroupId || openingAccount._id || openingAccount.id;
+      await request<any>(`/admin/employee/group-leader/${groupId}`, {
         method: 'PUT',
         body: JSON.stringify({
-          groupLeaderId: adminId
+          groupLeaderId: adminId,
+          groupLeaderName: openingAccount.realName || openAccountForm.username || ''
         })
       });
       
@@ -742,8 +791,10 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       // 关闭弹窗
       setShowOpenAccountModal(false);
       
-      // 刷新账号列表
+      // 刷新账号列表和待开通列表
+      clearCache();
       fetchAccounts();
+      fetchPendingGroupLeaders();
     } catch (error) {
       console.error('Error opening account:', error);
       setError('开通账号失败，请重试');
@@ -775,7 +826,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           body: JSON.stringify({ status: newStatus })
         });
       } else {
-        await request<any>(`/admin/account/${account._id}/status`, {
+        // 使用更新账号的API来切换状态，而不是专门的状态切换API
+        await request<any>(`/admin/account/${account._id}`, {
           method: 'PUT',
           body: JSON.stringify({ status: newStatus })
         });
@@ -819,7 +871,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       password: '',
       employeeId: account.employeeId || '',
       parentId: account.parentId || '',
-      groupId: account.groupId || '',
+      groupId: account.groupId || account.teamGroupId || '',
       groupName: account.groupName || '',
       commissionRate: account.commission ? (Math.round(account.commission * 100 * 100) / 100).toString() : ''
     });
@@ -831,7 +883,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     setShowDeleteModal(true);
   };
 
-  const [activeTab, setActiveTab] = useState<'team-leader' | 'group-leader' | 'employee'>('team-leader');
+  const [activeTab, setActiveTab] = useState<'team-leader' | 'group-leader' | 'employee'>('employee');
 
   // 过滤账号列表
   const filteredAccounts = useMemo(() => {
@@ -947,6 +999,11 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           }`}
         >
           组长账号 ({groupLeaderCount})
+          {pendingGroupLeaders.length > 0 && (
+            <span className="ml-1 text-xs bg-red-500 text-white rounded-full px-1.5 py-0.5">
+              {pendingGroupLeaders.length}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveTab('employee')}
@@ -1008,7 +1065,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                             组别：{account.groupName || '无'}
                           </p>
                           <h3 className="text-sm text-gray-900">
-                            组长：{account.realName || account.username}
+                            组长：{account.realName || '无'}
                           </h3>
                           {account.commission !== undefined && (
                             <p className="text-sm font-bold text-gray-900 flex items-center">
@@ -1030,7 +1087,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                             </p>
                           )}
                           <h3 className="text-sm font-bold text-gray-900">
-                            {account.realName || account.username}
+                            {account.realName || '无'}
                             {account.employeeId && !(account.role === 'GROUP_LEADER' || account.role === 'group_leader' || account.isGroupLeader) && <span className="ml-2 text-[#1E40AF]">({account.employeeId})</span>}
                           </h3>
                           <div className="space-y-0.5">
@@ -1100,7 +1157,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                     {/* 显示开通状态（移到启用按钮下面） */}
                     {(account.role === 'GROUP_LEADER' || account.role === 'group_leader' || account.isGroupLeader) && (
                       <div className="mt-2 space-y-1">
-                        {!account.groupLeaderId ? (
+                        {!account.username ? (
                           <button
                             onClick={() => handleOpenAccount(account)}
                             className="text-xs font-bold bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full hover:bg-yellow-200 transition-colors"
@@ -1118,6 +1175,51 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                 </div>
               </div>
             ))}
+
+            {/* 待开通的组长账号 */}
+            {activeTab === 'group-leader' && pendingGroupLeaders.length > 0 && (
+              <div className="mt-6">
+                <h3 className="text-sm font-bold text-gray-500 mb-3">待开通</h3>
+                <div className="space-y-3">
+                  {pendingGroupLeaders.map((pending) => (
+                    <div key={pending.id} className="bg-yellow-50 p-4 rounded-2xl border border-yellow-100">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center space-x-3 flex-1">
+                          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-yellow-100 text-yellow-600">
+                            <Star size={20} />
+                          </div>
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <p className="text-base text-[#1E40AF] font-bold">
+                              {pending.teamName}
+                            </p>
+                            <p className="text-sm text-gray-900 flex items-center">
+                              组别：{pending.groupName}
+                            </p>
+                            <p className="text-sm text-gray-900">
+                              组长：{pending.groupLeaderName || '待填写'}
+                            </p>
+                            {pending.commission !== undefined && (
+                              <p className="text-sm font-bold text-gray-900 flex items-center">
+                                分成：{(pending.commission * 100).toFixed(0)}%
+                              </p>
+                            )}
+                            <p className="text-xs text-gray-500">
+                              创建时间：{new Date(pending.createdAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleOpenPendingGroupLeader(pending)}
+                          className="text-xs font-bold bg-blue-100 text-blue-700 px-3 py-1.5 rounded-full hover:bg-blue-200 transition-colors"
+                        >
+                          开通账号
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

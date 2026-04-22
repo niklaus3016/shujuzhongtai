@@ -980,7 +980,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                   const teamName = getUserTeamName();
                   yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}`;
                 }
-                const yesterdayUserResponse = await request<any[]>(yesterdayUserUrl, { method: 'GET' });
+                const yesterdayUserResponse = await request<any>(yesterdayUserUrl, { method: 'GET' });
                 
                 // 构建昨日用户数据映射
                 let yesterdayUserMap: Record<string, number> = {};
@@ -1213,9 +1213,14 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
         
         // 转换用户数据
         const list = Array.isArray(newUsersResponse) ? newUsersResponse : [];
+        const now = new Date();
+        const currentTime = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), now.getUTCHours(), now.getUTCMinutes(), now.getUTCSeconds());
         const transformedUsers: NewUser[] = list.map((user: any) => {
           const userId = user.employeeId || user.userId || '';
           const todayData = todayDataMap[userId] || {};
+          // 确保使用UTC时间计算注册时间戳
+          const registerTime = user.registerTime ? new Date(user.registerTime).getTime() : currentTime;
+          const regDays = Math.ceil((currentTime - registerTime) / (1000 * 60 * 60 * 24)) || 1;
           
           return {
             id: userId,
@@ -1227,19 +1232,27 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
             ipCount: todayData.ipCount || 1,
             deviceCount: todayData.deviceCount || 1,
             ecpm: todayData.ecpm || 0,
-            regDays: user.regDays || 1,
+            regDays: regDays,
             superior: user.superior || user.teamName || '系统直属',
             groupName: user.groupName || user.teamGroup || '',
-            groupLeaderName: user.groupLeaderName || ''
+            groupLeaderName: user.groupLeaderName || '',
+            isOnline: (todayData.watched || 0) > 0
           };
         });
         
-        // 缓存新人数据
+        // 缓存新人数据到本地缓存
         setCachedData(newUsersCacheKey, {
           users: transformedUsers,
           yesterdayUserData: yesterdayUserDataMap,
           yesterdayEarningsData: yesterdayEarningsDataMap
         });
+        
+        // 同时缓存到全局缓存管理服务
+        cacheManager.set(newUsersCacheKey, {
+          users: transformedUsers,
+          yesterdayUserData: yesterdayUserDataMap,
+          yesterdayEarningsData: yesterdayEarningsDataMap
+        }); // 全局缓存默认5分钟
         console.log('[Dashboard] 新人数据已缓存，用户数:', transformedUsers.length);
       }
     } catch (error) {
@@ -1259,8 +1272,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
           method: 'GET'
         }).catch(() => []);
         
-        // 缓存团队数据
+        // 缓存团队数据到本地缓存
         setCachedData(teamsCacheKey, {
+          teams: teamsData || []
+        });
+        
+        // 同时缓存到全局缓存管理服务
+        cacheManager.set(teamsCacheKey, {
           teams: teamsData || []
         });
       }

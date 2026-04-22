@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   Users2, TrendingUp, ChevronRight, Filter, Award, 
-  PlayCircle, ChevronLeft, Search, Zap, Globe, Smartphone, TrendingDown, X, UserPlus, User, Edit2, Trash2, Star, Crown, Phone, MapPin, ChevronDown
+  PlayCircle, ChevronLeft, Search, Zap, Globe, Smartphone, TrendingDown, X, UserPlus, User, Edit2, Trash2, Star, Crown, Phone, MapPin, ChevronDown, RefreshCw
 } from 'lucide-react';
 import { authService } from '../services/authService';
 import { UserRole } from '../types';
@@ -13,23 +13,23 @@ import { useSwipeBack } from '../hooks/useSwipeBack';
 import { cacheManager } from '../services/cacheManager';
 
 interface TeamItem {
-  id: string;
-  leader: string;
+  id?: string; // 可选字段，API返回中可能没有
+  teamName: string;
+  leaderId: string;
+  leader?: string;
   memberCount: number;
-  todayAds: number;
-  monthlyAds: number;
   totalAds: number;
-  todayRevenue: number;
-  todayEarnings?: number;
-  earnings?: number;
   totalRevenue: number;
-  totalEarnings?: number;
-  todayGrowth: number;
-  monthGrowth: number;
-  ecpm: number;
-  todayActiveRate: string;
-  monthlyActiveRate: string;
-  level: '荣耀' | '王牌' | '精英' | '新锐';
+  avgGold: number;
+  growthRate: number;
+  level?: '荣耀' | '王牌' | '精英' | '新锐';
+}
+
+interface TeamApiResponse {
+  success: boolean;
+  data: TeamItem[];
+  totalTeams: number;
+  totalMembers: number;
 }
 
 interface MemberInfo {
@@ -40,20 +40,12 @@ interface MemberInfo {
   monthlyWatched: number;
   todayEarnings: number;
   monthlyEarnings: number;
-  todayEcpm: number;
-  monthlyEcpm: number;
+  todayAgc: number;
+  monthlyAgc: number;
   status: '在线' | '离线';
 }
 
-const mockTeams: TeamItem[] = [
-  { id: 'T001', leader: '张管理', memberCount: 1240, todayAds: 1240, monthlyAds: 45800, totalAds: 45800, todayRevenue: 3420.5, totalRevenue: 128400, todayGrowth: 12.5, monthGrowth: 8.4, ecpm: 154.2, todayActiveRate: '82%', monthlyActiveRate: '94%', level: '荣耀' },
-  { id: 'T002', leader: '李管理', memberCount: 840, todayAds: 840, monthlyAds: 28400, totalAds: 28400, todayRevenue: 2150.8, totalRevenue: 94200, todayGrowth: -2.1, monthGrowth: 15.2, ecpm: 142.1, todayActiveRate: '75%', monthlyActiveRate: '88%', level: '王牌' },
-  { id: 'T003', leader: '王主管', memberCount: 420, todayAds: 420, monthlyAds: 15200, totalAds: 15200, todayRevenue: 1280.0, totalRevenue: 48200, todayGrowth: 5.4, monthGrowth: -1.2, ecpm: 138.5, todayActiveRate: '68%', monthlyActiveRate: '72%', level: '精英' },
-  { id: 'T004', leader: '陈队长', memberCount: 150, todayAds: 150, monthlyAds: 8900, totalAds: 8900, todayRevenue: 450.2, totalRevenue: 12500, todayGrowth: 22.1, monthGrowth: 42.5, ecpm: 162.0, todayActiveRate: '91%', monthlyActiveRate: '98%', level: '精英' },
-  { id: 'T005', leader: '赵领队', memberCount: 85, todayAds: 85, monthlyAds: 2100, totalAds: 2100, todayRevenue: 120.5, totalRevenue: 3200, todayGrowth: -8.4, monthGrowth: -15.0, ecpm: 98.4, todayActiveRate: '42%', monthlyActiveRate: '55%', level: '新锐' },
-];
-
-const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'today' | 'month'; onBack: () => void }> = ({ team, activeRate, mode, onBack }) => {
+const TeamMemberDetail: React.FC<{ team: TeamItem; mode: 'today' | 'month'; onBack: () => void }> = ({ team, mode, onBack }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [members, setMembers] = useState<MemberInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -70,11 +62,12 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
       setError(null);
       try {
         // 使用后端直接计算好的团队成员数据
-        const membersData = await request<any[]>(`/admin/dashboard/team-leader/teams/${team.id}/members?mode=${mode}`, {
+        const membersData = await request<any[]>(`/admin/dashboard/team-leader/teams/${team.leaderId}/members?mode=${mode}`, {
           method: 'GET'
         });
         
         // 后端已处理好数据，直接使用
+        console.log('Team members API response:', membersData);
         setMembers(membersData || []);
       } catch (error: any) {
         console.error('Error fetching members:', error);
@@ -86,19 +79,14 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
     };
 
     fetchMembers();
-  }, [team.id, mode]);
+  }, [team.leaderId, mode]);
 
-  // 计算成员的平均金币并缓存结果
+  // 直接使用后端返回的平均金币值
   const membersWithAgc = useMemo(() => {
-    return members.map(member => {
-      const agc = mode === 'today' 
-        ? (member.todayEarnings * 1000) / (member.todayWatched || 1)
-        : (member.monthlyEarnings * 1000) / (member.monthlyWatched || 1);
-      return {
-        ...member,
-        agc
-      };
-    });
+    return members.map(member => ({
+      ...member,
+      agc: mode === 'today' ? member.todayAgc : member.monthlyAgc
+    }));
   }, [members, mode]);
 
   // Sort by selected criteria and filter by search term
@@ -261,7 +249,7 @@ const TeamMemberDetail: React.FC<{ team: TeamItem; activeRate: string; mode: 'to
                 setLoading(true);
                 const token = localStorage.getItem('admin_token');
                 console.log('Current token:', token);
-                fetch(`/api/admin/team/members?teamId=${team.id}&mode=${mode}`, {
+                fetch(`/api/admin/team/members?teamId=${team.leaderId}&mode=${mode}`, {
                   method: 'GET',
                   headers: {
                     'Content-Type': 'application/json',
@@ -307,32 +295,67 @@ const Team: React.FC = () => {
   const currentUser = useMemo(() => authService.getCurrentUser(), []);
 
   // 提取fetchTeams为useCallback，避免重复定义
-  const fetchTeams = useCallback(async () => {
-    // 先检查全局缓存管理服务中的预加载数据
+  const fetchTeams = useCallback(async (range: 'today' | 'month' = 'today') => {
+    console.log('=== 开始获取团队数据 ===');
     const currentUser = authService.getCurrentUser();
-    const globalCacheKey = `teams_${currentUser?.id || 'unknown'}`;
-    const globalCachedData = cacheManager.get(globalCacheKey, 300000); // 5分钟全局缓存
+    console.log('Current user:', currentUser);
+    const token = localStorage.getItem('admin_token');
+    console.log('Current token:', token);
+    const globalCacheKey = `teams_${currentUser?.id || 'unknown'}_${range}`;
+    console.log('Global cache key:', globalCacheKey);
+
+    // 先检查缓存
+    const globalCachedData = cacheManager.get(globalCacheKey, 300000);
+    console.log('Global cached data:', globalCachedData);
     if (globalCachedData) {
       console.log('使用全局缓存的团队数据');
       setTeams(globalCachedData.teams || []);
       setLoading(false);
+      console.log('=== 获取团队数据完成 (使用缓存) ===');
       return;
     }
-    
+
     setLoading(true);
     try {
-      // 使用后端直接计算好的团队数据
-      const teamsData = await request<any[]>('/admin/dashboard/team-leader/teams', {
+      console.log('Fetching teams data from API...');
+      console.log('API URL:', `/admin/team-performance?range=${range}`);
+      // 注意：api.ts中的request函数会自动返回result.data
+      const teamsData = await request<any[]>(`/admin/team-performance?range=${range}`, {
         method: 'GET'
       });
-      
-      // 后端已处理好数据，直接使用
-      setTeams(teamsData || []);
+      console.log('Teams API response:', teamsData);
+
+      if (Array.isArray(teamsData)) {
+        console.log('Teams data is an array, length:', teamsData.length);
+        const validTeams = teamsData.filter(team => {
+          const isValid = team && typeof team === 'object' && team.teamName && team.leaderId;
+          console.log('Team validity check:', { teamName: team?.teamName, leaderId: team?.leaderId, isValid });
+          return isValid;
+        });
+
+        console.log('Valid teams count:', validTeams.length);
+        if (validTeams.length > 0) {
+          console.log('Valid teams data:', validTeams);
+          setTeams(validTeams);
+
+          cacheManager.set(globalCacheKey, {
+            teams: validTeams
+          });
+          console.log('Teams data cached to global cache');
+        } else {
+          console.log('No valid teams data, showing empty state');
+          setTeams([]);
+        }
+      } else {
+        console.log('Invalid API response format, showing empty state');
+        setTeams([]);
+      }
     } catch (error) {
       console.error('Error fetching teams:', error);
-      setTeams(mockTeams);
+      setTeams([]);
     } finally {
       setLoading(false);
+      console.log('=== 获取团队数据完成 ===');
     }
   }, []);
 
@@ -340,8 +363,37 @@ const Team: React.FC = () => {
     fetchTeams();
   }, [fetchTeams]);
 
+  // 组件挂载时加载今日数据，同时预加载本月数据
   useEffect(() => {
     fetchTeams();
+    // 预加载本月数据到缓存
+    setTimeout(() => {
+      const currentUser = authService.getCurrentUser();
+      const monthCacheKey = `teams_${currentUser?.id || 'unknown'}_month`;
+      const monthCachedData = cacheManager.get(monthCacheKey, 300000);
+      if (!monthCachedData) {
+        console.log('预加载本月团队数据...');
+        request<any[]>('/admin/team-performance?range=month', {
+          method: 'GET'
+        }).then(monthData => {
+          if (Array.isArray(monthData)) {
+            cacheManager.set(monthCacheKey, { teams: monthData });
+            console.log('本月团队数据预加载完成');
+          }
+        }).catch(err => {
+          console.error('预加载本月团队数据失败:', err);
+        });
+      }
+    }, 1000); // 延迟1秒预加载，避免与主数据请求冲突
+  }, [fetchTeams]);
+
+  // 自动刷新机制：每60秒刷新一次数据
+  useEffect(() => {
+    const refreshInterval = setInterval(() => {
+      fetchTeams();
+    }, 60000); // 60秒
+
+    return () => clearInterval(refreshInterval);
   }, [fetchTeams]);
 
   const totalMembers = useMemo(() => {
@@ -350,18 +402,16 @@ const Team: React.FC = () => {
 
   const filteredAndSortedTeams = useMemo(() => {
     return [...teams]
-      .filter(team => 
-        team.leader.toLowerCase().includes(teamSearchTerm.toLowerCase()) || 
-        team.id.toLowerCase().includes(teamSearchTerm.toLowerCase())
+      .filter(team =>
+        team.teamName.toLowerCase().includes(teamSearchTerm.toLowerCase()) ||
+        team.leaderId.toLowerCase().includes(teamSearchTerm.toLowerCase())
       )
       .sort((a, b) => {
-        const revenueA = sortBy === 'today' ? Number(a.todayRevenue || 0) : Number(a.totalRevenue || 0);
-        const revenueB = sortBy === 'today' ? Number(b.todayRevenue || 0) : Number(b.totalRevenue || 0);
+        const revenueA = Number(a.totalRevenue || 0);
+        const revenueB = Number(b.totalRevenue || 0);
         return revenueB - revenueA;
       });
   }, [teams, teamSearchTerm, sortBy]);
-
-  if (!currentUser) return null;
 
   // 骨架屏组件
   const TeamSkeleton = () => (
@@ -1373,11 +1423,10 @@ const Team: React.FC = () => {
 
   if (selectedTeam) {
     return (
-      <TeamMemberDetail 
-        team={selectedTeam} 
+      <TeamMemberDetail
+        team={selectedTeam}
         mode={sortBy}
-        activeRate={sortBy === 'today' ? selectedTeam.todayActiveRate : selectedTeam.monthlyActiveRate} 
-        onBack={() => setSelectedTeam(null)} 
+        onBack={() => setSelectedTeam(null)}
       />
     );
   }
@@ -1390,6 +1439,13 @@ const Team: React.FC = () => {
             <Users2 className="text-[#1E40AF] mr-2" size={24} />
             团队管理
           </h1>
+          <button
+            onClick={handleRefresh}
+            className="p-2 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors"
+            title="刷新数据"
+          >
+            <RefreshCw size={20} className="text-[#1E40AF]" />
+          </button>
         </div>
 
         <div className="relative mb-4 group">
@@ -1423,14 +1479,20 @@ const Team: React.FC = () => {
             </div>
 
             <div className="flex bg-gray-100 p-1 rounded-xl">
-                <button 
-                    onClick={() => setSortBy('today')}
+                <button
+                    onClick={() => {
+                      setSortBy('today');
+                      fetchTeams('today');
+                    }}
                     className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all ${sortBy === 'today' ? 'bg-white text-[#1E40AF] shadow-sm' : 'text-gray-500'}`}
                 >
                     按今日团队总收益
                 </button>
-                <button 
-                    onClick={() => setSortBy('month')}
+                <button
+                    onClick={() => {
+                      setSortBy('month');
+                      fetchTeams('month');
+                    }}
                     className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all ${sortBy === 'month' ? 'bg-white text-[#1E40AF] shadow-sm' : 'text-gray-500'}`}
                 >
                     按本月团队总收益
@@ -1444,13 +1506,13 @@ const Team: React.FC = () => {
               <TeamManagementSkeleton />
             ) : filteredAndSortedTeams.length > 0 ? (
               filteredAndSortedTeams.map((team, index) => (
-            <div key={team.id} className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden p-4 space-y-4 transition-colors">
+            <div key={team.leaderId} className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden p-4 space-y-4 transition-colors">
               <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                       <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border-2 border-white shadow-sm ${
-                          index === 0 ? 'bg-yellow-500 text-white' : // 第1名 - 金色
-                          index === 1 ? 'bg-gray-300 text-gray-800' : // 第2名 - 银色
-                          index === 2 ? 'bg-orange-600 text-white' : 'bg-green-400 text-white' // 第3名 - 铜色，其他 - 绿色
+                          index === 0 ? 'bg-yellow-500 text-white' :
+                          index === 1 ? 'bg-gray-300 text-gray-800' :
+                          index === 2 ? 'bg-orange-600 text-white' : 'bg-green-400 text-white'
                       }`}>
                           {index < 3 ? (
                               <span className="text-xl font-black">{index + 1}</span>
@@ -1460,15 +1522,12 @@ const Team: React.FC = () => {
                       </div>
                       <div>
                           <div className="flex items-center space-x-2">
-                              <span className="text-sm font-black text-gray-900">{team.leader}</span>
-                          </div>
-                          <div className="text-[10px] text-gray-400 font-medium mt-0.5">
-                            {sortBy === 'today' ? '今日成员活跃率' : '本月成员活跃率'}: {sortBy === 'today' ? team.todayActiveRate : team.monthlyActiveRate}
+                              <span className="text-sm font-black text-gray-900">{team.teamName}</span>
                           </div>
                       </div>
                   </div>
                   <div className="text-right">
-                      <div className={`text-xs font-black ${sortBy === 'today' ? (team.todayGrowth >= 0 ? 'text-green-600' : 'text-red-500') : 'text-gray-900'}`}>¥ {Number(sortBy === 'today' ? team.todayRevenue || 0 : team.totalRevenue || 0).toFixed(2)}</div>
+                      <div className={`text-xs font-black ${team.growthRate >= 0 ? 'text-green-600' : 'text-red-500'}`}>¥ {Number(team.totalRevenue || 0).toFixed(2)}</div>
                       <div className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">
                         {sortBy === 'today' ? '今日团队总收益' : '本月团队总收益'}
                       </div>
@@ -1485,42 +1544,33 @@ const Team: React.FC = () => {
                           <div className="text-[8px] text-gray-400 font-bold uppercase mb-0.5">
                             {sortBy === 'today' ? '今日广告次数' : '本月广告次数'}
                           </div>
-                          <div className={`text-xs font-black ${sortBy === 'today' ? (team.todayGrowth >= 0 ? 'text-green-600' : 'text-red-500') : 'text-gray-700'}`}>
-                            {(sortBy === 'today' ? team.todayAds : team.monthlyAds).toLocaleString()}
+                          <div className={`text-xs font-black ${team.growthRate >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                            {team.totalAds.toLocaleString()}
                           </div>
                       </div>
                       <div className="bg-gray-50 p-2 rounded-xl border border-gray-100/50">
                           <div className="text-[8px] text-gray-400 font-bold uppercase mb-0.5">平均金币</div>
-                          <div className={`text-xs font-black ${(Number(team.todayRevenue || 0) * 1000 / (Number(team.todayAds || 0) || 1)) >= 100 ? 'text-green-600' : 'text-red-500'}`}>
-                              {(Number(team.todayRevenue || 0) * 1000 / (Number(team.todayAds || 0) || 1)).toFixed(2)}
+                          <div className={`text-xs font-black ${team.avgGold >= 100 ? 'text-green-600' : 'text-red-500'}`}>
+                              {team.avgGold.toFixed(2)}
                           </div>
-                      </div>
-                  </div>
-                  <div className="bg-blue-50/40 p-3 rounded-xl border border-blue-100/30 flex items-center justify-between">
-                      <div className="text-[9px] text-gray-500 font-black uppercase tracking-wider flex items-center">
-                          <TrendingUp size={12} className="text-[#1E40AF] mr-1.5" />
-                          本月团队累计总收益
-                      </div>
-                      <div className="text-sm font-black text-[#1E40AF]">
-                          ¥ {Number(team.totalRevenue).toFixed(2)}
                       </div>
                   </div>
               </div>
 
-              <button 
+              <button
                 onClick={() => setSelectedTeam(team)}
                 className="w-full flex items-center justify-between pt-2 border-t border-gray-50 active:bg-gray-50 rounded-b-xl -m-1 p-1 transition-colors"
               >
                   <div className="flex items-center space-x-1 pl-2">
-                      { (sortBy === 'today' ? team.todayGrowth : team.monthGrowth) >= 0 ? (
+                      { team.growthRate >= 0 ? (
                         <TrendingUp size={10} className="text-green-600" />
                       ) : (
                         <TrendingDown size={10} className="text-red-500" />
                       )}
                       <span className="text-[9px] font-bold">
-                        较{sortBy === 'today' ? '昨日' : '上月'}业绩
-                        <span className={ (sortBy === 'today' ? team.todayGrowth : team.monthGrowth) >= 0 ? 'text-green-600' : 'text-red-500' }>
-                          { (sortBy === 'today' ? team.todayGrowth : team.monthGrowth) >= 0 ? '上涨' : '下降' } {Math.abs(sortBy === 'today' ? team.todayGrowth : team.monthGrowth)}%
+                        较{team.growthRate >= 0 ? '上期' : '上期'}
+                        <span className={ team.growthRate >= 0 ? 'text-green-600' : 'text-red-500' }>
+                          { team.growthRate >= 0 ? '上涨' : '下降' } {Math.abs(team.growthRate)}%
                         </span>
                       </span>
                   </div>

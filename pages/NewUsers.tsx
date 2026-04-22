@@ -102,11 +102,17 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
     if (globalCachedData && !isRefresh) {
       console.log('使用全局缓存的新人数据');
       const { users: cachedUsers, yesterdayUserData: cachedYesterdayUserData, yesterdayEarningsData: cachedYesterdayEarningsData } = globalCachedData;
-      setUsers(cachedUsers);
-      setYesterdayUserData(cachedYesterdayUserData);
-      setYesterdayEarningsData(cachedYesterdayEarningsData);
-      setLoading(false);
-      return;
+      // 检查缓存数据是否完整（包含isOnline字段）
+      const hasOnlineField = cachedUsers.length > 0 && 'isOnline' in cachedUsers[0];
+      if (hasOnlineField) {
+        setUsers(cachedUsers);
+        setYesterdayUserData(cachedYesterdayUserData);
+        setYesterdayEarningsData(cachedYesterdayEarningsData);
+        setLoading(false);
+        return;
+      } else {
+        console.log('[NewUsers] 全局缓存数据不完整（缺少isOnline字段），跳过缓存');
+      }
     }
     
     // 检查本地缓存
@@ -116,11 +122,17 @@ const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
     console.log('[NewUsers] 本地缓存数据:', cachedData ? `存在(${cachedData.users?.length || 0}条用户)` : '不存在');
     if (cachedData && !isRefresh) {
       const { users: cachedUsers, yesterdayUserData: cachedYesterdayUserData, yesterdayEarningsData: cachedYesterdayEarningsData } = cachedData;
-      setUsers(cachedUsers);
-      setYesterdayUserData(cachedYesterdayUserData);
-      setYesterdayEarningsData(cachedYesterdayEarningsData);
-      setLoading(false);
-      return;
+      // 检查缓存数据是否完整（包含isOnline字段）
+      const hasOnlineField = cachedUsers.length > 0 && 'isOnline' in cachedUsers[0];
+      if (hasOnlineField) {
+        setUsers(cachedUsers);
+        setYesterdayUserData(cachedYesterdayUserData);
+        setYesterdayEarningsData(cachedYesterdayEarningsData);
+        setLoading(false);
+        return;
+      } else {
+        console.log('[NewUsers] 本地缓存数据不完整（缺少isOnline字段），跳过缓存');
+      }
     }
     
     console.log('[NewUsers] 缓存都没有，需要重新加载数据');

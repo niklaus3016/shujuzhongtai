@@ -281,7 +281,7 @@ const VerificationManagement: React.FC<VerificationManagementProps> = ({ onBack 
               <AlertCircle size={16} className="text-gray-400" />
               <span className="text-[10px] text-gray-400">总记录数</span>
             </div>
-            <p className="text-xl font-black text-gray-900">{total}</p>
+            <p className="text-xl font-black text-gray-900">{stats.pendingCount + stats.approvedCount + stats.rejectedCount}</p>
           </div>
         </div>
 

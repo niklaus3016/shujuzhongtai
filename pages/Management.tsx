@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, Target, ToggleLeft, ToggleRight, Wallet, ChevronRight,
-  UserPlus, Settings, TrendingUp, Plus, ChevronLeft, Info, Check, Smartphone, AlertCircle, DollarSign
+  UserPlus, Settings, TrendingUp, TrendingDown, Plus, ChevronLeft, Info, Check, Smartphone, AlertCircle, DollarSign
 } from 'lucide-react';
 import { request } from '../services/api';
 import AccountManagement from './AccountManagement';
@@ -554,20 +554,28 @@ const Management: React.FC<ManagementProps> = () => {
       bg: 'bg-blue-50'
     },
     {
-      id: 'target',
-      icon: Target,
-      title: '周目标管理',
-      description: '设定周目标数据',
-      color: 'text-green-500',
-      bg: 'bg-green-50'
-    },
-    {
       id: 'commission',
       icon: TrendingUp,
       title: '用户分成设置',
       description: '设置用户金币分成比例',
       color: 'text-purple-500',
       bg: 'bg-purple-50'
+    },
+    {
+      id: 'gold-adjustment-today',
+      icon: TrendingUp,
+      title: '今日金币调整',
+      description: '手动增加用户今日金币记录',
+      color: 'text-yellow-500',
+      bg: 'bg-yellow-50'
+    },
+    {
+      id: 'gold-adjustment',
+      icon: Wallet,
+      title: '用户金币调整',
+      description: '调整用户金币数量',
+      color: 'text-green-500',
+      bg: 'bg-green-50'
     },
     {
       id: 'red-packet',
@@ -594,6 +602,14 @@ const Management: React.FC<ManagementProps> = () => {
       bg: 'bg-pink-50'
     },
     {
+      id: 'target',
+      icon: Target,
+      title: '每周目标管理',
+      description: '设定周目标数据',
+      color: 'text-green-500',
+      bg: 'bg-green-50'
+    },
+    {
       id: 'device-limit',
       icon: Smartphone,
       title: '设备限制管理',
@@ -602,21 +618,20 @@ const Management: React.FC<ManagementProps> = () => {
       bg: 'bg-gray-50'
     },
     {
-      id: 'gold-deduction',
-      icon: TrendingUp,
-      title: '上月金币核减',
-      description: '对所有用户上月累计金币进行核减',
+      id: 'verification',
+      icon: Smartphone,
+      title: '手机核销管理',
+      description: '管理核销申请和统计数据',
       color: 'text-purple-500',
       bg: 'bg-purple-50'
     },
     {
-      id: 'withdraw-toggle',
-      icon: withdrawEnabled ? ToggleRight : ToggleLeft,
-      title: '提现开关',
-      description: withdrawEnabled ? '当前：已开启' : '当前：已关闭',
-      color: withdrawEnabled ? 'text-green-500' : 'text-gray-400',
-      bg: withdrawEnabled ? 'bg-green-50' : 'bg-gray-50',
-      isToggle: true
+      id: 'gold-deduction',
+      icon: TrendingDown,
+      title: '上月金币核减',
+      description: '对所有用户上月累计金币进行核减',
+      color: 'text-purple-500',
+      bg: 'bg-purple-50'
     },
     {
       id: 'withdrawal',
@@ -627,28 +642,13 @@ const Management: React.FC<ManagementProps> = () => {
       bg: 'bg-orange-50'
     },
     {
-      id: 'verification',
-      icon: AlertCircle,
-      title: '手机核销管理',
-      description: '管理核销申请和统计数据',
-      color: 'text-purple-500',
-      bg: 'bg-purple-50'
-    },
-    {
-      id: 'gold-adjustment',
-      icon: DollarSign,
-      title: '用户金币调整',
-      description: '调整用户金币数量',
-      color: 'text-green-500',
-      bg: 'bg-green-50'
-    },
-    {
-      id: 'gold-adjustment-today',
-      icon: DollarSign,
-      title: '今日金币调整',
-      description: '手动增加用户今日金币记录',
-      color: 'text-yellow-500',
-      bg: 'bg-yellow-50'
+      id: 'withdraw-toggle',
+      icon: withdrawEnabled ? ToggleRight : ToggleLeft,
+      title: '提现开关',
+      description: withdrawEnabled ? '当前：已开启' : '当前：已关闭',
+      color: withdrawEnabled ? 'text-green-500' : 'text-gray-400',
+      bg: withdrawEnabled ? 'bg-green-50' : 'bg-gray-50',
+      isToggle: true
     }
   ];
 
@@ -699,8 +699,13 @@ const Management: React.FC<ManagementProps> = () => {
               className={`bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-between cursor-pointer active:bg-gray-50 transition-all ${loading && item.isToggle ? 'opacity-50' : ''}`}
             >
               <div className="flex items-center space-x-4">
-                <div className={`w-12 h-12 rounded-xl ${item.bg} flex items-center justify-center`}>
+                <div className={`w-12 h-12 rounded-xl ${item.bg} flex items-center justify-center relative`}>
                   <Icon size={24} className={item.color} />
+                  {item.id === 'withdrawal' && pendingWithdrawals > 0 && (
+                    <div className="absolute top-0 right-0 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold">
+                      {pendingWithdrawals}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-gray-900">{item.title}</h3>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ChevronLeft, Wallet, Search, Filter, CheckCircle, XCircle, Clock,
-  TrendingUp, DollarSign, Download
+  TrendingUp, DollarSign, Download, RefreshCw
 } from 'lucide-react';
 import { request } from '../services/api';
 import { useSwipeBack } from '../hooks/useSwipeBack';
@@ -183,6 +183,13 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
           <ChevronLeft size={24} />
         </button>
         <h1 className="flex-1 text-center font-bold text-gray-900 mr-8">提现管理</h1>
+        <button 
+          onClick={fetchRecords} 
+          className="p-2 text-gray-400 active:text-gray-900" 
+          title="刷新"
+        >
+          <RefreshCw size={20} />
+        </button>
       </header>
 
       <div className="p-4 space-y-4">
