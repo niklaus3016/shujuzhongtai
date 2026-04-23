@@ -18,14 +18,18 @@
     "@capacitor/android": "^8.2.0",
     "@capacitor/cli": "^8.2.0",
     "@capacitor/core": "^8.2.0",
+    "@tailwindcss/postcss": "^4.2.4",
+    "autoprefixer": "^10.5.0",
     "axios": "^1.15.0",
     "chart.js": "^4.5.1",
     "lucide-react": "^0.562.0",
     "node-fetch": "^3.3.2",
+    "postcss": "^8.5.10",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "recharts": "^3.7.0",
-    "serve": "^14.2.6"
+    "serve": "^14.2.6",
+    "tailwindcss": "^4.2.4"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

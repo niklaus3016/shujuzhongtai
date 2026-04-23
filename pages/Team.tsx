@@ -22,7 +22,6 @@ interface TeamItem {
   totalRevenue: number;
   avgGold: number;
   growthRate: number;
-  level?: '荣耀' | '王牌' | '精英' | '新锐';
 }
 
 interface TeamApiResponse {
@@ -296,8 +295,13 @@ const Team: React.FC = () => {
 
   // 提取fetchTeams为useCallback，避免重复定义
   const fetchTeams = useCallback(async (range: 'today' | 'month' = 'today') => {
-    console.log('=== 开始获取团队数据 ===');
     const currentUser = authService.getCurrentUser();
+    // 团队长角色不执行任何团队管理相关的请求，因为团队管理在第三个按钮对应的GroupManagement.tsx中
+    if (currentUser?.role === UserRole.NORMAL_ADMIN) {
+      return;
+    }
+    
+    console.log('=== 开始获取团队数据 ===');
     console.log('Current user:', currentUser);
     const token = localStorage.getItem('admin_token');
     console.log('Current token:', token);
@@ -318,8 +322,9 @@ const Team: React.FC = () => {
     setLoading(true);
     try {
       console.log('Fetching teams data from API...');
+      
+      // 超管使用原来的接口
       console.log('API URL:', `/admin/team-performance?range=${range}`);
-      // 注意：api.ts中的request函数会自动返回result.data
       const teamsData = await request<any[]>(`/admin/team-performance?range=${range}`, {
         method: 'GET'
       });
@@ -327,7 +332,7 @@ const Team: React.FC = () => {
 
       if (Array.isArray(teamsData)) {
         console.log('Teams data is an array, length:', teamsData.length);
-        const validTeams = teamsData.filter(team => {
+        const validTeams = teamsData.filter((team: any) => {
           const isValid = team && typeof team === 'object' && team.teamName && team.leaderId;
           console.log('Team validity check:', { teamName: team?.teamName, leaderId: team?.leaderId, isValid });
           return isValid;
@@ -365,19 +370,28 @@ const Team: React.FC = () => {
 
   // 组件挂载时加载今日数据，同时预加载本月数据
   useEffect(() => {
+    const currentUser = authService.getCurrentUser();
+    // 团队长角色不执行任何团队管理相关的请求
+    if (currentUser?.role === UserRole.NORMAL_ADMIN) {
+      return;
+    }
+    
     fetchTeams();
     // 预加载本月数据到缓存
     setTimeout(() => {
-      const currentUser = authService.getCurrentUser();
       const monthCacheKey = `teams_${currentUser?.id || 'unknown'}_month`;
       const monthCachedData = cacheManager.get(monthCacheKey, 300000);
       if (!monthCachedData) {
         console.log('预加载本月团队数据...');
-        request<any[]>('/admin/team-performance?range=month', {
+        // 超管使用原来的接口
+        request<any[]>(`/admin/team-performance?range=month`, {
           method: 'GET'
         }).then(monthData => {
           if (Array.isArray(monthData)) {
-            cacheManager.set(monthCacheKey, { teams: monthData });
+            const validTeams = monthData.filter((team: any) => {
+              return team && typeof team === 'object' && team.teamName && team.leaderId;
+            });
+            cacheManager.set(monthCacheKey, { teams: validTeams });
             console.log('本月团队数据预加载完成');
           }
         }).catch(err => {
@@ -389,6 +403,12 @@ const Team: React.FC = () => {
 
   // 自动刷新机制：每60秒刷新一次数据
   useEffect(() => {
+    const currentUser = authService.getCurrentUser();
+    // 团队长角色不执行任何团队管理相关的自动刷新
+    if (currentUser?.role === UserRole.NORMAL_ADMIN) {
+      return;
+    }
+    
     const refreshInterval = setInterval(() => {
       fetchTeams();
     }, 60000); // 60秒
@@ -541,7 +561,7 @@ const Team: React.FC = () => {
   // Normal Admin (Team Leader) view
   if (currentUser.role === UserRole.NORMAL_ADMIN) {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-    const [accountType, setAccountType] = useState<'group' | 'employee'>('group');
+    const [accountType, setAccountType] = useState<'group' | 'employee'>('employee');
     const [filter, setFilter] = useState<string>('all');
     const [accounts, setAccounts] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -551,7 +571,7 @@ const Team: React.FC = () => {
     const [deletingAccount, setDeletingAccount] = useState<any>(null);
     const [searchKeyword, setSearchKeyword] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
-    const [addType, setAddType] = useState<'group' | 'employee'>('group');
+    const [addType, setAddType] = useState<'group' | 'employee'>('employee');
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [groups, setGroups] = useState<any[]>([]);
@@ -566,7 +586,23 @@ const Team: React.FC = () => {
       commissionRate: ''
     });
     
-    const fetchAccounts = async () => {
+    // 提取fetchAccounts为useCallback，避免重复定义
+    const fetchAccounts = useCallback(async () => {
+      console.log('=== 开始获取账号数据 ===');
+      const currentUser = authService.getCurrentUser();
+      const cacheKey = `accounts_team_${currentUser?.id || 'unknown'}`;
+      
+      // 先检查缓存
+      const cachedData = cacheManager.get(cacheKey, 300000); // 5分钟缓存
+      if (cachedData) {
+        console.log('使用缓存的账号数据');
+        setGroups(cachedData.groups || []);
+        setAccounts(cachedData.accounts || []);
+        setLoading(false);
+        console.log('=== 获取账号数据完成 (使用缓存) ===');
+        return;
+      }
+      
       setLoading(true);
       try {
         const teamId = currentUser.id;
@@ -578,19 +614,59 @@ const Team: React.FC = () => {
         ]);
         
         // 直接使用后端返回的数据，不需要任何转换
-        setGroups(groupLeaders || []);
-        setAccounts([...(groupLeaders || []), ...(employees || [])]);
+        const allGroups = groupLeaders || [];
+        let allAccounts = [...(groupLeaders || []), ...(employees || [])];
+        
+        // 检查缓存中是否有分组信息，如果API返回的分组信息为"无"，但缓存中有分组信息，那么使用缓存中的分组信息
+        const previousCachedData = cacheManager.get(cacheKey, 600000); // 10分钟缓存，确保能获取到之前的缓存
+        if (previousCachedData && previousCachedData.accounts) {
+          allAccounts = allAccounts.map(account => {
+            const cachedAccount = previousCachedData.accounts.find((acc: any) => acc._id === account._id);
+            // 修复：组长账号没有teamGroupId，只有groupName，所以需要同时检查groupName
+            if (cachedAccount && cachedAccount.groupName && cachedAccount.groupName !== '无' && (!account.groupName || account.groupName === '无')) {
+              console.log('使用缓存中的分组信息:', cachedAccount.groupName);
+              return {
+                ...account,
+                teamGroupId: cachedAccount.teamGroupId,
+                groupName: cachedAccount.groupName
+              };
+            }
+            return account;
+          });
+        }
+        
+        setGroups(allGroups);
+        setAccounts(allAccounts);
+        
+        // 缓存数据
+        cacheManager.set(cacheKey, {
+          groups: allGroups,
+          accounts: allAccounts
+        });
+        console.log('账号数据缓存完成');
       } catch (error) {
         console.error('Error fetching accounts:', error);
         setAccounts([]);
+        setGroups([]);
       } finally {
         setLoading(false);
+        console.log('=== 获取账号数据完成 ===');
       }
-    };
+    }, []);
     
+    // 组件挂载时加载账号数据
     useEffect(() => {
       fetchAccounts();
-    }, []);
+    }, [fetchAccounts]);
+    
+    // 自动刷新机制：每60秒刷新一次数据
+    useEffect(() => {
+      const refreshInterval = setInterval(() => {
+        fetchAccounts();
+      }, 60000); // 60秒
+
+      return () => clearInterval(refreshInterval);
+    }, [fetchAccounts]);
     
     const accountCounts = {
       group: accounts.filter(a => !a.employeeId && a.groupName).length,
@@ -645,6 +721,8 @@ const Team: React.FC = () => {
       return 0;
     });
     
+    const currentUser = authService.getCurrentUser();
+    
     const toggleAccountStatus = async (account: any) => {
       try {
         const currentEnabled = account.status === 'enabled' || account.status === '1' || !account.status; // 没有status字段时默认为启用
@@ -661,6 +739,9 @@ const Team: React.FC = () => {
             body: JSON.stringify({ status: newStatus })
           });
         }
+        // 清除缓存并重新加载数据
+        const cacheKey = `accounts_team_${currentUser?.id || 'unknown'}`;
+        cacheManager.delete(cacheKey);
         fetchAccounts();
       } catch (error) {
         console.error('Error toggling status:', error);
@@ -704,12 +785,17 @@ const Team: React.FC = () => {
     
     const handleEditAccount = async () => {
       if (!editingAccount) return;
-      
+
       try {
         if (editingAccount.role === 'EMPLOYEE') {
           // 查找选中的组信息
           const selectedGroup = groups.find(g => g._id === formData.groupId);
-          await request<any>(`/admin/employee/${editingAccount._id}`, {
+          console.log('Selected group:', selectedGroup);
+          console.log('Form data:', formData);
+          console.log('Editing account:', editingAccount);
+
+          // 调用API更新员工信息
+          const response = await request<any>(`/admin/employee/${editingAccount._id}`, {
             method: 'PUT',
             body: JSON.stringify({
               parentId: currentUser.id,
@@ -717,9 +803,53 @@ const Team: React.FC = () => {
               phone: formData.phone,
               region: formData.region,
               employeeId: formData.employeeId,
-              groupId: formData.groupId,
+              teamGroupId: formData.groupId,
               groupName: selectedGroup?.groupName || ''
             })
+          });
+
+          console.log('API response:', response);
+
+          // 检查后端是否正确返回了分组信息
+          if (!response || (!response.teamGroupId && !response.groupName)) {
+            console.error('后端API没有返回分组信息，保存可能失败');
+            throw new Error('保存失败，后端没有返回分组信息');
+          }
+
+          // 使用API返回的数据更新本地状态
+          const updatedData = {
+            ...editingAccount,
+            realName: response.realName || formData.realName,
+            phone: response.phone || formData.phone,
+            region: response.region || formData.region,
+            employeeId: response.employeeId || formData.employeeId,
+            teamGroupId: response.teamGroupId,
+            groupName: response.groupName
+          };
+
+          console.log('Updated data:', updatedData);
+
+          // 直接更新本地状态，确保分组信息立即显示
+          setAccounts(prevAccounts => {
+            const newAccounts = prevAccounts.map(acc => {
+              if (acc._id === editingAccount._id) {
+                return updatedData;
+              }
+              return acc;
+            });
+            console.log('New accounts state updated');
+
+            // 同时更新缓存，确保60秒自动刷新时不会丢失修改
+            const cacheKey = `accounts_team_${currentUser?.id || 'unknown'}`;
+            const cachedData = cacheManager.get(cacheKey);
+            const newCachedData = {
+              groups: cachedData?.groups || groups,
+              accounts: newAccounts
+            };
+            cacheManager.set(cacheKey, newCachedData);
+            console.log('缓存已更新');
+
+            return newAccounts;
           });
         } else {
           const commissionRate = formData.commissionRate !== undefined && formData.commissionRate !== '' ? parseFloat(formData.commissionRate) / 100 : undefined;
@@ -733,16 +863,48 @@ const Team: React.FC = () => {
             ...(formData.phone && { phone: formData.phone })
           };
           
-          await request<any>(`/admin/employee/group-leader/${groupId}`, {
+          const response = await request<any>(`/admin/employee/group-leader/${groupId}`, {
             method: 'PUT',
             body: JSON.stringify(updateData)
           });
           
-          console.log('更新组长信息成功');
+          console.log('更新组长信息成功，响应:', response);
+          
+          // 直接更新本地状态，确保组长信息立即显示
+          setAccounts(prevAccounts => {
+            const newAccounts = prevAccounts.map(account => {
+              if (account._id === editingAccount._id) {
+                return {
+                  ...account,
+                  groupName: formData.groupName,
+                  realName: formData.realName,
+                  ...(commissionRate !== undefined && { commission: commissionRate }),
+                  ...(formData.phone && { phone: formData.phone })
+                };
+              }
+              return account;
+            });
+
+            // 同时更新缓存，确保60秒自动刷新时不会丢失修改
+            const cacheKey = `accounts_team_${currentUser?.id || 'unknown'}`;
+            const cachedData = cacheManager.get(cacheKey);
+            const newCachedData = {
+              groups: cachedData?.groups || groups,
+              accounts: newAccounts
+            };
+            cacheManager.set(cacheKey, newCachedData);
+            console.log('缓存已更新');
+
+            return newAccounts;
+          });
         }
         setShowEditModal(false);
         setEditingAccount(null);
-        fetchAccounts();
+        // 重置formData，确保下次打开编辑模态框时是干净的
+        setFormData({ teamName: '', realName: '', phone: '', region: '', employeeId: '', groupId: '', groupName: '', commissionRate: '' });
+        // 缓存已在状态更新时更新，不需要清除
+        console.log('更新成功，分组信息已保存');
+
       } catch (error: any) {
         console.error('Error updating account:', error);
         alert(error.message || '更新失败，请重试');
@@ -765,6 +927,9 @@ const Team: React.FC = () => {
         }
         setShowDeleteModal(false);
         setDeletingAccount(null);
+        // 清除缓存并重新加载数据
+        const cacheKey = `accounts_team_${currentUser?.id || 'unknown'}`;
+        cacheManager.delete(cacheKey);
         fetchAccounts();
       } catch (error: any) {
         console.error('Error deleting account:', error);
@@ -812,7 +977,9 @@ const Team: React.FC = () => {
           // 显示提交成功提示
           alert('组长信息已提交，请等待超管开通账号');
           
-          // 刷新账号列表
+          // 清除缓存并重新加载数据
+          const cacheKey = `accounts_team_${currentUser?.id || 'unknown'}`;
+          cacheManager.delete(cacheKey);
           fetchAccounts();
         } else {
           await request<any>('/admin/employee/create', {
@@ -826,11 +993,15 @@ const Team: React.FC = () => {
               employeeId: formData.employeeId
             })
           });
+          
+          // 清除缓存并重新加载数据
+          const cacheKey = `accounts_team_${currentUser?.id || 'unknown'}`;
+          cacheManager.delete(cacheKey);
+          fetchAccounts();
         }
         setShowAddModal(false);
         setAddType('group');
         setFormData({ teamName: '', realName: '', phone: '', region: '', employeeId: '', groupId: '', groupName: '', commissionRate: '' });
-        fetchAccounts();
       } catch (error: any) {
         console.error('Error adding account:', error);
         setError(error.message || '添加失败，请重试');
@@ -846,18 +1017,30 @@ const Team: React.FC = () => {
         <div className="p-4 pb-24">
           <header className="mb-6">
             <div className="flex items-center justify-between">
-              <h1 className="text-xl font-bold text-gray-900 flex items-center">
-                <User className="text-[#1E40AF] mr-2" size={24} />
-                帐号管理
-              </h1>
-            <button 
-              onClick={() => setShowAddModal(true)}
-              className="bg-[#1E40AF] text-white p-2 rounded-xl shadow-lg shadow-blue-100 active:scale-95 transition-all"
-            >
-              <UserPlus size={20} />
-            </button>
-          </div>
-        </header>
+              <div className="flex items-center space-x-3">
+                <h1 className="text-xl font-bold text-gray-900 flex items-center">
+                  <User className="text-[#1E40AF] mr-2" size={24} />
+                  帐号管理
+                </h1>
+                <button 
+                  onClick={() => {
+                    const cacheKey = `accounts_team_${currentUser?.id || 'unknown'}`;
+                    cacheManager.delete(cacheKey);
+                    fetchAccounts();
+                  }}
+                  className="bg-white text-[#1E40AF] p-2 rounded-xl shadow-lg shadow-blue-100 active:scale-95 transition-all border border-gray-100"
+                >
+                  <RefreshCw size={20} />
+                </button>
+              </div>
+              <button 
+                onClick={() => setShowAddModal(true)}
+                className="bg-[#1E40AF] text-white p-2 rounded-xl shadow-lg shadow-blue-100 active:scale-95 transition-all"
+              >
+                <UserPlus size={20} />
+              </button>
+            </div>
+          </header>
         
         <div className="flex space-x-2 mb-4">
           <button 
@@ -977,6 +1160,11 @@ const Team: React.FC = () => {
                               分成：{Math.round(account.commission * 100)}%
                             </p>
                           )}
+                          {account.username && account.status === 'enabled' && (
+                            <p className="text-[10px] text-gray-500 mt-0.5">
+                              用户名：{account.username}
+                            </p>
+                          )}
                         </>
                       )}
                     </div>
@@ -1051,7 +1239,7 @@ const Team: React.FC = () => {
                     {/* 显示开通状态（只有组长账号才显示） */}
                     {(account.role !== 'EMPLOYEE' && account.groupName && (
                       <div className="mt-2 space-y-1">
-                        {!(account.teamGroupId || account.groupName) ? (
+                        {account.status === 'disabled' || !account.username ? (
                           <span className="text-xs font-bold bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
                             待开通
                           </span>

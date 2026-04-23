@@ -51,6 +51,10 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
     if (currentUser?.username && teamNameMap[currentUser.username]) {
       return teamNameMap[currentUser.username];
     }
+    // 对于团队长，默认返回其username作为团队名称
+    if (currentUser?.username) {
+      return currentUser.username;
+    }
     return '团队';
   };
 
@@ -190,7 +194,7 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
           {
             title: `${timePrefix}活跃用户`,
             value: activeUsersCount.toLocaleString(),
-            subValue: totalUsersCount.toString(),
+            subValue: timeRange === '今日' ? totalUsersCount.toString() : undefined,
             icon: TrendingUp,
             color: 'text-emerald-600',
             bg: 'bg-emerald-50'
@@ -312,13 +316,13 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
               bg: 'bg-indigo-50'
             },
             {
-              title: `${timePrefix}活跃用户`,
-              value: activeUsersCount.toLocaleString(),
-              subValue: '0',
-              icon: TrendingUp,
-              color: 'text-emerald-600',
-              bg: 'bg-emerald-50'
-            },
+            title: `${timePrefix}活跃用户`,
+            value: activeUsersCount.toLocaleString(),
+            subValue: undefined,
+            icon: TrendingUp,
+            color: 'text-emerald-600',
+            bg: 'bg-emerald-50'
+          },
             {
               title: '广告总曝光',
               value: responseData?.impressions?.toLocaleString() || '0',
@@ -378,7 +382,7 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
       // 转换用户数据
       const transformedUsers = filteredUsers.map((user: any) => ({
         id: user.employeeId || user.userId || '',
-        userId: user.userId || '',
+        userId: user.userId || user.employeeId || '',
         name: user.realName || user.realname || user.name || user.username || user.userName || user.userId || user.employeeId || '',
         avatar: '',
         watched: user.watched || 0,
@@ -487,7 +491,7 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
                 <div className="text-gray-500 text-[10px] font-medium mb-1 uppercase tracking-wider">{kpi.title}</div>
                 <div className="text-lg font-bold leading-none text-gray-900">
                   {kpi.value}
-                  {kpi.subValue && (
+                  {kpi.subValue && kpi.subValue !== '0' && (
                     <span className="ml-1.5 text-[10px] font-bold text-gray-600">
                       ({kpi.subValue})
                     </span>

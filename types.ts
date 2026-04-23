@@ -8,7 +8,9 @@ export enum UserRole {
 
 export interface AdminUser {
   id: string;
+  _id?: string; // MongoDB ID
   username: string;
+  realName?: string; // 真实姓名
   role: UserRole;
   token?: string;
   parentId?: string; // For employees, who is their admin
@@ -19,9 +21,15 @@ export interface AdminUser {
   teamName?: string; // For team leaders, the name of their team
   teamGroupId?: string; // For group leaders, the id of their group
   groupName?: string; // For group leaders, the name of their group
+  groupId?: string; // Group ID
   phoneCount?: number; // 领取手机数
   phone?: string; // 手机号
   region?: string; // 地区
+  employeeId?: string; // 员工工号
+  memberCount?: number; // 组成员数
+  zeroEarningsDays?: number; // 0收益天数
+  createdAt?: string; // 创建时间
+  updatedAt?: string; // 更新时间
 }
 
 export interface ApiResponse<T> {

@@ -61,162 +61,71 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
     if (isRefresh) {
       setRefreshing(true);
     } else {
-      // 检查缓存
       const cacheKey = `${localTimeRange}_${currentUser?.id || 'unknown'}`;
       const cachedData = getCachedData(cacheKey);
       if (cachedData) {
         setKpiData(cachedData);
         setLoading(false);
-        // 后台预加载其他时间范围的数据
         preloadOtherTimeRanges();
         return;
       }
       setLoading(true);
     }
 
-    let responseData: any = null;
-    let showGrowth = false;
-    let userShare = 0;
-    let averageCoins = 0;
-    let groupLeaderEarnings = 0;
-    let activeUsersCount = 0;
-    let totalUsersCount = 0;
-
     try {
       if (!currentUser) {
         throw new Error('用户未登录');
       }
-      
-      // 重新获取最新的用户信息，确保teamGroupId是最新的
-      const updatedUser = authService.getCurrentUser();
-      const { teamName, groupName, groupId } = {
-        teamName: updatedUser?.teamName || '团队',
-        groupName: updatedUser?.groupName || '组',
-        groupId: updatedUser?.teamGroupId || ''
-      };
-      
-      // 使用本地时间范围
-      const formattedTimeRange = localTimeRange;
-      
-      // 使用正确的 API 路径 - KPI 接口
-      const apiUrl = `/admin/dashboard/kpi?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(groupId || '')}`;
-      
-      try {
-        const result = await request<any>(apiUrl, {
-          method: 'GET'
-        });
-        responseData = result;
-      } catch (error) {
-        // 即使KPI数据获取失败，也继续获取其他数据
-        responseData = {};
-      }
 
-      // 时间前缀
-      const timePrefixMap: Record<string, string> = {
-        today: '今日',
-        yesterday: '昨日',
-        week: '本周',
-        month: '本月'
-      };
-      const timePrefix = timePrefixMap[localTimeRange];
-      // 只在今日显示增长率，其他时间范围不显示
-      showGrowth = localTimeRange === 'today';
+      const apiUrl = `/group-leader/stats?range=${localTimeRange}`;
+      console.log('正在请求组长数据:', apiUrl);
+      const data = await request<any>(apiUrl, { method: 'GET' });
+      console.log('组长数据API返回:', data);
 
-      // 计算团队分成（用户分成的20%）
-      userShare = Number(responseData?.coins || 0) / 1000;
-      
-      // 计算单条平均金币 = (团队用户收益 * 1000) / 广告总曝光
-      averageCoins = responseData?.impressions > 0 ? (userShare * 1000) / Number(responseData?.impressions) : 0;
-
-      // 并行获取所有需要的数据，提高加载速度
-      try {
-        // 并行执行API请求，添加超时处理
-        const [userResult, employeeResult] = await Promise.all([
-          // 为用户列表请求添加超时处理
-          Promise.race([
-            request<any[]>(`/admin/dashboard/users?range=${formattedTimeRange}&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(groupId || '')}&limit=100`),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('用户列表请求超时')), 5000))
-          ]).catch(() => []),
-          // 为员工账号列表请求添加超时处理
-          Promise.race([
-            request<any>('/admin/employee/list?pageSize=100', { method: 'GET' }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('员工账号列表请求超时')), 5000))
-          ]).catch(() => ({ data: [] }))
-        ]);
-
-        // 处理用户数据，计算活跃用户数
-        const users = Array.isArray(userResult) ? userResult : [];
-        
-        // 组长只计算自己组的用户
-        const filteredUsers = users.filter((user: any) => {
-          const userTeam = user.teamName || user.superior || '系统直属';
-          const userGroup = user.groupName || user.teamGroup || '';
-          return userTeam === teamName && userGroup === groupName;
-        });
-        
-        // 计算活跃用户数：有收益或观看次数的用户（只计算本组的用户）
-        activeUsersCount = filteredUsers.filter((user: any) => (user.watched > 0 || user.earnings > 0)).length;
-
-        // 处理员工账号数据，计算已启用的员工账号数量
-        const employees = Array.isArray(employeeResult) ? employeeResult : (employeeResult?.data || []);
-        
-        // 过滤出本组的员工且状态为active
-        const groupEmployees = employees.filter((emp: any) => {
-          const empTeam = emp.parentName || emp.teamName || emp.superior || '';
-          const empGroup = emp.groupName || emp.teamGroup || '';
-          const isActive = emp.status === 'active' || emp.status === 'enabled' || !emp.status;
-          return empTeam === teamName && empGroup === groupName && isActive;
-        });
-        
-        totalUsersCount = groupEmployees.length;
-
-        // 调用后端API获取组长收益（根据提成比例变更历史准确计算）
-        if (groupId) {
-          const commissionUrl = `/admin/group-leader-commission/${groupId}?range=${formattedTimeRange}`;
-          
-          try {
-            const commissionData = await request<any>(commissionUrl, {
-              method: 'GET'
-            });
-            groupLeaderEarnings = commissionData?.totalCommission || 0;
-          } catch (err) {
-            groupLeaderEarnings = 0;
+      if (data) {
+        const transformedKpis = [
+          {
+            title: '组提成收益',
+            value: `¥${(data.totalCommission || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
+            icon: Users,
+            color: 'text-purple-600',
+            bg: 'bg-purple-50'
+          },
+          {
+            title: '本组平均金币',
+            value: `${(data.avgGoldByAll || 0).toFixed(2)}`,
+            icon: Zap,
+            color: 'text-yellow-600',
+            bg: 'bg-yellow-50'
+          },
+          {
+            title: '本组用户总数',
+            value: `${data.memberCount || data.totalMemberCount || 0}`,
+            icon: Users,
+            color: 'text-blue-600',
+            bg: 'bg-blue-50'
+          },
+          {
+            title: '本组业绩金额',
+            value: `¥${(data.totalPerformance || data.totalEarnings || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
+            icon: Coins,
+            color: 'text-green-600',
+            bg: 'bg-green-50'
           }
-        }
-      } catch (error) {
-        // 静默处理错误，不影响其他数据的显示
+        ];
+
+        const cacheKey = `${localTimeRange}_${currentUser?.id || 'unknown'}`;
+        setCachedData(cacheKey, transformedKpis);
+        setKpiData(transformedKpis);
+      } else {
+        setKpiData([]);
       }
 
-      // 转换KPI数据为前端格式
-      const transformedKpis = [
-        {
-          title: '组提成收益',
-          value: `¥${groupLeaderEarnings.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
-          growth: showGrowth ? `${responseData?.coinsGrowth > 0 ? '+' : ''}${responseData?.coinsGrowth || 0}%` : '',
-          isUp: responseData?.coinsGrowth > 0,
-          icon: Users,
-          color: 'text-purple-600',
-          bg: 'bg-purple-50'
-        },
-        {
-          title: '单条平均金币（总盘）',
-          value: `${averageCoins.toFixed(2)}`,
-          icon: Zap,
-          color: 'text-yellow-600',
-          bg: 'bg-yellow-50'
-        }
-      ];
-
-      // 缓存数据
-      const cacheKey = `${localTimeRange}_${currentUser?.id || 'unknown'}`;
-      setCachedData(cacheKey, transformedKpis);
-
-      setKpiData(transformedKpis);
-      
-      // 后台预加载其他时间范围的数据
       preloadOtherTimeRanges();
     } catch (error) {
-      // 保持数据为空，不显示模拟数据
+      console.error('获取组长数据失败:', error);
+      console.error('错误详情:', error instanceof Error ? error.message : error);
+      console.error('当前用户:', currentUser);
       setKpiData([]);
     } finally {
       setLoading(false);
@@ -238,72 +147,48 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
       otherTimeRanges.map(async (range) => {
         const cacheKey = `${range}_${currentUser?.id || 'unknown'}`;
         
-        // 检查是否已经有缓存
         if (getCachedData(cacheKey)) {
-          return; // 已有缓存，跳过预加载
+          return;
         }
         
         try {
-          const updatedUser = authService.getCurrentUser();
-          const { teamName, groupName, groupId } = {
-            teamName: updatedUser?.teamName || '团队',
-            groupName: updatedUser?.groupName || '组',
-            groupId: updatedUser?.teamGroupId || ''
-          };
+          const apiUrl = `/group-leader/stats?range=${range}`;
+          const data = await request<any>(apiUrl, { method: 'GET' });
           
-          // 获取KPI数据
-          const apiUrl = `/admin/dashboard/kpi?range=${range}&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(groupId || '')}`;
-          const result = await request<any>(apiUrl, { method: 'GET' });
-          const responseData = result || {};
-          
-          // 计算数据
-          const userShare = Number(responseData?.coins || 0) / 1000;
-          const averageCoins = responseData?.impressions > 0 ? (userShare * 1000) / Number(responseData?.impressions) : 0;
-          let groupLeaderEarnings = 0;
-          
-          // 获取组长收益
-          if (groupId) {
-            const commissionUrl = `/admin/group-leader-commission/${groupId}?range=${range}`;
-            try {
-              const commissionData = await request<any>(commissionUrl, { method: 'GET' });
-              groupLeaderEarnings = commissionData?.totalCommission || 0;
-            } catch (err) {
-              groupLeaderEarnings = 0;
-            }
+          if (data) {
+            const transformedKpis = [
+              {
+                title: '组提成收益',
+                value: `¥${(data.totalCommission || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
+                icon: Users,
+                color: 'text-purple-600',
+                bg: 'bg-purple-50'
+              },
+              {
+                title: '本组平均金币',
+                value: `${(data.avgGoldByAll || 0).toFixed(2)}`,
+                icon: Zap,
+                color: 'text-yellow-600',
+                bg: 'bg-yellow-50'
+              },
+              {
+                title: '本组用户总数',
+                value: `${data.memberCount || data.totalMemberCount || 0}`,
+                icon: Users,
+                color: 'text-blue-600',
+                bg: 'bg-blue-50'
+              },
+              {
+                title: '本组业绩金额',
+                value: `¥${(data.totalPerformance || data.totalEarnings || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
+                icon: Coins,
+                color: 'text-green-600',
+                bg: 'bg-green-50'
+              }
+            ];
+            
+            setCachedData(cacheKey, transformedKpis);
           }
-          
-          // 时间前缀
-          const timePrefixMap: Record<string, string> = {
-            'today': '今日',
-            'yesterday': '昨日',
-            'week': '本周',
-            'month': '本月'
-          };
-          const timePrefix = timePrefixMap[range];
-          const showGrowth = range === 'today';
-          
-          // 转换KPI数据
-          const transformedKpis = [
-            {
-              title: '组提成收益',
-              value: `¥${groupLeaderEarnings.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
-              growth: showGrowth ? `${responseData?.coinsGrowth > 0 ? '+' : ''}${responseData?.coinsGrowth || 0}%` : '',
-              isUp: responseData?.coinsGrowth > 0,
-              icon: Users,
-              color: 'text-purple-600',
-              bg: 'bg-purple-50'
-            },
-            {
-              title: '单条平均金币（总盘）',
-              value: `${averageCoins.toFixed(2)}`,
-              icon: Zap,
-              color: 'text-yellow-600',
-              bg: 'bg-yellow-50'
-            }
-          ];
-          
-          // 缓存数据
-          setCachedData(cacheKey, transformedKpis);
         } catch (error) {
           console.error(`预加载 ${range} 数据失败:`, error);
         }
@@ -408,7 +293,8 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
   }, [timeRange]);
 
   useEffect(() => {
-    fetchData();
+    // 组件挂载时强制刷新数据，不使用缓存
+    fetchData(true);
   }, [fetchData, localTimeRange]);
 
   // 自动刷新机制

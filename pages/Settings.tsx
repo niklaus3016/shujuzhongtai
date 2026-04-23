@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
-  LogOut, ChevronRight, UserCircle2, Key, Loader2
+  LogOut, ChevronRight, UserCircle2, Key, Loader2, RefreshCw
 } from 'lucide-react';
 import Chart from 'chart.js/auto';
 import { authService } from '../services/authService';
 import { request } from '../services/api';
 import { UserRole } from '../types';
+import { cacheManager } from '../services/cacheManager';
 
 interface SettingsProps {
   onLogout: () => void;
@@ -63,6 +64,22 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     lastMonth: 0,
     total: 0
   });
+
+  // 加载状态
+  const [loading, setLoading] = useState(true);
+  const [loadingEarnings, setLoadingEarnings] = useState(true);
+  const [loadingWithdraw, setLoadingWithdraw] = useState(true);
+  const [loadingWithdrawStatus, setLoadingWithdrawStatus] = useState(true);
+
+  // 获取缓存数据
+  const getCachedData = (key: string, cacheTime: number = 300000) => { // 默认5分钟缓存
+    return cacheManager.get(key, cacheTime);
+  };
+
+  // 设置缓存数据
+  const setCachedData = (key: string, data: any, cacheTime: number = 300000) => { // 默认5分钟缓存
+    cacheManager.set(key, data, cacheTime);
+  };
 
   const handleUpdatePassword = async () => {
     if (!oldPassword || !newPassword || !confirmPassword) return;
@@ -162,7 +179,18 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
   };
 
   // 获取收益数据
-  const fetchEarnings = useCallback(async () => {
+  const fetchEarnings = useCallback(async (isRefresh = false) => {
+    if (!isRefresh) {
+      // 检查缓存
+      const cacheKey = `earnings_${currentUser?.id || 'unknown'}_${isTeamLeader ? 'team' : isGroupLeader ? 'group' : 'admin'}`;
+      const cachedEarnings = getCachedData(cacheKey);
+      if (cachedEarnings) {
+        setEarnings(cachedEarnings);
+        setLoadingEarnings(false);
+        return;
+      }
+    }
+    
     try {
       // 团队长获取自己团队的收益数据
       if (isTeamLeader) {
@@ -174,12 +202,18 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         console.log('团队长收益数据:', revenueResponse);
         
         // 直接使用后端返回的数据
-        setEarnings({
+        const earningsData = {
           today: revenueResponse.today || 0,
           month: revenueResponse.thisMonth || 0,
           lastMonth: revenueResponse.lastMonth || 0,
           total: revenueResponse.total || 0
-        });
+        };
+        
+        setEarnings(earningsData);
+        
+        // 缓存数据
+        const cacheKey = `earnings_${currentUser?.id || 'unknown'}_team`;
+        setCachedData(cacheKey, earningsData);
       } else if (currentUser?.role === UserRole.GROUP_LEADER) {
         // 组长获取自己组的收益数据
         const teamGroupId = currentUser?.teamGroupId;
@@ -192,6 +226,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
             lastMonth: 0,
             total: 0
           });
+          setLoadingEarnings(false);
           return;
         }
         
@@ -235,12 +270,18 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         const totalEarnings = Number(totalResponse?.totalCommission || 0);
         console.log('Calculated group earnings:', { todayEarnings, monthEarnings, lastMonthEarnings, totalEarnings });
 
-        setEarnings({
+        const earningsData = {
           today: todayEarnings,
           month: monthEarnings,
           lastMonth: lastMonthEarnings,
           total: totalEarnings
-        });
+        };
+        
+        setEarnings(earningsData);
+        
+        // 缓存数据
+        const cacheKey = `earnings_${currentUser?.id || 'unknown'}_group`;
+        setCachedData(cacheKey, earningsData);
       } else {
         // 超级管理员获取全局数据
         const todayResponse = await request<any>('/admin/dashboard/kpi?range=today', {
@@ -268,23 +309,42 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         const totalUserShare = Number(totalResponse?.coins || 0) / 1000;
         console.log('Calculated admin coins:', { todayUserShare, monthUserShare, lastMonthUserShare, totalUserShare });
 
-        setEarnings({
+        const earningsData = {
           today: todayUserShare * 0.2,
           month: monthUserShare * 0.2,
           lastMonth: lastMonthUserShare * 0.2,
           total: totalUserShare * 0.2
-        });
+        };
+        
+        setEarnings(earningsData);
+        
+        // 缓存数据
+        const cacheKey = `earnings_${currentUser?.id || 'unknown'}_admin`;
+        setCachedData(cacheKey, earningsData);
       }
     } catch (error) {
       console.error('Error fetching earnings data:', error);
       // 保持当前数据，不设置为0，避免数据闪烁
+    } finally {
+      setLoadingEarnings(false);
     }
-  }, [isTeamLeader, currentUser?.role, currentUser?.teamGroupId]);
+  }, [isTeamLeader, currentUser?.role, currentUser?.teamGroupId, currentUser?.id, isGroupLeader]);
 
   // 获取提现记录
-  const fetchWithdrawRecords = async () => {
+  const fetchWithdrawRecords = useCallback(async (isRefresh = false) => {
     if (!currentUser?.id) return;
-
+    
+    if (!isRefresh) {
+      // 检查缓存
+      const cacheKey = `withdraw_records_${currentUser.id}`;
+      const cachedRecords = getCachedData(cacheKey, 60000); // 1分钟缓存
+      if (cachedRecords) {
+        setWithdrawRecords(cachedRecords);
+        setLoadingWithdraw(false);
+        return;
+      }
+    }
+    
     setIsLoadingRecords(true);
     try {
       const token = localStorage.getItem('admin_token');
@@ -299,6 +359,10 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
       const result = await response.json();
       if (result.success) {
         setWithdrawRecords(result.data || []);
+        
+        // 缓存数据
+        const cacheKey = `withdraw_records_${currentUser.id}`;
+        setCachedData(cacheKey, result.data || [], 60000); // 1分钟缓存
       } else {
         setWithdrawRecords([]);
       }
@@ -307,11 +371,23 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
       setWithdrawRecords([]);
     } finally {
       setIsLoadingRecords(false);
+      setLoadingWithdraw(false);
     }
-  };
+  }, [currentUser?.id]);
 
   // 加载提现开关状态（使用后端实际接口）
-  const loadWithdrawStatus = async () => {
+  const loadWithdrawStatus = useCallback(async (isRefresh = false) => {
+    if (!isRefresh) {
+      // 检查缓存
+      const cacheKey = `withdraw_status`;
+      const cachedStatus = getCachedData(cacheKey, 1800000); // 30分钟缓存
+      if (cachedStatus !== undefined) {
+        setWithdrawEnabled(cachedStatus);
+        setLoadingWithdrawStatus(false);
+        return;
+      }
+    }
+    
     try {
       // 使用request函数发送请求，与其他API请求保持一致
       // 注意：endpoint不需要包含/api前缀，因为BASE_URLS已经包含了
@@ -326,26 +402,63 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
       const isEnabled = enabledValue === true || enabledValue === 'true' || enabledValue === 1 || enabledValue === '1';
       setWithdrawEnabled(isEnabled);
       console.log('提现开关最终状态:', isEnabled);
+      
+      // 缓存数据
+      const cacheKey = `withdraw_status`;
+      setCachedData(cacheKey, isEnabled, 1800000); // 30分钟缓存
     } catch (err) {
       console.error('获取提现状态失败:', err);
       setWithdrawEnabled(false);
+    } finally {
+      setLoadingWithdrawStatus(false);
     }
-  };
+  }, []);
   
 
 
   useEffect(() => {
-    // 并行执行所有数据获取操作，提高加载速度
-    Promise.all([
-      fetchEarnings(),
-      fetchWithdrawRecords(),
-      loadWithdrawStatus()
-    ]).catch(error => {
-      console.error('Error loading data:', error);
-    });
-  }, [isTeamLeader, isGroupLeader, isSuperAdmin, currentUser?.teamName, currentUser?.teamGroupId, fetchEarnings]);
+    if (currentUser) {
+      // 重置加载状态
+      setLoading(true);
+      setLoadingEarnings(true);
+      setLoadingWithdraw(true);
+      setLoadingWithdrawStatus(true);
+      
+      // 并行执行所有数据获取操作，提高加载速度
+      Promise.all([
+        fetchEarnings(),
+        fetchWithdrawRecords(),
+        loadWithdrawStatus()
+      ]).catch(error => {
+        console.error('Error loading data:', error);
+      }).finally(() => {
+        setLoading(false);
+      });
+    }
+  }, [currentUser, fetchEarnings, fetchWithdrawRecords, loadWithdrawStatus]);
   
 
+
+  // 刷新数据
+  const handleRefresh = useCallback(async () => {
+    // 重置加载状态
+    setLoading(true);
+    setLoadingEarnings(true);
+    setLoadingWithdraw(true);
+    setLoadingWithdrawStatus(true);
+    
+    // 清空缓存
+    cacheManager.clear();
+    
+    // 重新请求所有数据
+    await Promise.all([
+      fetchEarnings(true),
+      fetchWithdrawRecords(true),
+      loadWithdrawStatus(true)
+    ]).finally(() => {
+      setLoading(false);
+    });
+  }, [fetchEarnings, fetchWithdrawRecords, loadWithdrawStatus]);
 
   const sections = [
     {
@@ -363,7 +476,8 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         <div className="absolute top-0 right-0 w-48 h-48 bg-white/5 rounded-full -mr-10 -mt-10 blur-3xl"></div>
         <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/5 rounded-full -ml-10 -mb-10 blur-2xl"></div>
         
-        <div className="relative flex items-center space-x-4">
+        <div className="relative flex items-center justify-between">
+          <div className="flex items-center space-x-4">
             <div className="w-16 h-16 rounded-3xl bg-white/20 flex items-center justify-center backdrop-blur-md border border-white/30 shadow-2xl overflow-hidden">
                 {currentUser?.avatar ? (
                   <img src={currentUser.avatar} alt="" className="w-full h-full object-cover" />
@@ -382,6 +496,16 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                 </div>
 
             </div>
+          </div>
+          
+          {/* 刷新按钮 */}
+          <button
+            onClick={handleRefresh}
+            className="p-3 text-white hover:bg-white/10 rounded-xl transition-colors"
+            disabled={loading}
+          >
+            <RefreshCw className={loading ? 'animate-spin' : ''} size={20} />
+          </button>
         </div>
       </div>
 

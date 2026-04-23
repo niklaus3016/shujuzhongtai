@@ -33,19 +33,18 @@ const GroupLeaderManagement: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        // Fetch all accounts
+        // Fetch group leaders using the correct API
+        const groupLeadersResponse = await request<any>('/api/admin/employee/group-leaders-simple', {
+          method: 'GET'
+        });
+        const leadersList = Array.isArray(groupLeadersResponse) ? groupLeadersResponse : (groupLeadersResponse?.data || []);
+        setGroupLeaders(leadersList);
+
+        // Fetch teams (team leaders)
         const accountsResponse = await request<any>('/admin/account/list', {
           method: 'GET'
         });
         const allAccounts = Array.isArray(accountsResponse) ? accountsResponse : (accountsResponse?.admins || []);
-        
-        // Filter group leaders
-        const leadersList = allAccounts.filter((a: any) => 
-          a.role === 'GROUP_LEADER' || a.role === 'group_leader'
-        );
-        setGroupLeaders(leadersList);
-
-        // Fetch teams (team leaders)
         const teamLeaders = allAccounts.filter((a: any) => 
           a.role === 'NORMAL_ADMIN'
         );
@@ -325,9 +324,19 @@ const GroupLeaderManagement: React.FC = () => {
               <div>
                 <div className="flex items-center space-x-2">
                   <span className="text-sm font-bold text-gray-900">
-                    {leader.username || '未知用户'}
+                    {leader.groupName || leader.username || '未知用户'}
                   </span>
                 </div>
+                {leader.realName && (
+                  <div className="text-[10px] text-blue-600 font-medium">
+                    组长: {leader.realName}
+                  </div>
+                )}
+                {leader.username && leader.status === 'enabled' && (
+                  <div className="text-[10px] text-gray-500 font-medium">
+                    用户名: {leader.username}
+                  </div>
+                )}
                 <div className="text-[10px] text-gray-400 font-medium">
                   团队: {leader.teamName || '未设置'}
                 </div>
@@ -350,8 +359,8 @@ const GroupLeaderManagement: React.FC = () => {
               >
                 <Trash2 size={16} />
               </button>
-              <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${(leader.status === 'enabled' || leader.status === '1') ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
-                {(leader.status === 'enabled' || leader.status === '1') ? '启用' : '禁用'}
+              <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${(leader.status === 'enabled' || leader.username) ? 'bg-green-50 text-green-600' : 'bg-yellow-50 text-yellow-600'}`}>
+                {(leader.status === 'enabled' || leader.username) ? '已开通' : '待开通'}
               </span>
             </div>
           </div>

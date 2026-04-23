@@ -71,9 +71,33 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
   // 使用state存储currentUser，确保状态变化时能触发重新渲染
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
   
+  // 状态变量定义
+  const [timeRange, setTimeRange] = useState<TimeRange>(TimeRange.TODAY);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [sortBy, setSortBy] = useState<'watched' | 'earnings' | 'agc'>('earnings');
+  const [kpiData, setKpiData] = useState<any[]>([]);
+  const [userData, setUserData] = useState<DashboardUser[]>([]);
+  
+  // 添加昨日KPI数据，用于计算增长率
+  const [yesterdayKpiData, setYesterdayKpiData] = useState<any>(null);
+  
+  // 添加昨日用户数据，用于计算次数对比
+  const [yesterdayUserData, setYesterdayUserData] = useState<Record<string, number>>({});
+  
+  // 添加昨日用户收益数据，用于计算收益对比
+  const [yesterdayEarningsData, setYesterdayEarningsData] = useState<Record<string, number>>({});
+  
+  // 使用ref存储昨日数据，避免闭包问题
+  const yesterdayUserDataRef = React.useRef<Record<string, number>>({});
+  
+  // 添加滚动位置保存
+  const scrollPositionRef = React.useRef<number>(0);
+  
   // 定期更新currentUser
   useEffect(() => {
     const user = authService.getCurrentUser();
+    console.log('[Dashboard] 获取到当前用户:', user);
     setCurrentUser(user);
     
     // 恢复滚动位置
@@ -123,30 +147,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
     if (currentUser?.username && teamNameMap[currentUser.username]) {
       return teamNameMap[currentUser.username];
     }
+    // 对于团队长，默认返回其username作为团队名称
+    if (isTeamLeader && currentUser?.username) {
+      return currentUser.username;
+    }
     return '团队';
   };
-  
-  const [timeRange, setTimeRange] = useState<TimeRange>(TimeRange.TODAY);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [sortBy, setSortBy] = useState<'watched' | 'earnings' | 'agc'>('earnings');
-  const [kpiData, setKpiData] = useState<any[]>([]);
-  const [userData, setUserData] = useState<DashboardUser[]>([]);
-  
-  // 添加滚动位置保存
-  const scrollPositionRef = React.useRef<number>(0);
-  
-  // 添加昨日KPI数据，用于计算增长率
-  const [yesterdayKpiData, setYesterdayKpiData] = useState<any>(null);
-  
-  // 添加昨日用户数据，用于计算次数对比
-  const [yesterdayUserData, setYesterdayUserData] = useState<Record<string, number>>({});
-  
-  // 添加昨日用户收益数据，用于计算收益对比
-  const [yesterdayEarningsData, setYesterdayEarningsData] = useState<Record<string, number>>({});
-  
-  // 使用ref存储昨日数据，避免闭包问题
-  const yesterdayUserDataRef = React.useRef<Record<string, number>>({});
   
   // 获取缓存数据
   const getCachedData = (key: string) => {
@@ -174,6 +180,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
     if (isRefresh) {
       scrollPositionRef.current = window.scrollY || document.documentElement.scrollTop;
       setRefreshing(true);
+      // 刷新时清除缓存
+      cacheManager.clear();
     } else {
       // 无论是否为团队长，都需要设置loading为true
       // 因为Dashboard组件需要显示整体加载状态
@@ -206,9 +214,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
           yesterdayUserDataRef.current = cachedYesterdayUserData;
         }
         // 无论是否有昨日数据，都使用缓存的今日数据
-        if (!isTeamLeader) {
-          setLoading(false);
-        }
+        setLoading(false);
         setRefreshing(false);
         
         // 后台预加载其他时间范围的数据（包括昨日数据）
@@ -302,10 +308,18 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
             yesterdayKpiResponse = responses[responseIndex++];
             setYesterdayKpiData(yesterdayKpiResponse);
           }
+        } else {
+          // 非KPI面板时，跳过占位Promise
+          responseIndex += 1;
+          if (timeRange === TimeRange.TODAY) {
+            responseIndex += 1;
+          }
         }
         userResponse = responses[responseIndex++];
+        console.log('[Dashboard] 用户数据响应:', userResponse);
         if (timeRange === TimeRange.TODAY) {
           yesterdayUserResponse = responses[responseIndex++];
+          console.log('[Dashboard] 昨日用户数据响应:', yesterdayUserResponse);
         }
         
         // 2. 处理KPI数据
@@ -690,13 +704,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
 
           if (yesterdayUserResponse?.data && Array.isArray(yesterdayUserResponse.data)) {
             yesterdayUserResponse.data.forEach((user: any) => {
-              const userId = user.userId || user.employeeId || '';
+              const userId = user.employeeId || user.userId || '';
               yesterdayUserMap[userId] = user.watched || 0;
               yesterdayEarningsMap[userId] = (user.earnings || 0) / 1000;
             });
           } else if (Array.isArray(yesterdayUserResponse)) {
             yesterdayUserResponse.forEach((user: any) => {
-              const userId = user.userId || user.employeeId || '';
+              const userId = user.employeeId || user.userId || '';
               yesterdayUserMap[userId] = user.watched || 0;
               yesterdayEarningsMap[userId] = (user.earnings || 0) / 1000;
             });
@@ -708,8 +722,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
 
         // 3. 处理用户数据
         if (userResponse) {
+          console.log('[Dashboard] 获取到用户数据:', userResponse);
           // Transform user data to match frontend format
           const userArray = typeof userResponse === 'object' && userResponse !== null && 'data' in userResponse && Array.isArray(userResponse.data) ? userResponse.data : Array.isArray(userResponse) ? userResponse : [];
+          console.log('[Dashboard] 转换后的用户数组:', userArray);
           const transformedUsers: DashboardUser[] = userArray.map((user: any) => ({
             id: user.employeeId || user.userId || '',
             userId: user.userId || user.employeeId || '',
@@ -727,6 +743,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
             groupName: user.groupName || '',
             regDays: user.regDays || 1
           }));
+          console.log('[Dashboard] 转换后的用户数据:', transformedUsers);
 
 
           // 组长只显示自己组的成员数据，团队长只显示自己团队的成员数据
@@ -734,6 +751,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
           
           if (isGroupLeader) {
             const teamGroupId = currentUser?.teamGroupId;
+            console.log('[Dashboard] 组长过滤，teamGroupId:', teamGroupId);
             
             // 确保teamGroupId存在
             if (teamGroupId) {
@@ -748,14 +766,18 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
           } else if (isTeamLeader) {
             // 团队长只显示自己团队的成员数据
             const teamName = getUserTeamName();
+            console.log('[Dashboard] 团队长过滤，teamName:', teamName);
             filteredUsers = transformedUsers.filter(user => {
               const userTeam = user.teamName || user.superior || '系统直属';
+              console.log('[Dashboard] 检查用户团队:', user.name, userTeam);
               return userTeam === teamName;
             });
           }
+          console.log('[Dashboard] 过滤后的用户数据:', filteredUsers);
           
           // 只取前30个用户
           const finalUsers = filteredUsers.slice(0, 30);
+          console.log('[Dashboard] 最终用户数据:', finalUsers);
           setUserData(finalUsers);
           
           // 4. 缓存数据
@@ -1141,6 +1163,40 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
       });
     } catch (error) {
       console.error('Error preloading user list data:', error);
+    }
+    
+    // 预加载"我的"页面数据
+    try {
+      const myCacheKey = `my_data_${currentUser.id}`;
+      
+      // 检查是否已经有缓存
+      if (getCachedData(myCacheKey)) {
+        // 已有缓存，跳过预加载
+      } else {
+        console.log('[Dashboard] 开始预加载"我的"页面数据');
+        
+        // 构建"我的"页面数据API路径
+        const myDataUrl = `/admin/account/profile`;
+        
+        // 获取"我的"页面数据
+        const myDataResponse = await request<any>(myDataUrl, {
+          method: 'GET'
+        }).catch(() => null);
+        
+        // 缓存"我的"页面数据
+        setCachedData(myCacheKey, {
+          profile: myDataResponse || {}
+        });
+        
+        // 同时缓存到全局缓存管理服务
+        cacheManager.set(myCacheKey, {
+          profile: myDataResponse || {}
+        });
+        
+        console.log('[Dashboard] "我的"页面数据已缓存');
+      }
+    } catch (error) {
+      console.error('[Dashboard] 预加载"我的"页面数据失败:', error);
     }
     
     // 预加载新人页面数据
@@ -1535,22 +1591,22 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                                     {sortBy === 'earnings' ? (
                                         <>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayEarningsData[user.userId] !== undefined ? (user.earnings > yesterdayEarningsData[user.userId] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.userId] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>¥{user.earnings.toFixed(2)}</span>
+                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && (yesterdayEarningsData[user.userId] !== undefined || yesterdayEarningsData[user.id] !== undefined) ? ((user.earnings > (yesterdayEarningsData[user.userId] || yesterdayEarningsData[user.id] || 0)) ? 'text-green-600' : (user.earnings < (yesterdayEarningsData[user.userId] || yesterdayEarningsData[user.id] || 0)) ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>¥{user.earnings.toFixed(2)}</span>
                                                 <span className="text-[9px] text-gray-400 font-medium">收益</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayUserData[user.userId] !== undefined ? (user.watched > yesterdayUserData[user.userId] ? 'text-green-600' : user.watched < yesterdayUserData[user.userId] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>{user.watched}</span>
+                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && (yesterdayUserData[user.userId] !== undefined || yesterdayUserData[user.id] !== undefined) ? ((user.watched > (yesterdayUserData[user.userId] || yesterdayUserData[user.id] || 0)) ? 'text-green-600' : (user.watched < (yesterdayUserData[user.userId] || yesterdayUserData[user.id] || 0)) ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>{user.watched}</span>
                                                 <span className="text-[9px] text-gray-400 font-bold">次数</span>
                                             </div>
                                         </>
                                     ) : sortBy === 'watched' ? (
                                         <>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayUserData[user.userId] !== undefined ? (user.watched > yesterdayUserData[user.userId] ? 'text-green-600' : user.watched < yesterdayUserData[user.userId] ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>{user.watched}</span>
+                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && (yesterdayUserData[user.userId] !== undefined || yesterdayUserData[user.id] !== undefined) ? ((user.watched > (yesterdayUserData[user.userId] || yesterdayUserData[user.id] || 0)) ? 'text-green-600' : (user.watched < (yesterdayUserData[user.userId] || yesterdayUserData[user.id] || 0)) ? 'text-red-500' : 'text-gray-900') : 'text-gray-900'}`}>{user.watched}</span>
                                                 <span className="text-[9px] text-gray-400 font-bold">次数</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayEarningsData[user.userId] !== undefined ? (user.earnings > yesterdayEarningsData[user.userId] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.userId] ? 'text-red-500' : 'text-gray-500') : 'text-gray-500'}`}>¥{user.earnings.toFixed(2)}</span>
+                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && (yesterdayEarningsData[user.userId] !== undefined || yesterdayEarningsData[user.id] !== undefined) ? ((user.earnings > (yesterdayEarningsData[user.userId] || yesterdayEarningsData[user.id] || 0)) ? 'text-green-600' : (user.earnings < (yesterdayEarningsData[user.userId] || yesterdayEarningsData[user.id] || 0)) ? 'text-red-500' : 'text-gray-500') : 'text-gray-500'}`}>¥{user.earnings.toFixed(2)}</span>
                                                 <span className="text-[9px] text-gray-400 font-medium">收益</span>
                                             </div>
                                         </>
@@ -1563,7 +1619,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers }) =
                                                 <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">平均金币</span>
                                             </div>
                                             <div className="flex items-center justify-end space-x-1">
-                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && yesterdayEarningsData[user.userId] !== undefined ? (user.earnings > yesterdayEarningsData[user.userId] ? 'text-green-600' : user.earnings < yesterdayEarningsData[user.userId] ? 'text-red-500' : 'text-gray-500') : 'text-gray-500'}`}>¥{user.earnings.toFixed(2)}</span>
+                                                <span className={`text-[11px] font-black ${timeRange === TimeRange.TODAY && (yesterdayEarningsData[user.userId] !== undefined || yesterdayEarningsData[user.id] !== undefined) ? ((user.earnings > (yesterdayEarningsData[user.userId] || yesterdayEarningsData[user.id] || 0)) ? 'text-green-600' : (user.earnings < (yesterdayEarningsData[user.userId] || yesterdayEarningsData[user.id] || 0)) ? 'text-red-500' : 'text-gray-500') : 'text-gray-500'}`}>¥{user.earnings.toFixed(2)}</span>
                                                 <span className="text-[9px] text-gray-400 font-medium">收益</span>
                                             </div>
                                         </>

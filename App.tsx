@@ -103,7 +103,7 @@ const App: React.FC = () => {
           />
         );
       case AppTab.TEAM:
-        return <Team key="team" />;
+        return <Team key={`team-${Date.now()}`} />;
       case AppTab.MANAGEMENT:
         return <Management key="management" />;
       case AppTab.ALERTS:
@@ -111,12 +111,12 @@ const App: React.FC = () => {
       case AppTab.PROFILE:
         return <Settings key="settings" onLogout={handleLogout} />;
       case AppTab.GROUP_LEADER_MANAGEMENT:
-        return <GroupLeaderManagement key="group-leader-management" />;
+        return <GroupLeaderManagement key={`group-leader-management-${Date.now()}`} />;
       case AppTab.GROUP_MANAGEMENT:
         return currentUser?.role === UserRole.GROUP_LEADER ? (
-          <GroupLeader key="group-leader" timeRange="today" onRefresh={() => {}} />
+          <GroupLeader key={`group-leader-${Date.now()}`} timeRange="today" onRefresh={() => {}} />
         ) : (
-          <GroupManagement key="group-management" />
+          <GroupManagement key={`group-management-${Date.now()}`} />
         );
       default:
         return (
