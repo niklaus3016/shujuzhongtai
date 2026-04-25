@@ -8,6 +8,15 @@ This contains everything you need to run your app locally.
 
 View your app in AI Studio: https://ai.studio/apps/1db97375-ace1-4357-bc41-b4127e9da8db
 
+## Update: 2026-04-25
+
+### 团队长和组长界面优化
+- 优化了团队长界面的刷新逻辑，实现了静默刷新功能
+- 修改了团队长收益接口，使用新的后端API
+- 修复了团队长员工总数计算逻辑，与账号管理页面保持一致
+- 优化了组长界面的缓存逻辑，提高页面响应速度
+- 修复了各角色的颜色显示逻辑，确保正确的颜色判断
+
 ## Update: 2026-04-14
 
 ### 福利抽奖管理功能
