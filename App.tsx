@@ -20,7 +20,8 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AppTab>(AppTab.DASHBOARD);
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [showAllUsers, setShowAllUsers] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [timeRange, setTimeRange] = useState<string>('today');
   const mainRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -46,14 +47,20 @@ const App: React.FC = () => {
     }, 10);
   }, [selectedUser, showAllUsers, activeTab]);
 
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
   const handleLoginSuccess = () => {
     setIsAuthenticated(true);
     setActiveTab(AppTab.DASHBOARD);
+    // 登录成功后立即获取用户信息，避免Dashboard组件重复获取
+    const user = authService.getCurrentUser();
+    setCurrentUser(user);
   };
 
   const handleLogout = () => {
     authService.logout();
     setIsAuthenticated(false);
+    setCurrentUser(null);
   };
 
   if (loading) {
@@ -69,7 +76,11 @@ const App: React.FC = () => {
     return <Login onLoginSuccess={handleLoginSuccess} />;
   }
 
-  const currentUser = authService.getCurrentUser();
+  // 如果currentUser为null，获取一次
+  if (!currentUser) {
+    const user = authService.getCurrentUser();
+    setCurrentUser(user);
+  }
 
   const renderContent = () => {
     // Priority 1: Individual User Detail
@@ -93,6 +104,9 @@ const App: React.FC = () => {
             key="dashboard"
             onSelectUser={(user) => setSelectedUser(user)} 
             onViewAllUsers={() => setShowAllUsers(true)}
+            timeRange={timeRange}
+            onTimeRangeChange={setTimeRange}
+            currentUser={currentUser}
           />
         );
       case AppTab.NEW_USERS:
@@ -114,7 +128,7 @@ const App: React.FC = () => {
         return <GroupLeaderManagement key={`group-leader-management-${Date.now()}`} />;
       case AppTab.GROUP_MANAGEMENT:
         return currentUser?.role === UserRole.GROUP_LEADER ? (
-          <GroupLeader key={`group-leader-${Date.now()}`} timeRange="today" onRefresh={() => {}} />
+          <GroupLeader key={`group-leader-${Date.now()}`} timeRange={timeRange} onRefresh={() => {}} />
         ) : (
           <GroupManagement key={`group-management-${Date.now()}`} />
         );
@@ -123,7 +137,10 @@ const App: React.FC = () => {
           <Dashboard 
             key="dashboard"
             onSelectUser={(user) => setSelectedUser(user)} 
-            onViewAllUsers={() => setShowAllUsers(true)} 
+            onViewAllUsers={() => setShowAllUsers(true)}
+            timeRange={timeRange}
+            onTimeRangeChange={setTimeRange}
+            currentUser={currentUser}
           />
         );
     }

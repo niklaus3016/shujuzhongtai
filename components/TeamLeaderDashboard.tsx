@@ -437,8 +437,11 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
   }, [timeRange, currentUser]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    // 只有当currentUser存在时才加载数据
+    if (currentUser) {
+      fetchData();
+    }
+  }, [fetchData, currentUser]);
 
   // 自动刷新机制
   useEffect(() => {

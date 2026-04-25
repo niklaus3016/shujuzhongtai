@@ -32,21 +32,29 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
   const currentUser = useMemo(() => authService.getCurrentUser(), []);
   
   // 获取缓存数据
-  const getCachedData = (key: string) => {
+  const getCachedData = useCallback((key: string) => {
     // 为不同时间范围设置不同的缓存时间
     const cacheTime = key.includes('today') ? 300000 : 600000; // 今日数据5分钟，其他10分钟
     return cacheManager.get(key, cacheTime);
-  };
+  }, []);
   
   // 设置缓存数据
-  const setCachedData = (key: string, data: any) => {
+  const setCachedData = useCallback((key: string, data: any) => {
     cacheManager.set(key, data);
-  };
+  }, []);
   
   // 监听timeRange变化
   useEffect(() => {
     setLocalTimeRange(timeRangeMap[timeRange] || 'today');
   }, [timeRange]);
+  
+  // 监听localTimeRange变化，重新加载数据
+  useEffect(() => {
+    // 延迟调用，确保fetchData已经定义
+    setTimeout(() => {
+      fetchData();
+    }, 0);
+  }, [localTimeRange]);
   
   // 获取用户对应的团队和组信息
   const getUserGroupInfo = () => {
@@ -66,7 +74,10 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
       if (cachedData) {
         setKpiData(cachedData);
         setLoading(false);
-        preloadOtherTimeRanges();
+        // 后台预加载其他时间范围的数据（不阻塞主流程）
+        setTimeout(() => {
+          preloadOtherTimeRanges();
+        }, 100);
         return;
       }
       setLoading(true);
@@ -89,28 +100,34 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
             value: `¥${(data.totalCommission || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
             icon: Users,
             color: 'text-purple-600',
-            bg: 'bg-purple-50'
+            bg: 'bg-purple-50',
+            growth: data.commissionGrowthRate ? `${data.commissionGrowthRate.toFixed(2)}%` : undefined,
+            isUp: data.commissionGrowthRate > 0
           },
           {
-            title: '本组平均金币',
-            value: `${(data.avgGoldByAll || 0).toFixed(2)}`,
-            icon: Zap,
-            color: 'text-yellow-600',
-            bg: 'bg-yellow-50'
+            title: '本组业绩金额',
+            value: `¥${(data.totalEarnings || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
+            icon: Coins,
+            color: 'text-green-600',
+            bg: 'bg-green-50',
+            growth: data.earningsGrowthRate ? `${data.earningsGrowthRate.toFixed(2)}%` : undefined,
+            isUp: data.earningsGrowthRate > 0
           },
           {
             title: '本组用户总数',
-            value: `${data.memberCount || data.totalMemberCount || 0}`,
+            value: `${data.memberCount || 0}`,
             icon: Users,
             color: 'text-blue-600',
             bg: 'bg-blue-50'
           },
           {
-            title: '本组业绩金额',
-            value: `¥${(data.totalPerformance || data.totalEarnings || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
-            icon: Coins,
-            color: 'text-green-600',
-            bg: 'bg-green-50'
+            title: '广告总曝光',
+            value: `${data.totalAdExposure || 0}`,
+            icon: Zap,
+            color: 'text-yellow-600',
+            bg: 'bg-yellow-50',
+            growth: data.adExposureGrowthRate ? `${data.adExposureGrowthRate.toFixed(2)}%` : undefined,
+            isUp: data.adExposureGrowthRate > 0
           }
         ];
 
@@ -121,7 +138,10 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
         setKpiData([]);
       }
 
-      preloadOtherTimeRanges();
+      // 后台预加载其他时间范围的数据（不阻塞主流程）
+      setTimeout(() => {
+        preloadOtherTimeRanges();
+      }, 100);
     } catch (error) {
       console.error('获取组长数据失败:', error);
       console.error('错误详情:', error instanceof Error ? error.message : error);
@@ -131,19 +151,43 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [localTimeRange, currentUser]);
+  }, [localTimeRange, currentUser, getCachedData, setCachedData]);
+
+  // 带重试机制的请求函数
+  const requestWithRetry = useCallback(async (url: string, options: RequestInit = {}, retries = 2) => {
+    let lastError: Error;
+    
+    for (let i = 0; i <= retries; i++) {
+      try {
+        return await request<any>(url, options);
+      } catch (error) {
+        lastError = error as Error;
+        // 只对503错误进行重试
+        if (!(lastError.message.includes('503'))) {
+          throw error;
+        }
+        // 指数退避策略
+        if (i < retries) {
+          const delay = Math.pow(2, i) * 1000;
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    throw lastError!;
+  }, []);
 
   // 后台预加载其他时间范围的数据
   const preloadOtherTimeRanges = useCallback(async () => {
-    if (!currentUser) return;
+    if (!currentUser || !currentUser.token) return;
     
     // 所有时间范围
     const allTimeRanges = ['today', 'yesterday', 'week', 'month'];
     // 排除当前时间范围
     const otherTimeRanges = allTimeRanges.filter(range => range !== localTimeRange);
     
-    // 并行预加载所有其他时间范围的数据
-    await Promise.all(
+    // 只预加载KPI数据，不预加载用户列表数据，提高加载速度
+    // 使用Promise.allSettled而不是Promise.all，避免一个请求失败影响其他请求
+    await Promise.allSettled(
       otherTimeRanges.map(async (range) => {
         const cacheKey = `${range}_${currentUser?.id || 'unknown'}`;
         
@@ -153,7 +197,7 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
         
         try {
           const apiUrl = `/group-leader/stats?range=${range}`;
-          const data = await request<any>(apiUrl, { method: 'GET' });
+          const data = await requestWithRetry(apiUrl, { method: 'GET' });
           
           if (data) {
             const transformedKpis = [
@@ -162,152 +206,78 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
                 value: `¥${(data.totalCommission || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
                 icon: Users,
                 color: 'text-purple-600',
-                bg: 'bg-purple-50'
+                bg: 'bg-purple-50',
+                growth: data.commissionGrowthRate ? `${data.commissionGrowthRate.toFixed(2)}%` : undefined,
+                isUp: data.commissionGrowthRate > 0
               },
               {
-                title: '本组平均金币',
-                value: `${(data.avgGoldByAll || 0).toFixed(2)}`,
-                icon: Zap,
-                color: 'text-yellow-600',
-                bg: 'bg-yellow-50'
+                title: '本组业绩金额',
+                value: `¥${(data.totalEarnings || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
+                icon: Coins,
+                color: 'text-green-600',
+                bg: 'bg-green-50',
+                growth: data.earningsGrowthRate ? `${data.earningsGrowthRate.toFixed(2)}%` : undefined,
+                isUp: data.earningsGrowthRate > 0
               },
               {
                 title: '本组用户总数',
-                value: `${data.memberCount || data.totalMemberCount || 0}`,
+                value: `${data.memberCount || 0}`,
                 icon: Users,
                 color: 'text-blue-600',
                 bg: 'bg-blue-50'
               },
               {
-                title: '本组业绩金额',
-                value: `¥${(data.totalPerformance || data.totalEarnings || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
-                icon: Coins,
-                color: 'text-green-600',
-                bg: 'bg-green-50'
+                title: '广告总曝光',
+                value: `${data.totalAdExposure || 0}`,
+                icon: Zap,
+                color: 'text-yellow-600',
+                bg: 'bg-yellow-50',
+                growth: data.adExposureGrowthRate ? `${data.adExposureGrowthRate.toFixed(2)}%` : undefined,
+                isUp: data.adExposureGrowthRate > 0
               }
             ];
             
             setCachedData(cacheKey, transformedKpis);
           }
         } catch (error) {
-          console.error(`预加载 ${range} 数据失败:`, error);
+          // 只在控制台记录错误，不影响用户界面
+          console.debug(`预加载 ${range} 数据失败:`, error);
         }
       })
     );
-    
-    // 预加载完整用户列表数据（用于查看全部用户功能）
-    try {
-      const userListCacheKey = `user_list_today_${currentUser?.id || 'unknown'}`;
-      
-      // 检查是否已经有缓存
-      if (getCachedData(userListCacheKey)) {
-        return; // 已有缓存，跳过预加载
-      }
-      
-      // 构建完整用户列表API路径
-      const updatedUser = authService.getCurrentUser();
-      const { teamName, groupName, groupId } = {
-        teamName: updatedUser?.teamName || '团队',
-        groupName: updatedUser?.groupName || '组',
-        groupId: updatedUser?.teamGroupId || ''
-      };
-      
-      const userListUrl = `/admin/dashboard/users?range=today&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(groupId || '')}&limit=1000`;
-      
-      // 获取完整用户数据
-      const userListResponse = await request<any[]>(userListUrl).catch(error => {
-        console.error('获取完整用户列表失败:', error);
-        return [];
-      });
-      
-      // 处理用户数据
-      const users = Array.isArray(userListResponse) ? userListResponse : [];
-      
-      // 过滤用户数据
-      const filteredUsers = users.filter((user: any) => {
-        const userTeam = user.teamName || user.superior || '系统直属';
-        const userGroup = user.groupName || user.teamGroup || '';
-        return userTeam === teamName && userGroup === groupName;
-      });
-      
-      // 转换用户数据
-      const transformedUsers = filteredUsers.map((user: any) => ({
-        id: user.employeeId || user.userId || '',
-        userId: user.userId || '',
-        name: user.realName || user.realname || user.name || user.username || user.userName || user.userId || user.employeeId || '',
-        avatar: '',
-        watched: user.watched || 0,
-        earnings: (user.earnings || 0) / 1000,
-        ipCount: user.ipCount || 1,
-        deviceCount: user.deviceCount || 1,
-        ecpm: user.ecpm || 0,
-        superior: user.superior || user.teamName || '系统直属',
-        teamName: user.teamName || user.superior || '系统直属',
-        groupName: user.groupName || user.teamGroup || ''
-      }));
-      
-      // 去重
-      const uniqueUsers = Array.from(new Map(transformedUsers.map(user => [user.id, user])).values());
-      
-      // 同时获取昨日用户数据用于计算对比
-      let yesterdayUserData: Record<string, number> = {};
-      let yesterdayEarningsData: Record<string, number> = {};
-      
-      try {
-        // 构建昨日用户数据API路径
-        const yesterdayUserUrl = `/admin/dashboard/users?range=yesterday&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(groupId || '')}&limit=1000`;
-        
-        // 获取昨日用户数据
-        const yesterdayUserResponse = await request<any>(yesterdayUserUrl, {
-          method: 'GET',
-          headers: new Headers({
-            'Content-Type': 'application/json'
-          })
-        });
-        
-        // 处理昨日用户数据
-        const yesterdayUsers = Array.isArray(yesterdayUserResponse) ? yesterdayUserResponse : [];
-        yesterdayUsers.forEach((user: any) => {
-          const userId = user.employeeId || user.userId || '';
-          yesterdayUserData[userId] = user.watched || 0;
-          yesterdayEarningsData[userId] = (user.earnings || 0) / 1000;
-        });
-      } catch (error) {
-        console.error('Error fetching yesterday user data for user list:', error);
-      }
-      
-      // 缓存完整用户列表数据
-      setCachedData(userListCacheKey, {
-        users: uniqueUsers,
-        yesterdayUserData,
-        yesterdayEarningsData
-      });
-    } catch (error) {
-      console.error('Error preloading user list data:', error);
-    }
-  }, [localTimeRange, currentUser]);
+  }, [localTimeRange, currentUser, getCachedData, setCachedData, requestWithRetry]);
 
   // 当timeRange属性变化时，更新localTimeRange状态
   useEffect(() => {
     setLocalTimeRange(timeRangeMap[timeRange] || 'today');
   }, [timeRange]);
 
+  // 当localTimeRange变化时，刷新数据
   useEffect(() => {
-    // 组件挂载时强制刷新数据，不使用缓存
-    fetchData(true);
-  }, [fetchData, localTimeRange]);
+    // 只有当currentUser存在时才加载数据
+    // 避免未登录状态下请求API
+    if (currentUser) {
+      // 组件挂载时强制刷新数据，不使用缓存
+      // 避免使用缓存中的旧数据导致显示"暂无数据"
+      fetchData(true);
+    }
+  }, [fetchData, localTimeRange, currentUser]);
 
-  // 自动刷新机制
+  // 自动刷新机制 - 只在用户主动刷新后启用
   useEffect(() => {
     if (currentUser) {
-      // 设置自动刷新定时器，每60秒刷新一次，使用静默刷新模式
-      const interval = setInterval(() => {
-        // 静默刷新：不显示刷新动画，只更新缓存
-        fetchData(true);
-      }, 60000);
-      
-      // 清理函数
-      return () => clearInterval(interval);
+      // 检查Dashboard组件是否已经有自动刷新
+      // 如果有，就不再设置自动刷新，避免重复的API请求
+      if (!(window as any).dashboardAutoRefresh) {
+        // 设置自动刷新定时器，每5分钟刷新一次，使用静默刷新模式
+        const interval = setInterval(() => {
+          // 静默刷新：不显示刷新动画，只更新缓存
+          fetchData(false);
+        }, 300000); // 5分钟
+        
+        // 清理函数
+        return () => clearInterval(interval);
+      }
     }
   }, [currentUser, fetchData]);
 
@@ -318,51 +288,6 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
 
   return (
     <div className="pb-6">
-      <header className="sticky top-0 bg-white z-40 px-4 py-3 border-b border-gray-100 shadow-sm animate-in fade-in duration-300">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-[#1E40AF] to-indigo-600 rounded-xl flex items-center justify-center shadow-md">
-              <TrendingUp size={18} className="text-white" />
-            </div>
-            <h1 className="text-xl font-bold text-gray-900">团队数据</h1>
-            <button 
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="p-1.5 bg-blue-50 rounded-lg text-[#1E40AF] hover:bg-blue-100 transition-all disabled:opacity-50 animate-in hover:scale-105"
-              title="刷新数据"
-            >
-              <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
-            </button>
-          </div>
-          <div className="p-1.5 bg-green-50 rounded-full flex items-center px-3 text-green-600 text-[10px] font-bold shadow-sm">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-1.5"></div>
-            实时更新中
-          </div>
-        </div>
-        <div className="flex bg-gray-100 p-1 rounded-xl shadow-inner">
-          {['今日', '昨日', '本周', '本月'].map((range) => {
-            const rangeMap: Record<string, string> = {
-              '今日': 'today',
-              '昨日': 'yesterday',
-              '本周': 'week',
-              '本月': 'month'
-            };
-            const rangeValue = rangeMap[range];
-            return (
-              <button
-                key={range}
-                onClick={() => setLocalTimeRange(rangeValue)}
-                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
-                  localTimeRange === rangeValue ? 'bg-white text-[#1E40AF] shadow-md' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {range}
-              </button>
-            );
-          })}
-        </div>
-      </header>
-
       <div className="mt-4 space-y-2">
         {/* KPI数据卡片 */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-md">
@@ -410,8 +335,6 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
             )}
           </div>
         </div>
-
-
       </div>
     </div>
   );

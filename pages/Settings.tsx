@@ -180,6 +180,12 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
 
   // 获取收益数据
   const fetchEarnings = useCallback(async (isRefresh = false) => {
+    // 检查用户是否登录
+    if (!currentUser) {
+      setLoadingEarnings(false);
+      return;
+    }
+    
     if (!isRefresh) {
       // 检查缓存
       const cacheKey = `earnings_${currentUser?.id || 'unknown'}_${isTeamLeader ? 'team' : isGroupLeader ? 'group' : 'admin'}`;
@@ -216,58 +222,18 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         setCachedData(cacheKey, earningsData);
       } else if (currentUser?.role === UserRole.GROUP_LEADER) {
         // 组长获取自己组的收益数据
-        const teamGroupId = currentUser?.teamGroupId;
+        // 使用新的组长提成统计接口
+        const response = await request<any>('/group-leader/commission-stats', {
+          method: 'GET'
+        });
         
-        if (!teamGroupId) {
-          console.error('组长没有组ID');
-          setEarnings({
-            today: 0,
-            month: 0,
-            lastMonth: 0,
-            total: 0
-          });
-          setLoadingEarnings(false);
-          return;
-        }
+        console.log('Group leader commission stats:', response);
         
-        // 并行获取所有需要的提成数据，提高加载速度
-        const [todayResponse, monthResponse, lastMonthResponse, totalResponse] = await Promise.all([
-          // 获取今日提成收益
-          request<any>(`/admin/group-leader-commission/${teamGroupId}?range=today`, {
-            method: 'GET'
-          }).catch(error => {
-            console.error('Error fetching today commission:', error);
-            return { totalCommission: 0 };
-          }),
-          // 获取本月提成收益
-          request<any>(`/admin/group-leader-commission/${teamGroupId}?range=month`, {
-            method: 'GET'
-          }).catch(error => {
-            console.error('Error fetching month commission:', error);
-            return { totalCommission: 0 };
-          }),
-          // 获取上月提成收益
-          request<any>(`/admin/group-leader-commission/${teamGroupId}?range=lastMonth`, {
-            method: 'GET'
-          }).catch(error => {
-            console.error('Error fetching last month commission:', error);
-            return { totalCommission: 0 };
-          }),
-          // 获取累计提成收益
-          request<any>(`/admin/group-leader-commission/${teamGroupId}?range=all`, {
-            method: 'GET'
-          }).catch(error => {
-            console.error('Error fetching total commission:', error);
-            return { totalCommission: 0 };
-          })
-        ]);
-
         // 从API响应中提取提成数据
-        console.log('Group commission responses:', { todayResponse, monthResponse, lastMonthResponse, totalResponse });
-        const todayEarnings = Number(todayResponse?.totalCommission || 0);
-        const monthEarnings = Number(monthResponse?.totalCommission || 0);
-        const lastMonthEarnings = Number(lastMonthResponse?.totalCommission || 0);
-        const totalEarnings = Number(totalResponse?.totalCommission || 0);
+        const todayEarnings = Number(response.today?.totalCommission || 0);
+        const monthEarnings = Number(response.month?.totalCommission || 0);
+        const lastMonthEarnings = Number(response.lastMonth?.totalCommission || 0);
+        const totalEarnings = Number(response.all?.totalCommission || 0);
         console.log('Calculated group earnings:', { todayEarnings, monthEarnings, lastMonthEarnings, totalEarnings });
 
         const earningsData = {
@@ -328,11 +294,14 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     } finally {
       setLoadingEarnings(false);
     }
-  }, [isTeamLeader, currentUser?.role, currentUser?.teamGroupId, currentUser?.id, isGroupLeader]);
+  }, [isTeamLeader, currentUser, isGroupLeader]);
 
   // 获取提现记录
   const fetchWithdrawRecords = useCallback(async (isRefresh = false) => {
-    if (!currentUser?.id) return;
+    if (!currentUser?.id) {
+      setLoadingWithdraw(false);
+      return;
+    }
     
     if (!isRefresh) {
       // 检查缓存
@@ -377,6 +346,12 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
 
   // 加载提现开关状态（使用后端实际接口）
   const loadWithdrawStatus = useCallback(async (isRefresh = false) => {
+    // 检查用户是否登录
+    if (!currentUser) {
+      setLoadingWithdrawStatus(false);
+      return;
+    }
+    
     if (!isRefresh) {
       // 检查缓存
       const cacheKey = `withdraw_status`;
@@ -412,7 +387,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     } finally {
       setLoadingWithdrawStatus(false);
     }
-  }, []);
+  }, [currentUser]);
   
 
 
@@ -425,13 +400,11 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
       setLoadingWithdrawStatus(true);
       
       // 并行执行所有数据获取操作，提高加载速度
-      Promise.all([
+      Promise.allSettled([
         fetchEarnings(),
         fetchWithdrawRecords(),
         loadWithdrawStatus()
-      ]).catch(error => {
-        console.error('Error loading data:', error);
-      }).finally(() => {
+      ]).finally(() => {
         setLoading(false);
       });
     }
@@ -451,7 +424,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     cacheManager.clear();
     
     // 重新请求所有数据
-    await Promise.all([
+    await Promise.allSettled([
       fetchEarnings(true),
       fetchWithdrawRecords(true),
       loadWithdrawStatus(true)
@@ -498,14 +471,16 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
             </div>
           </div>
           
-          {/* 刷新按钮 */}
-          <button
-            onClick={handleRefresh}
-            className="p-3 text-white hover:bg-white/10 rounded-xl transition-colors"
-            disabled={loading}
-          >
-            <RefreshCw className={loading ? 'animate-spin' : ''} size={20} />
-          </button>
+          {/* 刷新按钮 - 只在非组长角色显示 */}
+          {!isGroupLeader && (
+            <button
+              onClick={handleRefresh}
+              className="p-3 text-white hover:bg-white/10 rounded-xl transition-colors"
+              disabled={loading}
+            >
+              <RefreshCw className={loading ? 'animate-spin' : ''} size={20} />
+            </button>
+          )}
         </div>
       </div>
 
