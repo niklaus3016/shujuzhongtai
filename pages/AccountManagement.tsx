@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   ChevronLeft, UserPlus, Users, Search, ChevronRight,
-  Shield, User, Crown, Star, ToggleLeft, ToggleRight, Trash2, Phone, MapPin, Users2, Edit2, ChevronDown, CheckCircle
+  Shield, User, Crown, Star, ToggleLeft, ToggleRight, Trash2, Phone, MapPin, Users2, Edit2, ChevronDown, CheckCircle, Download
 } from 'lucide-react';
 import { request } from '../services/api';
 import { useSwipeBack } from '../hooks/useSwipeBack';
@@ -885,6 +885,48 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
 
   const [activeTab, setActiveTab] = useState<'team-leader' | 'group-leader' | 'employee'>('employee');
 
+  // 导出员工账号功能
+  const handleExportEmployees = () => {
+    // 过滤出员工账号（排除组长）
+    const employeeAccounts = accounts.filter(a => 
+      a.employeeId && !(a.role === 'GROUP_LEADER' || a.role === 'group_leader' || a.isGroupLeader || (a.groupId && a.groupId !== ''))
+    );
+    
+    if (employeeAccounts.length === 0) {
+      alert('暂无员工账号可导出');
+      return;
+    }
+
+    // 生成CSV内容
+    const headers = ['员工号', '姓名', '手机号', '地区', '团队', '组名', '状态', '创建时间'];
+    const rows = employeeAccounts.map(account => [
+      account.employeeId || '',
+      account.realName || '',
+      account.phone || '',
+      account.region || '',
+      account.teamName || account.parentName || '',
+      account.groupName || '',
+      (account.status === 'active' || account.status === 'enabled' || account.status === '1' || !account.status) ? '启用' : '禁用',
+      new Date(account.createdAt).toLocaleString('zh-CN')
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    // 创建下载链接
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `员工账号列表_${new Date().toLocaleDateString()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // 过滤账号列表
   const filteredAccounts = useMemo(() => {
     let filtered = accounts;
@@ -1014,6 +1056,13 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           }`}
         >
           员工账号 ({employeeCount})
+        </button>
+        <button
+          onClick={handleExportEmployees}
+          className="px-3 py-2 text-xs font-bold bg-green-500 text-white rounded-xl transition-all hover:bg-green-600 flex items-center space-x-1"
+        >
+          <Download size={12} />
+          <span>导出</span>
         </button>
       </div>
 

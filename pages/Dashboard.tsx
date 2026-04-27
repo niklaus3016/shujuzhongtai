@@ -260,6 +260,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
 
       // 1. 先获取当前时间范围的数据（主要请求）
       let kpiResponse: any = null;
+      let yesterdayKpiResponse: any = null;
       let userResponse: any = null;
       let transformedKpis: any[] = [];
       
@@ -279,6 +280,19 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
           }
           console.log('[Dashboard] 添加KPI请求:', kpiUrl);
           primaryRequests.push(request<any>(kpiUrl, { method: 'GET' }));
+        } else {
+          primaryRequests.push(Promise.resolve(null));
+        }
+        
+        // 如果是今日数据，同时添加昨日KPI数据请求（用于超管计算增长率）
+        if (showKPIDashboard && timeRange === TimeRange.TODAY) {
+          let yesterdayKpiUrl = `/admin/dashboard/kpi?range=yesterday`;
+          if (isGroupLeader) {
+            const teamGroupId = currentUser.teamGroupId;
+            yesterdayKpiUrl = `/admin/dashboard/kpi?range=yesterday&group=${encodeURIComponent(teamGroupId || '')}`;
+          }
+          console.log('[Dashboard] 添加昨日KPI请求:', yesterdayKpiUrl);
+          primaryRequests.push(request<any>(yesterdayKpiUrl, { method: 'GET' }));
         } else {
           primaryRequests.push(Promise.resolve(null));
         }
@@ -309,6 +323,15 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
         } else {
           responseIndex += 1;
         }
+        
+        // 获取昨日KPI数据（用于超管计算增长率）
+        if (showKPIDashboard && timeRange === TimeRange.TODAY) {
+          yesterdayKpiResponse = primaryResponses[responseIndex++];
+          setYesterdayKpiData(yesterdayKpiResponse);
+        } else {
+          responseIndex += 1;
+        }
+        
         userResponse = primaryResponses[responseIndex++];
         console.log('[Dashboard] 用户数据响应:', userResponse);
         
@@ -338,8 +361,23 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
           let profitMarginGrowth = 0;
           // 计算利润增长率（今日 - 昨日）
           let profitGrowth = 0;
-          // 从API响应中获取增长率数据
-          if (kpiResponse) {
+          
+          // 超管使用昨日数据计算增长率，团队长和组长保持不变
+          if (isSuperAdmin && timeRange === TimeRange.TODAY && yesterdayKpiResponse) {
+            const yesterdayUserShare = Number(yesterdayKpiResponse.coins || 0) / 1000;
+            const yesterdayPlatformCost = yesterdayUserShare * 0.2;
+            const yesterdayProfit = Number(yesterdayKpiResponse.revenue || 0) - yesterdayUserShare - yesterdayPlatformCost;
+            const yesterdayProfitMargin = yesterdayKpiResponse.revenue > 0 ? ((yesterdayProfit) / Number(yesterdayKpiResponse.revenue) * 100) : 0;
+            
+            // 计算利润增长率
+            if (yesterdayProfit !== 0) {
+              profitGrowth = ((todayProfit - yesterdayProfit) / Math.abs(yesterdayProfit)) * 100;
+            }
+            
+            // 计算利润率增长率
+            profitMarginGrowth = todayProfitMargin - yesterdayProfitMargin;
+          } else if (kpiResponse) {
+            // 团队长和组长从API响应中获取增长率数据
             profitMarginGrowth = kpiResponse.profitMarginGrowth || 0;
             profitGrowth = kpiResponse.profitGrowth || 0;
           }
@@ -520,8 +558,23 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
             let profitMarginGrowth = 0;
             // 计算利润增长率（今日 - 昨日）
             let profitGrowth = 0;
-            // 从API响应中获取增长率数据
-            if (kpiResponse) {
+            
+            // 超管使用昨日数据计算增长率，团队长和组长保持不变
+            if (isSuperAdmin && timeRange === TimeRange.TODAY && yesterdayKpiResponse) {
+              const yesterdayUserShare = Number(yesterdayKpiResponse.coins || 0) / 1000;
+              const yesterdayPlatformCost = yesterdayUserShare * 0.2;
+              const yesterdayProfit = Number(yesterdayKpiResponse.revenue || 0) - yesterdayUserShare - yesterdayPlatformCost;
+              const yesterdayProfitMargin = yesterdayKpiResponse.revenue > 0 ? ((yesterdayProfit) / Number(yesterdayKpiResponse.revenue) * 100) : 0;
+              
+              // 计算利润增长率
+              if (yesterdayProfit !== 0) {
+                profitGrowth = ((todayProfit - yesterdayProfit) / Math.abs(yesterdayProfit)) * 100;
+              }
+              
+              // 计算利润率增长率
+              profitMarginGrowth = todayProfitMargin - yesterdayProfitMargin;
+            } else if (kpiResponse) {
+              // 团队长和组长从API响应中获取增长率数据
               profitMarginGrowth = kpiResponse.profitMarginGrowth || 0;
               profitGrowth = kpiResponse.profitGrowth || 0;
             }

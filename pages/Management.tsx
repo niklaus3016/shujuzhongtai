@@ -38,6 +38,10 @@ const Management: React.FC<ManagementProps> = () => {
     if (activePage === 'deduction-history') {
       fetchDeductionHistory();
     }
+    // 当从提现管理页面返回时，刷新待处理数量
+    if (activePage === 'main') {
+      fetchPendingWithdrawals();
+    }
   }, [activePage]);
 
   const fetchWithdrawStatus = async () => {
@@ -70,7 +74,7 @@ const Management: React.FC<ManagementProps> = () => {
     setWithdrawalLoading(true);
     try {
       const token = localStorage.getItem('admin_token');
-      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/withdraw/list', {
+      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/withdraw/admin/list', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -80,8 +84,8 @@ const Management: React.FC<ManagementProps> = () => {
       console.log('Withdrawal API response status:', response.status);
       const result = await response.json();
       console.log('Withdrawal API response:', result);
-      if (result.success && result.list) {
-        const pendingCount = result.list.filter((item: any) => item.status === 'pending').length;
+      if (result.success && result.data?.list) {
+        const pendingCount = result.data.list.filter((item: any) => item.status === 0).length;
         console.log('Pending withdrawals count:', pendingCount);
         setPendingWithdrawals(pendingCount);
       } else {

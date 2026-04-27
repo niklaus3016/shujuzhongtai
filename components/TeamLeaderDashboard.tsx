@@ -73,7 +73,10 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
       }
     }
     
-    setLoading(true);
+    // 只有非刷新操作才显示加载状态
+    if (!isRefresh) {
+      setLoading(true);
+    }
 
     let responseData: any = null;
     let showGrowth = false;
@@ -143,15 +146,15 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
       
       // 获取员工账号总数
       try {
-        const employeeResult = await request<any>('/admin/employee/list?pageSize=100', { method: 'GET' });
+        const employeeResult = await request<any>('/admin/employee/list?pageSize=1000', { method: 'GET' });
         const employees = Array.isArray(employeeResult) ? employeeResult : (employeeResult?.data || []);
         
-        // 过滤出本团队的员工且状态为active
+        // 过滤出本团队的员工（不考虑状态，过滤掉组长）
         const teamName = getUserTeamName();
         const teamEmployees = employees.filter((emp: any) => {
           const empTeam = emp.parentName || emp.teamName || emp.superior || '';
-          const isActive = emp.status === 'active' || emp.status === 'enabled' || !emp.status;
-          return empTeam === teamName && isActive;
+          const isLeader = emp.isGroupLeader || emp.role === 'group_leader' || emp.role === 'GROUP_LEADER' || (emp.groupId && emp.groupId !== '');
+          return empTeam === teamName && !isLeader;
         });
         
         totalUsersCount = teamEmployees.length;
@@ -232,9 +235,12 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
       // 保持数据为空，不显示模拟数据
       setKpiData([]);
     } finally {
-      setLoading(false);
-      // 调用数据加载完成回调
-      onDataLoaded?.();
+      // 只有非刷新操作才设置 loading 为 false
+      if (!isRefresh) {
+        setLoading(false);
+        // 调用数据加载完成回调
+        onDataLoaded?.();
+      }
     }
   }, [timeRange, currentUser, onDataLoaded]);
 

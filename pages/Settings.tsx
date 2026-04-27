@@ -51,6 +51,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
   const [isLoadingVersion, setIsLoadingVersion] = useState(false);
   const [alipayAccount, setAlipayAccount] = useState('');
   const [alipayName, setAlipayName] = useState('');
+  const [employeeId, setEmployeeId] = useState('');
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [withdrawSuccess, setWithdrawSuccess] = useState(false);
   const [withdrawRecords, setWithdrawRecords] = useState<any[]>([]);
@@ -62,7 +63,8 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     today: 0,
     month: 0,
     lastMonth: 0,
-    total: 0
+    total: 0,
+    availableBalance: 0
   });
 
   // 加载状态
@@ -125,8 +127,8 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
   };
 
   const handleWithdraw = async () => {
-    if (!alipayAccount || !alipayName) {
-      alert('请填写支付宝帐号和姓名');
+    if (!employeeId || !alipayAccount || !alipayName) {
+      alert('请填写员工号、支付宝帐号和姓名');
       return;
     }
     if (!withdrawEnabled) {
@@ -139,25 +141,45 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     }
     setIsWithdrawing(true);
     try {
-      // 计算提现金额和金币数
+      // 计算提现金额
       const amount = earnings.lastMonth; // 上月收益（元）
-      const goldAmount = amount * 1000; // 1元=1000金币
 
       // 提交提现申请
-      await request<any>('/withdraw/submit', {
-        method: 'POST',
-        headers: new Headers({
-          'Content-Type': 'application/json'
-        }),
-        body: JSON.stringify({
-          userId: currentUser?.id || '',
-          employeeId: currentUser?.id || '',
+      // 团队长和组长使用管理员提现接口
+      if (isTeamLeader || isGroupLeader) {
+        const withdrawData = {
           amount: amount,
-          goldAmount: goldAmount,
           alipayAccount: alipayAccount,
-          alipayName: alipayName
-        })
-      });
+          alipayName: alipayName,
+          employeeId: employeeId,
+          lastMonthCommission: earnings.lastMonth
+        };
+        console.log('提交提现请求参数:', withdrawData);
+        await request<any>('/withdraw/admin/submit', {
+          method: 'POST',
+          headers: new Headers({
+            'Content-Type': 'application/json'
+          }),
+          body: JSON.stringify(withdrawData)
+        });
+      } else {
+        // 普通员工使用原接口
+        const goldAmount = amount * 1000; // 1元=1000金币
+        await request<any>('/withdraw/submit', {
+          method: 'POST',
+          headers: new Headers({
+            'Content-Type': 'application/json'
+          }),
+          body: JSON.stringify({
+            userId: currentUser?.id || '',
+            employeeId: currentUser?.id || '',
+            amount: amount,
+            goldAmount: goldAmount,
+            alipayAccount: alipayAccount,
+            alipayName: alipayName
+          })
+        });
+      }
       
       setIsWithdrawing(false);
       setWithdrawSuccess(true);
@@ -168,9 +190,8 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         setAlipayAccount('');
         setAlipayName('');
       }, 3000);
-      // 更新收益数据和提现记录
-      fetchEarnings();
-      fetchWithdrawRecords();
+      // 触发强制刷新，与点击刷新按钮效果一致
+      handleRefresh();
     } catch (error) {
       setIsWithdrawing(false);
       alert('网络错误，请稍后重试');
@@ -201,7 +222,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
       // 团队长获取自己团队的收益数据
       if (isTeamLeader) {
         // 使用新的团队长收益数据接口
-        const revenueResponse = await request<any>('/admin/dashboard/team-leader/revenue', {
+        const revenueResponse = await request<any>('/admin/dashboard/team-leader/commission', {
           method: 'GET'
         });
         
@@ -210,9 +231,10 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         // 直接使用后端返回的数据
         const earningsData = {
           today: revenueResponse.today || 0,
-          month: revenueResponse.thisMonth || 0,
+          month: revenueResponse.month || 0,
           lastMonth: revenueResponse.lastMonth || 0,
-          total: revenueResponse.total || 0
+          total: revenueResponse.total || 0,
+          availableBalance: revenueResponse.availableBalance || 0
         };
         
         setEarnings(earningsData);
@@ -240,7 +262,8 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
           today: todayEarnings,
           month: monthEarnings,
           lastMonth: lastMonthEarnings,
-          total: totalEarnings
+          total: totalEarnings,
+          availableBalance: lastMonthEarnings
         };
         
         setEarnings(earningsData);
@@ -279,7 +302,8 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
           today: todayUserShare * 0.2,
           month: monthUserShare * 0.2,
           lastMonth: lastMonthUserShare * 0.2,
-          total: totalUserShare * 0.2
+          total: totalUserShare * 0.2,
+          availableBalance: lastMonthUserShare * 0.2
         };
         
         setEarnings(earningsData);
@@ -298,14 +322,14 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
 
   // 获取提现记录
   const fetchWithdrawRecords = useCallback(async (isRefresh = false) => {
-    if (!currentUser?.id) {
+    if (!currentUser?.username) {
       setLoadingWithdraw(false);
       return;
     }
     
     if (!isRefresh) {
       // 检查缓存
-      const cacheKey = `withdraw_records_${currentUser.id}`;
+      const cacheKey = `withdraw_records_${currentUser.username}`;
       const cachedRecords = getCachedData(cacheKey, 60000); // 1分钟缓存
       if (cachedRecords) {
         setWithdrawRecords(cachedRecords);
@@ -317,7 +341,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     setIsLoadingRecords(true);
     try {
       const token = localStorage.getItem('admin_token');
-      const response = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/withdraw/list?userId=${currentUser.id}`, {
+      const response = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/withdraw/list?userId=${currentUser.username}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -330,7 +354,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         setWithdrawRecords(result.data || []);
         
         // 缓存数据
-        const cacheKey = `withdraw_records_${currentUser.id}`;
+        const cacheKey = `withdraw_records_${currentUser.username}`;
         setCachedData(cacheKey, result.data || [], 60000); // 1分钟缓存
       } else {
         setWithdrawRecords([]);
@@ -342,51 +366,52 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
       setIsLoadingRecords(false);
       setLoadingWithdraw(false);
     }
-  }, [currentUser?.id]);
+  }, [currentUser?.username]);
 
   // 加载提现开关状态（使用后端实际接口）
-  const loadWithdrawStatus = useCallback(async (isRefresh = false) => {
-    // 检查用户是否登录
+  useEffect(() => {
     if (!currentUser) {
       setLoadingWithdrawStatus(false);
       return;
     }
     
-    if (!isRefresh) {
-      // 检查缓存
-      const cacheKey = `withdraw_status`;
-      const cachedStatus = getCachedData(cacheKey, 1800000); // 30分钟缓存
-      if (cachedStatus !== undefined) {
-        setWithdrawEnabled(cachedStatus);
-        setLoadingWithdrawStatus(false);
-        return;
-      }
+    // 使用缓存，避免频繁请求
+    const cacheKey = `withdraw_status`;
+    const cached = getCachedData(cacheKey);
+    if (cached !== null) {
+      setWithdrawEnabled(cached);
+      setLoadingWithdrawStatus(false);
+      return;
     }
     
-    try {
-      // 使用request函数发送请求，与其他API请求保持一致
-      // 注意：endpoint不需要包含/api前缀，因为BASE_URLS已经包含了
-      const result = await request<any>('/settings/withdraw-status', {
-        method: 'GET'
-      });
-      console.log('提现状态响应:', result);
-      // 处理后端返回的enabled字段（直接从根级别获取）
-      const enabledValue = result?.enabled;
-      console.log('提现开关原始值:', enabledValue, '类型:', typeof enabledValue);
-      // 转换为布尔值
-      const isEnabled = enabledValue === true || enabledValue === 'true' || enabledValue === 1 || enabledValue === '1';
-      setWithdrawEnabled(isEnabled);
-      console.log('提现开关最终状态:', isEnabled);
-      
-      // 缓存数据
-      const cacheKey = `withdraw_status`;
-      setCachedData(cacheKey, isEnabled, 1800000); // 30分钟缓存
-    } catch (err) {
-      console.error('获取提现状态失败:', err);
-      setWithdrawEnabled(false);
-    } finally {
-      setLoadingWithdrawStatus(false);
-    }
+    const fetchStatus = async () => {
+      try {
+        const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/settings/withdraw-status', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const text = await response.text();
+        const result = JSON.parse(text);
+        const enabledValue = result?.enabled?.enabled;
+        const isEnabled = enabledValue === true || enabledValue === 'true' || enabledValue === 1 || enabledValue === '1';
+        setWithdrawEnabled(isEnabled);
+        setCachedData(cacheKey, isEnabled, 1800000); // 30分钟缓存
+      } catch (err) {
+        console.error('获取提现状态失败:', err);
+        setWithdrawEnabled(true);
+      } finally {
+        setLoadingWithdrawStatus(false);
+      }
+    };
+    
+    fetchStatus();
   }, [currentUser]);
   
 
@@ -402,13 +427,12 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
       // 并行执行所有数据获取操作，提高加载速度
       Promise.allSettled([
         fetchEarnings(),
-        fetchWithdrawRecords(),
-        loadWithdrawStatus()
+        fetchWithdrawRecords()
       ]).finally(() => {
         setLoading(false);
       });
     }
-  }, [currentUser, fetchEarnings, fetchWithdrawRecords, loadWithdrawStatus]);
+  }, [currentUser]);
   
 
 
@@ -418,7 +442,6 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     setLoading(true);
     setLoadingEarnings(true);
     setLoadingWithdraw(true);
-    setLoadingWithdrawStatus(true);
     
     // 清空缓存
     cacheManager.clear();
@@ -426,12 +449,11 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     // 重新请求所有数据
     await Promise.allSettled([
       fetchEarnings(true),
-      fetchWithdrawRecords(true),
-      loadWithdrawStatus(true)
+      fetchWithdrawRecords(true)
     ]).finally(() => {
       setLoading(false);
     });
-  }, [fetchEarnings, fetchWithdrawRecords, loadWithdrawStatus]);
+  }, [fetchEarnings, fetchWithdrawRecords]);
 
   const sections = [
     {
@@ -471,8 +493,8 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
             </div>
           </div>
           
-          {/* 刷新按钮 - 只在非组长角色显示 */}
-          {!isGroupLeader && (
+          {/* 刷新按钮 - 只在非组长和非团队长角色显示 */}
+          {!isGroupLeader && !isTeamLeader && (
             <button
               onClick={handleRefresh}
               className="p-3 text-white hover:bg-white/10 rounded-xl transition-colors"
@@ -488,7 +510,20 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         {/* 我的收益板块 - 仅对团队长和组长显示 */}
         {!isSuperAdmin && (
           <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-50">
-            <h3 className="text-sm font-black text-gray-900 mb-4 text-center">我的收益（元）</h3>
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <h3 className="text-sm font-black text-gray-900">我的收益（元）</h3>
+              <button
+                onClick={() => {
+                  handleRefresh();
+                }}
+                className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 transition-all flex items-center justify-center"
+                title="刷新收益数据"
+              >
+                <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-blue-50 p-4 rounded-2xl shadow-sm">
                 <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">今日预估收益</div>
@@ -517,7 +552,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                     提现
                   </button>
                 </div>
-                <div className="text-xl font-black text-purple-600">¥{earnings.lastMonth.toFixed(2)}</div>
+                <div className="text-xl font-black text-purple-600">¥{earnings.availableBalance.toFixed(2)}</div>
               </div>
               <div className="bg-orange-50 p-4 rounded-2xl shadow-sm">
                 <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">累计收益</div>
@@ -542,30 +577,30 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                   const statusStyle = (() => {
                     switch (record.status) {
                       case 0:
-                        return { text: '待打款', className: 'text-amber-600 bg-amber-50' };
+                        return { text: '待打款', className: 'text-amber-600 bg-amber-50', amountColor: 'text-amber-600' };
                       case 1:
-                        return { text: '已打款', className: 'text-emerald-600 bg-emerald-50' };
+                        return { text: '已打款', className: 'text-emerald-600 bg-emerald-50', amountColor: 'text-emerald-600' };
                       case 2:
-                        return { text: '已拒绝', className: 'text-red-600 bg-red-50' };
+                        return { text: '已拒绝', className: 'text-red-600 bg-red-50', amountColor: 'text-red-600' };
                       default:
-                        return { text: record.statusText || '未知状态', className: 'text-gray-600 bg-gray-50' };
+                        return { text: record.statusText || '未知状态', className: 'text-gray-600 bg-gray-50', amountColor: 'text-gray-600' };
                     }
                   })();
                   return (
-                    <div key={record._id || index} className="p-4 bg-gray-50 rounded-2xl">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-sm font-bold text-gray-900">¥{record.amount.toFixed(2)}</div>
-                        <div className={`text-[10px] font-bold px-2 py-1 rounded-full ${statusStyle.className}`}>
+                    <div key={record._id || index} className="p-4 bg-gray-50 rounded-2xl flex justify-between">
+                      <div className="flex-1">
+                        <div className="text-[10px] text-gray-500 mb-1">支付宝：{record.alipayAccount}</div>
+                        <div className="text-[10px] text-gray-500 mb-1">姓名：{record.alipayName}</div>
+                        <div className="text-[10px] text-gray-400">{new Date(record.createTime).toLocaleString('zh-CN')}</div>
+                        {record.goldAmount > 0 && (
+                          <div className="mt-1 text-[10px] text-gray-400">扣除金币：{record.goldAmount} 金币</div>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-end gap-1 ml-4">
+                        <div className={`text-sm font-bold ${statusStyle.amountColor}`}>¥{record.amount.toFixed(2)}</div>
+                        <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusStyle.className}`}>
                           {statusStyle.text}
                         </div>
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] text-gray-400">
-                        <div>扣除金币：{record.goldAmount} 金币</div>
-                        <div>{new Date(record.createTime).toLocaleString('zh-CN')}</div>
-                      </div>
-                      <div className="mt-2 text-[10px] text-gray-500">
-                        <div>支付宝：{record.alipayAccount}</div>
-                        <div>姓名：{record.alipayName}</div>
                       </div>
                     </div>
                   );
@@ -687,9 +722,6 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white w-full max-w-xs rounded-[32px] p-8 shadow-2xl animate-in zoom-in-95 duration-300">
             <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center justify-center">
-              <svg className="w-5 h-5 text-purple-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
               申请提现
             </h3>
             <div className="space-y-5">
@@ -708,7 +740,17 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                   {/* 可提现金额 */}
                   <div className="bg-gradient-to-br from-purple-50 to-indigo-50 p-5 rounded-2xl shadow-sm">
                     <div className="text-xs font-semibold text-gray-500 uppercase mb-2">可提现金额</div>
-                    <div className="text-3xl font-bold text-purple-700">¥{earnings.lastMonth.toFixed(2)}</div>
+                    <div className="text-3xl font-bold text-purple-700">¥{earnings.availableBalance.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 ml-1">平台帐号</label>
+                    <input
+                      type="text"
+                      value={employeeId}
+                      onChange={(e) => setEmployeeId(e.target.value)}
+                      className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl text-sm focus:outline-none focus:ring-3 focus:ring-purple-100 focus:border-purple-200 transition-all"
+                      placeholder="请输入平台帐号"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 ml-1">支付宝帐号</label>
@@ -730,7 +772,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                       placeholder="请输入支付宝实名姓名"
                     />
                   </div>
-                  <p className="text-xs text-gray-400 text-center">提现申请将在3个工作日内处理</p>
+                  <p className="text-xs text-gray-400 text-center">提现申请将在1～3个工作日内处理</p>
                 </>
               )}
               <div className="flex space-x-4 pt-4">
@@ -738,6 +780,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                   onClick={() => {
                     setShowWithdrawModal(false);
                     setWithdrawSuccess(false);
+                    setEmployeeId('');
                     setAlipayAccount('');
                     setAlipayName('');
                   }}
@@ -748,9 +791,9 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                 {!withdrawSuccess && (
                   <button
                     onClick={handleWithdraw}
-                    disabled={isWithdrawing || !alipayAccount.trim() || !alipayName.trim() || earnings.lastMonth <= 0}
+                    disabled={isWithdrawing || !employeeId.trim() || !alipayAccount.trim() || !alipayName.trim() || earnings.lastMonth <= 0}
                     className={`flex-1 py-4 text-sm font-bold rounded-2xl shadow-lg hover:shadow-xl active:scale-95 transition-all duration-200 flex items-center justify-center ${
-                      isWithdrawing || !alipayAccount.trim() || !alipayName.trim() || earnings.lastMonth <= 0
+                      isWithdrawing || !employeeId.trim() || !alipayAccount.trim() || !alipayName.trim() || earnings.lastMonth <= 0
                         ? 'bg-gray-300 text-gray-500 cursor-not-allowed hover:shadow-lg'
                         : 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:from-purple-700 hover:to-indigo-700'
                     }`}

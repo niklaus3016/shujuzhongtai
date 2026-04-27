@@ -9,9 +9,9 @@ import { useSwipeBack } from '../hooks/useSwipeBack';
 interface WithdrawalRecord {
   _id: string;
   userId: string;
-  employeeId: string;
+  employeeId: string | null;
   amount: number;
-  status: 'pending' | 'approved' | 'rejected';
+  status: number;
   createTime: string;
   processTime?: string;
   remark?: string;
@@ -28,7 +28,11 @@ interface WithdrawalManagementProps {
 const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) => {
   const [records, setRecords] = useState<WithdrawalRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [statusFilter, setStatusFilter] = useState<number>(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
+  const [employeeId, setEmployeeId] = useState('');
   
   // 使用左滑返回hook
   const swipeRef = useSwipeBack({ onBack });
@@ -45,11 +49,21 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
   const [selectAll, setSelectAll] = useState(false);
   const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
 
+  const [allRecords, setAllRecords] = useState<WithdrawalRecord[]>([]);
+  
   const fetchRecords = async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('admin_token');
-      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/withdraw/list', {
+      // 构建查询参数 - 始终获取全部数据用于统计
+      const params = new URLSearchParams();
+      params.append('page', page.toString());
+      params.append('pageSize', pageSize.toString());
+      if (employeeId) {
+        params.append('employeeId', employeeId);
+      }
+      
+      const response = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/withdraw/admin/list?${params.toString()}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -57,19 +71,25 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
         }
       });
       const result = await response.json();
+      console.log('提现记录响应:', result);
       if (result.success) {
-        const list = result.list || [];
-        setRecords(list);
+        const list = result.data?.list || [];
+        setAllRecords(list); // 保存全部数据用于统计
+        // 根据筛选条件过滤显示的数据
+        const filteredList = statusFilter === -1 ? list : list.filter(r => r.status === statusFilter);
+        setRecords(filteredList);
+        setTotal(result.data?.pagination?.total || 0);
         
+        // 统计数据始终从全部数据计算
         const totalAmount = list.reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
-        const approvedAmount = list.filter((r: any) => r.status === 'approved').reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
-        const pendingAmount = list.filter((r: any) => r.status === 'pending').reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
-        const rejectedAmount = list.filter((r: any) => r.status === 'rejected').reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
+        const approvedAmount = list.filter((r: any) => r.status === 1).reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
+        const pendingAmount = list.filter((r: any) => r.status === 0).reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
+        const rejectedAmount = list.filter((r: any) => r.status === 2).reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
         setStats({
           total: list.length,
-          pending: list.filter((r: any) => r.status === 'pending').length,
-          approved: list.filter((r: any) => r.status === 'approved').length,
-          rejected: list.filter((r: any) => r.status === 'rejected').length,
+          pending: list.filter((r: any) => r.status === 0).length,
+          approved: list.filter((r: any) => r.status === 1).length,
+          rejected: list.filter((r: any) => r.status === 2).length,
           totalAmount,
           approvedAmount,
           pendingAmount,
@@ -85,7 +105,13 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
 
   useEffect(() => {
     fetchRecords();
-  }, []);
+  }, [page, pageSize, employeeId]);
+  
+  // 筛选状态变化时只在前端过滤，不重新请求
+  useEffect(() => {
+    const filteredList = statusFilter === -1 ? allRecords : allRecords.filter(r => r.status === statusFilter);
+    setRecords(filteredList);
+  }, [statusFilter, allRecords]);
 
   const handleProcess = async (id: string, action: 'approve' | 'reject') => {
     try {
@@ -134,11 +160,11 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
     // 生成CSV内容
     const headers = ['员工ID', '金额', '支付宝帐号', '支付宝姓名', '状态', '申请时间'];
     const rows = filteredRecords.map(record => [
-      record.employeeId,
+      record.employeeId || '',
       record.amount.toFixed(2),
       record.alipayAccount,
       record.alipayName,
-      record.status === 'pending' ? '待处理' : record.status === 'approved' ? '已打款' : '已拒绝',
+      record.status === 0 ? '待处理' : record.status === 1 ? '已打款' : '已拒绝',
       new Date(record.createTime).toLocaleString('zh-CN')
     ]);
 
@@ -159,20 +185,20 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
     document.body.removeChild(link);
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: number) => {
     switch (status) {
-      case 'pending':
+      case 0:
         return <span className="px-2 py-1 text-[10px] font-bold bg-yellow-50 text-yellow-600 rounded-lg">待处理</span>;
-      case 'approved':
+      case 1:
         return <span className="px-2 py-1 text-[10px] font-bold bg-green-50 text-green-600 rounded-lg">已打款</span>;
-      case 'rejected':
+      case 2:
         return <span className="px-2 py-1 text-[10px] font-bold bg-red-50 text-red-500 rounded-lg">已拒绝</span>;
       default:
         return null;
     }
   };
 
-  const filteredRecords = statusFilter === 'all' 
+  const filteredRecords = statusFilter === -1 
     ? records 
     : records.filter(r => r.status === statusFilter);
 
@@ -241,7 +267,7 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
 
         <div className="flex items-center space-x-2 overflow-x-auto hide-scrollbar mb-2">
           <div className="flex space-x-2 overflow-x-auto hide-scrollbar">
-            {(['all', 'pending', 'approved', 'rejected'] as const).map((status) => (
+            {([0, 1, 2, -1] as const).map((status) => (
               <button
                 key={status}
                 onClick={() => setStatusFilter(status)}
@@ -251,7 +277,7 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
                     : 'bg-white text-gray-500 border border-gray-100'
                 }`}
               >
-                {status === 'all' ? '全部' : status === 'pending' ? '待处理' : status === 'approved' ? '已打款' : '已拒绝'}
+                {status === -1 ? '全部' : status === 0 ? '待处理' : status === 1 ? '已打款' : '已拒绝'}
               </button>
             ))}
           </div>
@@ -266,7 +292,7 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
           </div>
         </div>
 
-        {statusFilter === 'pending' && filteredRecords.length > 0 && (
+        {statusFilter === 0 && filteredRecords.length > 0 && (
           <div className="bg-white rounded-2xl border border-gray-100 p-3 mb-3">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center space-x-2">
@@ -348,7 +374,7 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
                   </div>
                 </div>
                 
-                {record.status === 'pending' && (
+                {record.status === 0 && (
                   <div className="flex space-x-2 pt-2 border-t border-gray-50">
                     <button
                       onClick={() => handleProcess(record._id, 'approve')}
