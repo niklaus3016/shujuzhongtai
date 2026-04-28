@@ -226,16 +226,19 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
           method: 'GET'
         });
         
-        console.log('团队长收益数据:', revenueResponse);
+        console.log('[Settings] 团队长收益接口返回数据:', revenueResponse);
+        console.log('[Settings] 接口返回字段:', Object.keys(revenueResponse || {}));
         
-        // 直接使用后端返回的数据
+        // 直接使用后端返回的数据，支持多种可能的字段名
         const earningsData = {
-          today: revenueResponse.today || 0,
-          month: revenueResponse.month || 0,
-          lastMonth: revenueResponse.lastMonth || 0,
-          total: revenueResponse.total || 0,
-          availableBalance: revenueResponse.availableBalance || 0
+          today: revenueResponse.today || revenueResponse.todayCommission || revenueResponse.todayEarnings || 0,
+          month: revenueResponse.month || revenueResponse.monthCommission || revenueResponse.monthEarnings || 0,
+          lastMonth: revenueResponse.lastMonth || revenueResponse.lastMonthCommission || revenueResponse.lastMonthEarnings || revenueResponse.last_month || 0,
+          total: revenueResponse.total || revenueResponse.totalCommission || revenueResponse.totalEarnings || 0,
+          availableBalance: revenueResponse.availableBalance || revenueResponse.lastMonth || revenueResponse.lastMonthCommission || 0
         };
+        
+        console.log('[Settings] 团队长最终收益数据:', earningsData);
         
         setEarnings(earningsData);
         
