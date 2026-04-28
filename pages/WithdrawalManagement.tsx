@@ -50,15 +50,56 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
   const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
 
   const [allRecords, setAllRecords] = useState<WithdrawalRecord[]>([]);
+  const [totalPages, setTotalPages] = useState(1);
+  const [allTimeStats, setAllTimeStats] = useState({
+    total: 0,
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    totalAmount: 0,
+    approvedAmount: 0,
+    pendingAmount: 0,
+    rejectedAmount: 0
+  });
+  
+  // 获取统计数据（单独请求）
+  const fetchStats = async () => {
+    try {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch(`https://wfqmaepvjkdd.sealoshzh.site/api/withdraw/admin/stats`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const result = await response.json();
+      console.log('统计数据响应:', result);
+      if (result.success && result.data) {
+        setAllTimeStats({
+          total: result.data.total || 0,
+          pending: result.data.pending || 0,
+          approved: result.data.approved || 0,
+          rejected: result.data.rejected || 0,
+          totalAmount: result.data.totalAmount || 0,
+          approvedAmount: result.data.approvedAmount || 0,
+          pendingAmount: result.data.pendingAmount || 0,
+          rejectedAmount: result.data.rejectedAmount || 0
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching stats, will fallback to list data:', error);
+    }
+  };
   
   const fetchRecords = async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('admin_token');
-      // 构建查询参数 - 始终获取全部数据用于统计
+      // 构建查询参数 - 请求所有数据用于统计（不分页）
       const params = new URLSearchParams();
-      params.append('page', page.toString());
-      params.append('pageSize', pageSize.toString());
+      params.append('page', '1');
+      params.append('pageSize', '1000'); // 请求大量数据
       if (employeeId) {
         params.append('employeeId', employeeId);
       }
@@ -74,19 +115,26 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
       console.log('提现记录响应:', result);
       if (result.success) {
         const list = result.data?.list || [];
-        setAllRecords(list); // 保存全部数据用于统计
-        // 根据筛选条件过滤显示的数据
-        const filteredList = statusFilter === -1 ? list : list.filter(r => r.status === statusFilter);
+        setAllRecords(list);
+        // 根据筛选条件过滤显示的数据（只显示前20条用于分页）
+        const displayList = list.slice(0, pageSize);
+        const filteredList = statusFilter === -1 ? displayList : displayList.filter(r => r.status === statusFilter);
         setRecords(filteredList);
-        setTotal(result.data?.pagination?.total || 0);
         
-        // 统计数据始终从全部数据计算
+        // 更新分页信息
+        const totalCount = result.data?.pagination?.total || list.length;
+        setTotal(totalCount);
+        setTotalPages(Math.ceil(totalCount / pageSize));
+        
+        // 计算全量统计数据
         const totalAmount = list.reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
         const approvedAmount = list.filter((r: any) => r.status === 1).reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
         const pendingAmount = list.filter((r: any) => r.status === 0).reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
         const rejectedAmount = list.filter((r: any) => r.status === 2).reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
-        setStats({
-          total: list.length,
+        
+        // 设置全量统计数据
+        setAllTimeStats({
+          total: totalCount,
           pending: list.filter((r: any) => r.status === 0).length,
           approved: list.filter((r: any) => r.status === 1).length,
           rejected: list.filter((r: any) => r.status === 2).length,
@@ -102,16 +150,22 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
       setLoading(false);
     }
   };
-
+  
   useEffect(() => {
+    // 同时请求列表数据和统计数据
     fetchRecords();
+    fetchStats();
   }, [page, pageSize, employeeId]);
   
   // 筛选状态变化时只在前端过滤，不重新请求
   useEffect(() => {
-    const filteredList = statusFilter === -1 ? allRecords : allRecords.filter(r => r.status === statusFilter);
+    // 根据当前页码计算显示的数据范围
+    const startIndex = (page - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const displayList = allRecords.slice(startIndex, endIndex);
+    const filteredList = statusFilter === -1 ? displayList : displayList.filter(r => r.status === statusFilter);
     setRecords(filteredList);
-  }, [statusFilter, allRecords]);
+  }, [statusFilter, allRecords, page, pageSize]);
 
   const handleProcess = async (id: string, action: 'approve' | 'reject') => {
     try {
@@ -123,7 +177,9 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
           'Authorization': `Bearer ${token}`
         }
       });
+      // 刷新列表和统计数据
       fetchRecords();
+      fetchStats();
     } catch (error) {
       console.error('Error processing withdrawal:', error);
     }
@@ -145,21 +201,28 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
       }
       setSelectedRecords([]);
       setSelectAll(false);
+      // 刷新列表和统计数据
       fetchRecords();
+      fetchStats();
     } catch (error) {
       console.error('Error batch processing:', error);
     }
   };
 
   const handleExport = () => {
-    if (filteredRecords.length === 0) {
+    // 使用全部数据导出，而不是当前页数据
+    const exportRecords = statusFilter === -1 
+      ? allRecords 
+      : allRecords.filter(r => r.status === statusFilter);
+    
+    if (exportRecords.length === 0) {
       alert('暂无记录可导出');
       return;
     }
 
     // 生成CSV内容
     const headers = ['员工ID', '金额', '支付宝帐号', '支付宝姓名', '状态', '申请时间'];
-    const rows = filteredRecords.map(record => [
+    const rows = exportRecords.map(record => [
       record.employeeId || '',
       record.amount.toFixed(2),
       record.alipayAccount,
@@ -224,13 +287,13 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
             <div className="flex items-center space-x-2 mb-1">
               <span className="text-[10px] opacity-80">已打款金额</span>
             </div>
-            <p className="text-xl font-black">¥ {stats.approvedAmount.toFixed(2)}</p>
+            <p className="text-xl font-black">¥ {allTimeStats.approvedAmount.toFixed(2)}</p>
           </div>
           <div className="bg-gradient-to-br from-yellow-500 to-amber-600 rounded-2xl p-4 text-white">
             <div className="flex items-center space-x-2 mb-1">
               <span className="text-[10px] opacity-80">待处理金额</span>
             </div>
-            <p className="text-xl font-black">¥ {stats.pendingAmount.toFixed(2)}</p>
+            <p className="text-xl font-black">¥ {allTimeStats.pendingAmount.toFixed(2)}</p>
           </div>
         </div>
 
@@ -239,28 +302,28 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
             <div className="flex items-center space-x-2 mb-1">
               <span className="text-[10px] opacity-80">已拒绝金额</span>
             </div>
-            <p className="text-xl font-black">¥ {stats.rejectedAmount.toFixed(2)}</p>
+            <p className="text-xl font-black">¥ {allTimeStats.rejectedAmount.toFixed(2)}</p>
           </div>
           <div className="bg-white rounded-2xl border border-gray-100 p-4">
             <div className="flex items-center space-x-2 mb-1">
               <Wallet size={16} className="text-gray-400" />
               <span className="text-[10px] text-gray-400">总记录数</span>
             </div>
-            <p className="text-xl font-black text-gray-900">{stats.total}</p>
+            <p className="text-xl font-black text-gray-900">{allTimeStats.total}</p>
           </div>
         </div>
 
         <div className="grid grid-cols-3 gap-2">
           <div className="bg-yellow-50 rounded-xl p-3 text-center">
-            <p className="text-lg font-black text-yellow-600">{stats.pending}</p>
+            <p className="text-lg font-black text-yellow-600">{allTimeStats.pending}</p>
             <p className="text-[10px] text-yellow-500">待处理</p>
           </div>
           <div className="bg-green-50 rounded-xl p-3 text-center">
-            <p className="text-lg font-black text-green-600">{stats.approved}</p>
+            <p className="text-lg font-black text-green-600">{allTimeStats.approved}</p>
             <p className="text-[10px] text-green-500">已打款</p>
           </div>
           <div className="bg-red-50 rounded-xl p-3 text-center">
-            <p className="text-lg font-black text-red-500">{stats.rejected}</p>
+            <p className="text-lg font-black text-red-500">{allTimeStats.rejected}</p>
             <p className="text-[10px] text-red-400">已拒绝</p>
           </div>
         </div>
@@ -398,6 +461,37 @@ const WithdrawalManagement: React.FC<WithdrawalManagementProps> = ({ onBack }) =
               <div className="text-center py-10 text-gray-400">
                 <Wallet size={40} className="mx-auto mb-2 opacity-20" />
                 <p className="text-xs">暂无提现记录</p>
+              </div>
+            )}
+            
+            {/* 分页导航 */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center space-x-2 py-4">
+                <button
+                  onClick={() => setPage(Math.max(1, page - 1))}
+                  disabled={page === 1}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                    page === 1 
+                      ? 'bg-gray-100 text-gray-300 cursor-not-allowed' 
+                      : 'bg-white text-gray-700 border border-gray-100 hover:bg-gray-50'
+                  }`}
+                >
+                  上一页
+                </button>
+                <span className="text-xs text-gray-400">
+                  第 {page} / {totalPages} 页
+                </span>
+                <button
+                  onClick={() => setPage(Math.min(totalPages, page + 1))}
+                  disabled={page === totalPages}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                    page === totalPages 
+                      ? 'bg-gray-100 text-gray-300 cursor-not-allowed' 
+                      : 'bg-white text-gray-700 border border-gray-100 hover:bg-gray-50'
+                  }`}
+                >
+                  下一页
+                </button>
               </div>
             )}
           </div>
