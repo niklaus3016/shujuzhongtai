@@ -63,22 +63,8 @@ const WelfareLotteryManagement: React.FC<WelfareLotteryManagementProps> = ({ onB
   const [prizes, setPrizes] = useState<Prize[]>([]);
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [records, setRecords] = useState<Withdrawal[]>([]);
-  const [allRecords, setAllRecords] = useState<Withdrawal[]>([]); // 用于统计和导出
   const [lotteryRecords, setLotteryRecords] = useState<LotteryRecord[]>([]);
   const [lotteryStats, setLotteryStats] = useState<{ totalCount: number; totalPrize: number }>({ totalCount: 0, totalPrize: 0 });
-  const [withdrawStats, setWithdrawStats] = useState({
-    total: 0,
-    pending: 0,
-    completed: 0,
-    failed: 0,
-    totalAmount: 0,
-    completedAmount: 0,
-    pendingAmount: 0,
-    failedAmount: 0
-  });
-  const [selectAll, setSelectAll] = useState(false);
-  const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
-  const [statusFilter, setStatusFilter] = useState<number>(0);
   
   // 日期筛选状态 - 简化为只选某一天
   const [selectedDate, setSelectedDate] = useState('');
@@ -149,25 +135,7 @@ const WelfareLotteryManagement: React.FC<WelfareLotteryManagementProps> = ({ onB
       });
       const result = await response.json();
       if (result.success) {
-        // 兼容不同的API返回结构
-        const data = result.data?.withdrawals || result.data || [];
-        setWithdrawals(data);
-        setAllRecords(data);
-        // 计算统计数据
-        const totalAmount = data.reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
-        const completedAmount = data.filter((r: any) => r.status === 1).reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
-        const pendingAmount = data.filter((r: any) => r.status === 0).reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
-        const failedAmount = data.filter((r: any) => r.status === 2).reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
-        setWithdrawStats({
-          total: data.length,
-          pending: data.filter((r: any) => r.status === 0).length,
-          completed: data.filter((r: any) => r.status === 1).length,
-          failed: data.filter((r: any) => r.status === 2).length,
-          totalAmount,
-          completedAmount,
-          pendingAmount,
-          failedAmount
-        });
+        setWithdrawals(result.data.withdrawals || []);
       }
     } catch (error) {
       console.error('Error fetching withdrawals:', error);
@@ -195,134 +163,6 @@ const WelfareLotteryManagement: React.FC<WelfareLotteryManagementProps> = ({ onB
     } catch (error) {
       console.error('Error fetching records:', error);
       setError('获取提现记录失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 新增：同时获取待处理和历史记录数据并合并
-  const fetchAllWithdrawData = async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('admin_token');
-      
-      // 并行调用两个API
-      const [listResponse, recordsResponse] = await Promise.all([
-        fetch('https://wfqmaepvjkdd.sealoshzh.site/api/welfare/admin/withdraw/list', {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
-        }),
-        fetch('https://wfqmaepvjkdd.sealoshzh.site/api/welfare/admin/withdraw/records', {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
-        })
-      ]);
-
-      const listResult = await listResponse.json();
-      const recordsResult = await recordsResponse.json();
-
-      // 获取两个API的数据
-      const listData = listResult.success ? (listResult.data?.withdrawals || listResult.data || []) : [];
-      const recordsData = recordsResult.success ? (recordsResult.data?.withdrawals || recordsResult.data || []) : [];
-
-      // 合并数据并去重（根据id）
-      const allData = [...listData];
-      const listIds = new Set(listData.map((item: any) => item.id));
-      
-      recordsData.forEach((item: any) => {
-        if (!listIds.has(item.id)) {
-          allData.push(item);
-        }
-      });
-
-      // 更新状态
-      setWithdrawals(allData);
-      setAllRecords(allData);
-      
-      // 辅助函数：将状态转换为数字（与getStatusBadge保持一致）
-      const getStatusNum = (status: string | number): number => {
-        return typeof status === 'string' 
-          ? (status === 'processing' ? 0 : status === 'completed' ? 1 : status === 'failed' ? 2 : parseInt(status) || 0)
-          : status;
-      };
-
-      // 计算统计数据（使用与getStatusBadge完全相同的逻辑）
-      const totalAmount = allData.reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
-      
-      // 使用与getStatusBadge完全相同的状态转换逻辑
-      const completedAmount = allData
-        .filter((r: any) => {
-          const status = r.status;
-          const statusNum = typeof status === 'string' 
-            ? (status === 'processing' ? 0 : status === 'completed' ? 1 : status === 'failed' ? 2 : parseInt(status) || 0)
-            : status;
-          return statusNum === 1;
-        })
-        .reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
-      
-      const pendingAmount = allData
-        .filter((r: any) => {
-          const status = r.status;
-          const statusNum = typeof status === 'string' 
-            ? (status === 'processing' ? 0 : status === 'completed' ? 1 : status === 'failed' ? 2 : parseInt(status) || 0)
-            : status;
-          return statusNum === 0;
-        })
-        .reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
-      
-      const failedAmount = allData
-        .filter((r: any) => {
-          const status = r.status;
-          const statusNum = typeof status === 'string' 
-            ? (status === 'processing' ? 0 : status === 'completed' ? 1 : status === 'failed' ? 2 : parseInt(status) || 0)
-            : status;
-          return statusNum === 2;
-        })
-        .reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
-      
-      const pendingCount = allData.filter((r: any) => {
-        const status = r.status;
-        const statusNum = typeof status === 'string' 
-          ? (status === 'processing' ? 0 : status === 'completed' ? 1 : status === 'failed' ? 2 : parseInt(status) || 0)
-          : status;
-        return statusNum === 0;
-      }).length;
-      
-      const completedCount = allData.filter((r: any) => {
-        const status = r.status;
-        const statusNum = typeof status === 'string' 
-          ? (status === 'processing' ? 0 : status === 'completed' ? 1 : status === 'failed' ? 2 : parseInt(status) || 0)
-          : status;
-        return statusNum === 1;
-      }).length;
-      
-      const failedCount = allData.filter((r: any) => {
-        const status = r.status;
-        const statusNum = typeof status === 'string' 
-          ? (status === 'processing' ? 0 : status === 'completed' ? 1 : status === 'failed' ? 2 : parseInt(status) || 0)
-          : status;
-        return statusNum === 2;
-      }).length;
-      
-      setWithdrawStats({
-        total: allData.length,
-        pending: pendingCount,
-        completed: completedCount,
-        failed: failedCount,
-        totalAmount,
-        completedAmount,
-        pendingAmount,
-        failedAmount
-      });
-    } catch (error) {
-      console.error('Error fetching withdrawal data:', error);
-      setError('获取提现数据失败');
     } finally {
       setLoading(false);
     }
@@ -722,132 +562,78 @@ const WelfareLotteryManagement: React.FC<WelfareLotteryManagementProps> = ({ onB
         },
         body: JSON.stringify({ id, status })
       });
-
       const result = await response.json();
       if (result.success) {
         setShowSuccess(true);
-        setTimeout(() => setShowSuccess(false), 3000);
+        setTimeout(() => setShowSuccess(false), 2000);
         fetchWithdrawals();
       } else {
-        setError(result.message || '处理失败');
+        setError(result.message || '处理提现申请失败');
       }
     } catch (error) {
       console.error('Error processing withdrawal:', error);
-      setError('处理失败');
+      setError('处理提现申请失败');
     } finally {
       setLoading(false);
     }
-  };
-
-  // 批量处理提现
-  const handleBatchProcess = async (status: 'completed' | 'failed') => {
-    if (selectedRecords.length === 0) return;
-    
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('admin_token');
-      for (const id of selectedRecords) {
-        await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/welfare/admin/withdraw/process', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({ id, status })
-        });
-      }
-      setSelectedRecords([]);
-      setSelectAll(false);
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 3000);
-      fetchWithdrawals();
-    } catch (error) {
-      console.error('Error batch processing:', error);
-      setError('批量处理失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 导出提现记录
-  const handleExport = () => {
-    const exportRecords = statusFilter === -1 
-      ? allRecords 
-      : allRecords.filter(r => Number(r.status) === statusFilter);
-    
-    if (exportRecords.length === 0) {
-      alert('暂无记录可导出');
-      return;
-    }
-
-    const headers = ['员工ID', '金额', '支付宝帐号', '支付宝姓名', '状态', '申请时间'];
-    const rows = exportRecords.map(record => {
-      const statusNum = Number(record.status);
-      const statusText = statusNum === 0 ? '待处理' : statusNum === 1 ? '已到账' : '已失败';
-      return [
-        record.employeeId || '',
-        record.amount.toFixed(2),
-        record.alipayAccount,
-        record.alipayName,
-        statusText,
-        new Date(record.time).toLocaleString('zh-CN')
-      ];
-    });
-
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `福利钱包提现记录_${new Date().toLocaleDateString()}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   };
 
   useEffect(() => {
-    if (showOnlyWithdraw) {
-      // 福利钱包提现管理：默认加载待处理提现
-      if (activeTab === 'pendingWithdraw') {
-        fetchWithdrawals();
-      } else if (activeTab === 'withdrawRecords') {
-        fetchRecords();
-      } else {
-        // 默认显示待处理提现
-        setActiveTab('pendingWithdraw');
-        fetchWithdrawals();
-      }
-    } else if (activeSection === 'lottery') {
+    if (activeSection === 'lottery') {
       if (activeTab === 'lotteryRecords') {
         fetchLotteryRecords();
       } else {
         fetchPrizes();
         fetchSettings();
       }
+    } else {
+      if (activeTab === 'withdrawals') {
+        fetchWithdrawals();
+      } else if (activeTab === 'records') {
+        fetchRecords();
+      }
     }
-  }, [showOnlyWithdraw, activeSection, activeTab]);
+  }, [activeSection, activeTab]);
 
-  const getStatusBadge = (status: string | number) => {
-    // 统一转换为数字进行比较
-    const statusNum = typeof status === 'string' 
-      ? (status === 'processing' ? 0 : status === 'completed' ? 1 : status === 'failed' ? 2 : parseInt(status) || 0)
-      : status;
-    
-    switch (statusNum) {
-      case 0:
-        return <span className="px-2 py-1 text-[10px] font-bold bg-yellow-50 text-yellow-600 rounded-lg">待处理</span>;
-      case 1:
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'processing':
+        return <span className="px-2 py-1 text-[10px] font-bold bg-yellow-50 text-yellow-600 rounded-lg">处理中</span>;
+      case 'completed':
         return <span className="px-2 py-1 text-[10px] font-bold bg-green-50 text-green-600 rounded-lg">已到账</span>;
-      case 2:
-        return <span className="px-2 py-1 text-[10px] font-bold bg-red-50 text-red-500 rounded-lg">已失败</span>;
+      case 'failed':
+        return <span className="px-2 py-1 text-[10px] font-bold bg-red-50 text-red-500 rounded-lg">失败</span>;
       default:
         return null;
     }
+  };
+
+  const exportToCSV = (data: Withdrawal[], filename: string) => {
+    if (data.length === 0) {
+      setError('暂无数据可导出');
+      return;
+    }
+    
+    const headers = ['用户ID', '金额', '支付宝姓名', '支付宝账号', '状态', '时间'];
+    const rows = data.map(item => [
+      item.employeeId,
+      `¥${item.amount.toFixed(2)}`,
+      item.alipayName,
+      item.alipayAccount,
+      item.status === 'processing' ? '处理中' : item.status === 'completed' ? '已到账' : '失败',
+      new Date(item.time).toLocaleString('zh-CN')
+    ]);
+    
+    const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${filename}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -898,7 +684,49 @@ const WelfareLotteryManagement: React.FC<WelfareLotteryManagementProps> = ({ onB
           </div>
         )}
 
-        
+        {/* 福利钱包提现管理入口 - 只显示提现相关内容 */}
+        {showOnlyWithdraw && (
+          <div className="flex space-x-2 overflow-x-auto hide-scrollbar">
+            <div className="flex space-x-1 flex-shrink-0">
+              <button
+                onClick={() => setActiveTab('withdrawals')}
+                className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                  activeTab === 'withdrawals' 
+                    ? 'bg-[#1E40AF] text-white' 
+                    : 'bg-white text-gray-500 border border-gray-100'
+                }`}
+              >
+                待处理提现
+              </button>
+              <button
+                onClick={() => exportToCSV(withdrawals, '待处理提现')}
+                className="px-2 py-2 text-xs font-bold rounded-xl bg-white text-blue-500 border border-blue-100 flex items-center space-x-1"
+              >
+                <Download size={12} />
+                <span>导出</span>
+              </button>
+            </div>
+            <div className="flex space-x-1 flex-shrink-0">
+              <button
+                onClick={() => setActiveTab('records')}
+                className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                  activeTab === 'records' 
+                    ? 'bg-[#1E40AF] text-white' 
+                    : 'bg-white text-gray-500 border border-gray-100'
+                }`}
+              >
+                提现记录
+              </button>
+              <button
+                onClick={() => exportToCSV(records, '提现记录')}
+                className="px-2 py-2 text-xs font-bold rounded-xl bg-white text-blue-500 border border-blue-100 flex items-center space-x-1"
+              >
+                <Download size={12} />
+                <span>导出</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="p-3 bg-red-50 text-red-600 text-sm font-medium rounded-xl flex items-center space-x-2">
@@ -912,199 +740,6 @@ const WelfareLotteryManagement: React.FC<WelfareLotteryManagementProps> = ({ onB
             <Check size={16} />
             <span>操作成功！</span>
           </div>
-        )}
-
-        {/* 福利钱包提现管理 */}
-        {showOnlyWithdraw && (
-          <>
-            {/* 标签页切换 */}
-            <div className="flex space-x-2 bg-gray-100 p-1 rounded-xl">
-              <button
-                onClick={() => {
-                  setActiveTab('pendingWithdraw');
-                  fetchWithdrawals();
-                }}
-                className={`flex-1 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
-                  activeTab === 'pendingWithdraw'
-                    ? 'bg-white text-[#1E40AF] shadow-sm' 
-                    : 'text-gray-500'
-                }`}
-              >
-                待处理提现
-              </button>
-              <button
-                onClick={() => {
-                  setActiveTab('withdrawRecords');
-                  fetchRecords();
-                }}
-                className={`flex-1 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
-                  activeTab === 'withdrawRecords'
-                    ? 'bg-white text-[#1E40AF] shadow-sm' 
-                    : 'text-gray-500'
-                }`}
-              >
-                提现记录
-              </button>
-            </div>
-
-            {/* 待处理提现列表 */}
-            {activeTab === 'pendingWithdraw' && (
-              <div className="space-y-3">
-                {loading ? (
-                  <div className="py-20 text-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1E40AF] mx-auto mb-4"></div>
-                    <p className="text-xs text-gray-400 font-bold">加载中...</p>
-                  </div>
-                ) : withdrawals.length === 0 ? (
-                  <div className="text-center py-10 text-gray-400">
-                    <AlertCircle size={40} className="mx-auto mb-2 opacity-50" />
-                    <p className="text-sm font-bold">暂无待处理提现</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <label className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          checked={selectAll}
-                          onChange={(e) => {
-                            const allIds = withdrawals.map(w => w.id);
-                            setSelectAll(e.target.checked);
-                            setSelectedRecords(e.target.checked ? allIds : []);
-                          }}
-                          className="w-4 h-4 rounded border-gray-200 text-[#1E40AF]"
-                        />
-                        <span className="text-xs font-bold text-gray-700">全选</span>
-                        <span className="text-xs text-gray-400">({selectedRecords.length}/{withdrawals.length})</span>
-                      </label>
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => handleBatchProcess('completed')}
-                          disabled={selectedRecords.length === 0 || loading}
-                          className="px-3 py-1.5 text-xs font-bold bg-green-50 text-green-600 rounded-lg disabled:opacity-50"
-                        >
-                          批量到账
-                        </button>
-                        <button
-                          onClick={() => handleBatchProcess('failed')}
-                          disabled={selectedRecords.length === 0 || loading}
-                          className="px-3 py-1.5 text-xs font-bold bg-red-50 text-red-500 rounded-lg disabled:opacity-50"
-                        >
-                          批量失败
-                        </button>
-                      </div>
-                    </div>
-                    {withdrawals.map((withdrawal) => (
-                      <div key={withdrawal.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-3">
-                            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 font-bold text-xs">
-                              <span>{withdrawal.employeeId?.toString().slice(-4)}</span>
-                            </div>
-                            <div>
-                              <h3 className="text-sm font-bold text-gray-900">¥ {withdrawal.amount.toFixed(2)}</h3>
-                              <p className="text-[10px] text-gray-400 mt-1">用户ID: {withdrawal.employeeId}</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            {getStatusBadge(withdrawal.status)}
-                            <p className="text-[10px] text-gray-400 mt-1">
-                              {new Date(withdrawal.time).toLocaleString('zh-CN', {
-                                year: 'numeric',
-                                month: '2-digit',
-                                day: '2-digit',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="mb-3 p-3 bg-gray-50 rounded-xl">
-                          <p className="text-xs text-gray-600">
-                            <span className="font-medium">支付宝姓名:</span> {withdrawal.alipayName}
-                          </p>
-                          <p className="text-xs text-gray-600 mt-1">
-                            <span className="font-medium">支付宝账号:</span> {withdrawal.alipayAccount}
-                          </p>
-                        </div>
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => processWithdrawal(withdrawal.id, 'completed')}
-                            disabled={loading}
-                            className="flex-1 py-2 bg-green-50 text-green-600 text-xs font-bold rounded-xl flex items-center justify-center space-x-1"
-                          >
-                            <Check size={14} />
-                            <span>确认到账</span>
-                          </button>
-                          <button
-                            onClick={() => processWithdrawal(withdrawal.id, 'failed')}
-                            disabled={loading}
-                            className="flex-1 py-2 bg-red-50 text-red-500 text-xs font-bold rounded-xl flex items-center justify-center space-x-1"
-                          >
-                            <X size={14} />
-                            <span>拒绝提现</span>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* 提现记录列表 */}
-            {activeTab === 'withdrawRecords' && (
-              <div className="space-y-3">
-                {loading ? (
-                  <div className="py-20 text-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1E40AF] mx-auto mb-4"></div>
-                    <p className="text-xs text-gray-400 font-bold">加载中...</p>
-                  </div>
-                ) : allRecords.length === 0 ? (
-                  <div className="text-center py-10 text-gray-400">
-                    <AlertCircle size={40} className="mx-auto mb-2 opacity-50" />
-                    <p className="text-sm font-bold">暂无提现记录</p>
-                  </div>
-                ) : (
-                  allRecords.map((record) => (
-                    <div key={record.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 font-bold text-xs">
-                            <span>{record.employeeId?.toString().slice(-4)}</span>
-                          </div>
-                          <div>
-                            <h3 className="text-sm font-bold text-gray-900">¥ {record.amount.toFixed(2)}</h3>
-                            <p className="text-[10px] text-gray-400 mt-1">用户ID: {record.employeeId}</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          {getStatusBadge(record.status)}
-                          <p className="text-[10px] text-gray-400 mt-1">
-                            {new Date(record.time).toLocaleString('zh-CN', {
-                              year: 'numeric',
-                              month: '2-digit',
-                              day: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="p-3 bg-gray-50 rounded-xl">
-                        <p className="text-xs text-gray-600">
-                          <span className="font-medium">支付宝姓名:</span> {record.alipayName}
-                        </p>
-                        <p className="text-xs text-gray-600 mt-1">
-                          <span className="font-medium">支付宝账号:</span> {record.alipayAccount}
-                        </p>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </>
         )}
 
         {/* 抽奖管理 */}
@@ -1675,163 +1310,121 @@ const WelfareLotteryManagement: React.FC<WelfareLotteryManagementProps> = ({ onB
           </div>
         )}
 
-        {/* 提现管理列表 */}
-        {showOnlyWithdraw && (
+        {/* 待处理提现 */}
+        {activeTab === 'withdrawals' && (
           <div className="space-y-3">
             {loading ? (
               <div className="py-20 text-center">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1E40AF] mx-auto mb-4"></div>
                 <p className="text-xs text-gray-400 font-bold">加载中...</p>
               </div>
+            ) : withdrawals.length === 0 ? (
+              <div className="text-center py-10 text-gray-400">
+                <AlertCircle size={40} className="mx-auto mb-2 opacity-20" />
+                <p className="text-xs">暂无待处理提现申请</p>
+              </div>
             ) : (
-              <>
-                {/* 状态筛选后的列表 */}
-                {(() => {
-                  // 将状态转换为统一的数字格式进行筛选（与getStatusBadge保持一致）
-                  const getStatusNum = (status: string | number): number => {
-                    return typeof status === 'string' 
-                      ? (status === 'processing' ? 0 : status === 'completed' ? 1 : status === 'failed' ? 2 : parseInt(status) || 0)
-                      : status;
-                  };
-
-                  const filteredWithdrawals = statusFilter === -1 
-                    ? withdrawals 
-                    : withdrawals.filter(w => getStatusNum(w.status) === statusFilter);
-                  
-                  if (filteredWithdrawals.length === 0) {
-                    return (
-                      <div className="text-center py-10 text-gray-400">
-                        <AlertCircle size={40} className="mx-auto mb-2 opacity-20" />
-                        <p className="text-xs">暂无提现记录</p>
+              withdrawals.map((withdrawal) => (
+                <div key={withdrawal.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center text-green-600 font-bold text-xs">
+                        <DollarSign size={20} />
                       </div>
-                    );
-                  }
+                      <div className="flex-1">
+                        <h3 className="text-sm font-bold text-gray-900">¥ {withdrawal.amount.toFixed(2)}</h3>
+                        <p className="text-[10px] text-gray-400 mt-1">
+                          用户ID: {withdrawal.employeeId}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      {getStatusBadge(withdrawal.status)}
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        {new Date(withdrawal.time).toLocaleString('zh-CN')}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="mb-3 p-3 bg-gray-50 rounded-xl">
+                    <p className="text-xs text-gray-600">
+                      <span className="font-medium">支付宝姓名:</span> {withdrawal.alipayName}
+                    </p>
+                    <p className="text-xs text-gray-600 mt-1">
+                      <span className="font-medium">支付宝账号:</span> {withdrawal.alipayAccount}
+                    </p>
+                  </div>
+                  
+                  <div className="flex space-x-2 pt-2 border-t border-gray-50">
+                    <button
+                      onClick={() => processWithdrawal(withdrawal.id, 'completed')}
+                      disabled={loading}
+                      className="flex-1 py-2 bg-green-50 text-green-600 text-xs font-bold rounded-xl flex items-center justify-center space-x-1"
+                    >
+                      <Check size={14} />
+                      <span>已到账</span>
+                    </button>
+                    <button
+                      onClick={() => processWithdrawal(withdrawal.id, 'failed')}
+                      disabled={loading}
+                      className="flex-1 py-2 bg-red-50 text-red-500 text-xs font-bold rounded-xl flex items-center justify-center space-x-1"
+                    >
+                      <X size={14} />
+                      <span>失败</span>
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
 
-                  return (
-                    <>
-                      {/* 全选和批量操作 - 仅对待处理状态显示 */}
-                      {statusFilter === 0 && (
-                        <div className="bg-white rounded-2xl border border-gray-100 p-3 mb-3">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                checked={selectAll}
-                                onChange={(e) => {
-                                  const allIds = filteredWithdrawals.map(w => w.id);
-                                  setSelectAll(e.target.checked);
-                                  setSelectedRecords(e.target.checked ? allIds : []);
-                                }}
-                                className="w-4 h-4 text-[#1E40AF] rounded border-gray-300 focus:ring-[#1E40AF]"
-                              />
-                              <span className="text-xs font-bold text-gray-700">全选</span>
-                              <span className="text-xs text-gray-400">({selectedRecords.length}/{filteredWithdrawals.length})</span>
-                            </div>
-                            <div className="flex space-x-2">
-                              <button
-                                onClick={() => handleBatchProcess('completed')}
-                                disabled={selectedRecords.length === 0}
-                                className={`px-4 py-1.5 text-xs font-bold rounded-xl transition-all ${
-                                  selectedRecords.length > 0 
-                                    ? 'bg-green-50 text-green-600' 
-                                    : 'bg-gray-100 text-gray-300 cursor-not-allowed'
-                                }`}
-                              >
-                                批量到账
-                              </button>
-                              <button
-                                onClick={() => handleBatchProcess('failed')}
-                                disabled={selectedRecords.length === 0}
-                                className={`px-4 py-1.5 text-xs font-bold rounded-xl transition-all ${
-                                  selectedRecords.length > 0 
-                                    ? 'bg-red-50 text-red-500' 
-                                    : 'bg-gray-100 text-gray-300 cursor-not-allowed'
-                                }`}
-                              >
-                                批量失败
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {filteredWithdrawals.map((withdrawal) => (
-                        <div key={withdrawal.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center space-x-3">
-                              {statusFilter === 0 && (
-                                <input
-                                  type="checkbox"
-                                  checked={selectedRecords.includes(withdrawal.id)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setSelectedRecords([...selectedRecords, withdrawal.id]);
-                                    } else {
-                                      setSelectedRecords(selectedRecords.filter(id => id !== withdrawal.id));
-                                    }
-                                  }}
-                                  className="w-4 h-4 text-[#1E40AF] rounded border-gray-300 focus:ring-[#1E40AF]"
-                                />
-                              )}
-                              <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 font-bold text-xs">
-                                <span>{withdrawal.employeeId?.toString().slice(-4)}</span>
-                              </div>
-                              <div className="flex-1">
-                                <h3 className="text-sm font-bold text-gray-900">¥ {withdrawal.amount.toFixed(2)}</h3>
-                                <p className="text-[10px] text-gray-400 mt-1">
-                                  用户ID: {withdrawal.employeeId}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              {getStatusBadge(withdrawal.status)}
-                              <p className="text-[10px] text-gray-400 mt-1">
-                                {new Date(withdrawal.time).toLocaleString('zh-CN', {
-                                  year: 'numeric',
-                                  month: '2-digit',
-                                  day: '2-digit',
-                                  hour: '2-digit',
-                                  minute: '2-digit'
-                                })}
-                              </p>
-                            </div>
-                          </div>
-                          
-                          <div className="mb-3 p-3 bg-gray-50 rounded-xl">
-                            <p className="text-xs text-gray-600">
-                              <span className="font-medium">支付宝姓名:</span> {withdrawal.alipayName}
-                            </p>
-                            <p className="text-xs text-gray-600 mt-1">
-                              <span className="font-medium">支付宝账号:</span> {withdrawal.alipayAccount}
-                            </p>
-                          </div>
-                          
-                          {statusFilter === 0 && (
-                            <div className="flex space-x-2 pt-2 border-t border-gray-50">
-                              <button
-                                onClick={() => processWithdrawal(withdrawal.id, 'completed')}
-                                disabled={loading}
-                                className="flex-1 py-2 bg-green-50 text-green-600 text-xs font-bold rounded-xl flex items-center justify-center space-x-1"
-                              >
-                                <Check size={14} />
-                                <span>确认到账</span>
-                              </button>
-                              <button
-                                onClick={() => processWithdrawal(withdrawal.id, 'failed')}
-                                disabled={loading}
-                                className="flex-1 py-2 bg-red-50 text-red-500 text-xs font-bold rounded-xl flex items-center justify-center space-x-1"
-                              >
-                                <X size={14} />
-                                <span>拒绝提现</span>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </>
-                  );
-                })()}
-              </>
+        {/* 提现记录 */}
+        {activeTab === 'records' && (
+          <div className="space-y-3">
+            {loading ? (
+              <div className="py-20 text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1E40AF] mx-auto mb-4"></div>
+                <p className="text-xs text-gray-400 font-bold">加载中...</p>
+              </div>
+            ) : records.length === 0 ? (
+              <div className="text-center py-10 text-gray-400">
+                <AlertCircle size={40} className="mx-auto mb-2 opacity-20" />
+                <p className="text-xs">暂无提现记录</p>
+              </div>
+            ) : (
+              records.map((record) => (
+                <div key={record.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 font-bold text-xs">
+                        <Clock size={20} />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-sm font-bold text-gray-900">¥ {record.amount.toFixed(2)}</h3>
+                        <p className="text-[10px] text-gray-400 mt-1">
+                          用户ID: {record.employeeId}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      {getStatusBadge(record.status)}
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        {new Date(record.time).toLocaleString('zh-CN')}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="p-3 bg-gray-50 rounded-xl">
+                    <p className="text-xs text-gray-600">
+                      <span className="font-medium">支付宝姓名:</span> {record.alipayName}
+                    </p>
+                    <p className="text-xs text-gray-600 mt-1">
+                      <span className="font-medium">支付宝账号:</span> {record.alipayAccount}
+                    </p>
+                  </div>
+                </div>
+              ))
             )}
           </div>
         )}

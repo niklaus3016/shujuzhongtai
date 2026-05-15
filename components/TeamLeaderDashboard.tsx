@@ -196,8 +196,10 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
           },
           {
             title: `${timePrefix}活跃用户`,
-            value: activeUsersCount.toLocaleString(),
-            subValue: timeRange === '今日' ? totalUsersCount.toString() : undefined,
+            value: `${activeUsersCount}`,
+            subValue: timeRange === '今日' && totalUsersCount > 0 
+              ? `/${totalUsersCount}=${((activeUsersCount / totalUsersCount) * 100).toFixed(2)}%` 
+              : undefined,
             icon: TrendingUp,
             color: 'text-emerald-600',
             bg: 'bg-emerald-50'

@@ -79,6 +79,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
   const [refreshing, setRefreshing] = useState(false);
   const [sortBy, setSortBy] = useState<'watched' | 'earnings' | 'agc'>('earnings');
   const [searchKeyword, setSearchKeyword] = useState('');
+  const [showGroupName, setShowGroupName] = useState(true);
   const [kpiData, setKpiData] = useState<any[]>([]);
   const [userData, setUserData] = useState<DashboardUser[]>([]);
   
@@ -1526,25 +1527,40 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
                     {isTeamLeader ? '成员实时表现' : '用户实时表现'}
                     {!isGroupLeader && <span className="ml-2 px-2 py-0.5 bg-[#1E40AF] text-white text-[9px] rounded-full shadow-sm">Top 30</span>}
                 </h3>
-                <div className="flex bg-white p-1 rounded-lg shadow-sm">
-                    <button 
-                        onClick={() => setSortBy('agc')}
-                        className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'agc' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
-                    >
-                        平均金币
-                    </button>
-                    <button 
-                        onClick={() => setSortBy('watched')}
-                        className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'watched' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
-                    >
-                        次数
-                    </button>
-                    <button 
-                        onClick={() => setSortBy('earnings')}
-                        className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'earnings' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
-                    >
-                        收益
-                    </button>
+                <div className="flex items-center space-x-2">
+                    {isGroupLeader && (
+                        <button
+                            onClick={() => setShowGroupName(!showGroupName)}
+                            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all duration-200 ${
+                                showGroupName 
+                                    ? 'bg-[#1E40AF] text-white shadow-md' 
+                                    : 'bg-white text-gray-500 border border-gray-200 shadow-sm'
+                            }`}
+                        >
+                            <BarChart3 size={12} />
+                            <span>组别</span>
+                        </button>
+                    )}
+                    <div className="flex bg-white p-1 rounded-lg shadow-sm">
+                        <button 
+                            onClick={() => setSortBy('agc')}
+                            className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'agc' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
+                        >
+                            平均金币
+                        </button>
+                        <button 
+                            onClick={() => setSortBy('watched')}
+                            className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'watched' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
+                        >
+                            次数
+                        </button>
+                        <button 
+                            onClick={() => setSortBy('earnings')}
+                            className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all duration-200 ${sortBy === 'earnings' ? 'bg-[#1E40AF] text-white shadow-md' : 'text-gray-400 hover:bg-gray-100'}`}
+                        >
+                            收益
+                        </button>
+                    </div>
                 </div>
             </div>
             
@@ -1606,7 +1622,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
                                             <span className="text-gray-300">•</span>
                                             <span className="text-gray-400">注册{user.regDays}天</span>
                                         </div>
-                                        <span className="text-orange-500 font-medium truncate">组别: {user.groupName || user.teamGroupId || '无'}</span>
+                                        {showGroupName && (
+                                            <span className="text-orange-500 font-medium truncate">组别: {user.groupName || user.teamGroupId || '无'}</span>
+                                        )}
                                     </div>
                                 </div>
                             </div>

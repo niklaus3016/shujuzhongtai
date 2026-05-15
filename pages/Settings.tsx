@@ -252,14 +252,27 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
           method: 'GET'
         });
         
-        console.log('Group leader commission stats:', response);
+        // 从API响应中提取提成数据 - 支持多种可能的返回结构
+        const data = response?.data || response; // 处理可能的包装层
         
-        // 从API响应中提取提成数据
-        const todayEarnings = Number(response.today?.totalCommission || 0);
-        const monthEarnings = Number(response.month?.totalCommission || 0);
-        const lastMonthEarnings = Number(response.lastMonth?.totalCommission || 0);
-        const totalEarnings = Number(response.all?.totalCommission || 0);
-        console.log('Calculated group earnings:', { todayEarnings, monthEarnings, lastMonthEarnings, totalEarnings });
+        // 支持多层级的数据结构
+        const todayData = data?.today || data?.todayCommission;
+        const monthData = data?.month || data?.monthCommission;
+        const lastMonthData = data?.lastMonth || data?.lastMonthCommission || data?.last_month;
+        const allData = data?.all || data?.totalCommission;
+        
+        // 提取totalCommission字段，支持直接值或对象
+        const getCommission = (item: any) => {
+          if (typeof item === 'object' && item !== null) {
+            return Number(item.totalCommission || item.commission || item.amount || item);
+          }
+          return Number(item || 0);
+        };
+        
+        const todayEarnings = getCommission(todayData);
+        const monthEarnings = getCommission(monthData);
+        const lastMonthEarnings = getCommission(lastMonthData);
+        const totalEarnings = getCommission(allData);
 
         const earningsData = {
           today: todayEarnings,
