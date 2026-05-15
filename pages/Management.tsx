@@ -18,7 +18,7 @@ import WelfareLotteryManagement from './WelfareLotteryManagement';
 interface ManagementProps {}
 
 const Management: React.FC<ManagementProps> = () => {
-  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification' | 'gold-adjustment' | 'gold-adjustment-today' | 'welfare-lottery'>('main');
+  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification' | 'gold-adjustment' | 'gold-adjustment-today' | 'welfare-lottery' | 'welfare-withdraw'>('main');
   const [withdrawEnabled, setWithdrawEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showDeductionModal, setShowDeductionModal] = useState(false);
@@ -548,6 +548,10 @@ const Management: React.FC<ManagementProps> = () => {
     return <GoldAdjustmentToday onBack={() => setActivePage('main')} />;
   }
 
+  if (activePage === 'welfare-withdraw') {
+    return <WelfareLotteryManagement onBack={() => setActivePage('main')} initialSection="withdraw" />;
+  }
+
   const menuItems = [
     {
       id: 'account',
@@ -638,6 +642,14 @@ const Management: React.FC<ManagementProps> = () => {
       bg: 'bg-purple-50'
     },
     {
+      id: 'welfare-withdraw',
+      icon: DollarSign,
+      title: '福利钱包提现管理',
+      description: '管理福利抽奖提现申请',
+      color: 'text-cyan-500',
+      bg: 'bg-cyan-50'
+    },
+    {
       id: 'withdrawal',
       icon: Wallet,
       title: '提现管理',
@@ -698,6 +710,8 @@ const Management: React.FC<ManagementProps> = () => {
                   setActivePage('gold-adjustment');
                 } else if (item.id === 'gold-adjustment-today') {
                   setActivePage('gold-adjustment-today');
+                } else if (item.id === 'welfare-withdraw') {
+                  setActivePage('welfare-withdraw');
                 }
               }}
               className={`bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-between cursor-pointer active:bg-gray-50 transition-all ${loading && item.isToggle ? 'opacity-50' : ''}`}

@@ -597,8 +597,15 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           }
           
           try {
-            // 尝试使用组长ID更新组长账号信息
+            // 尝试使用组长 ID 更新组长账号信息
             const groupLeaderId = editingAccount.teamGroupId || editingAccount._id;
+            console.log('更新组长提成比例:', {
+              groupLeaderId,
+              teamGroupId: editingAccount.teamGroupId,
+              _id: editingAccount._id,
+              commission: formData.commissionRate,
+              groupName: formData.groupName
+            });
             await request<any>(`/admin/employee/group-leader/${groupLeaderId}`, {
               method: 'PUT',
               body: JSON.stringify(groupLeaderUpdateData)
