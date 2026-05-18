@@ -27,9 +27,10 @@ interface ListUser {
 interface UserListProps {
   onBack?: () => void;
   onSelectUser?: (user: any) => void;
+  timeRange?: string;
 }
 
-const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
+const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser, timeRange = 'today' }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'watched' | 'earnings' | 'agc'>('earnings');
   const [users, setUsers] = useState<ListUser[]>([]);
@@ -76,7 +77,7 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
         console.log('团队和组信息:', { teamName, groupName, groupId });
         
         // 检查是否有缓存数据
-        const userListCacheKey = `user_list_today_${updatedUser?.id}`;
+        const userListCacheKey = `user_list_${timeRange}_${updatedUser?.id}`;
         const cachedData = cacheManager.get(userListCacheKey, 300000); // 5分钟缓存
         
         if (cachedData) {
@@ -90,11 +91,11 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser }) => {
         }
         
         // 构建API路径（与GroupLeader.tsx完全一致）
-        let userUrl = `/admin/dashboard/users?range=today&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(groupId || '')}&limit=1000`;
+        let userUrl = `/admin/dashboard/users?range=${timeRange}&team=${encodeURIComponent(teamName)}&group=${encodeURIComponent(groupId || '')}&limit=1000`;
         if (isTeamLeader) {
-          userUrl = `/admin/dashboard/users?range=today&team=${encodeURIComponent(teamName)}&limit=1000`;
+          userUrl = `/admin/dashboard/users?range=${timeRange}&team=${encodeURIComponent(teamName)}&limit=1000`;
         } else if (!isGroupLeader) {
-          userUrl = `/admin/dashboard/users?range=today&limit=1000`;
+          userUrl = `/admin/dashboard/users?range=${timeRange}&limit=1000`;
         }
         
         console.log('用户数据 API 路径:', userUrl);

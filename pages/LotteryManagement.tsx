@@ -39,9 +39,9 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
   const [error, setError] = useState('');
   const [addAmount, setAddAmount] = useState('');
   const [issueNumber, setIssueNumber] = useState('');
-  const [firstPrizeUserId, setFirstPrizeUserId] = useState('');
-  const [secondPrizeUserId, setSecondPrizeUserId] = useState('');
-  const [thirdPrizeUserId, setThirdPrizeUserId] = useState('');
+  const [firstPrizeUserIds, setFirstPrizeUserIds] = useState('');
+  const [secondPrizeUserIds, setSecondPrizeUserIds] = useState('');
+  const [thirdPrizeUserIds, setThirdPrizeUserIds] = useState('');
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [page, setPage] = useState(1);
@@ -180,10 +180,22 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
 
   // 设置指定中奖用户
   const setWinners = async () => {
-    if (!firstPrizeUserId || firstPrizeUserId.trim() === '') {
+    if (!firstPrizeUserIds || firstPrizeUserIds.trim() === '') {
       setError('请输入一等奖用户ID');
       return;
     }
+
+    // 解析用户ID（支持逗号分隔，自动处理中英文逗号）
+    const parseUserIds = (input: string): string[] => {
+      if (!input || input.trim() === '') return [];
+      // 先将中文逗号替换为英文逗号，再分割
+      const normalizedInput = input.replace(/，/g, ',');
+      return normalizedInput.split(',').map(id => id.trim()).filter(id => id !== '');
+    };
+
+    const firstIds = parseUserIds(firstPrizeUserIds);
+    const secondIds = parseUserIds(secondPrizeUserIds);
+    const thirdIds = parseUserIds(thirdPrizeUserIds);
 
     setDrawLoading(true);
     try {
@@ -196,18 +208,18 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
         },
         body: JSON.stringify({ 
           issueNumber: currentIssue,
-          firstPrizeUserId, 
-          secondPrizeUserId, 
-          thirdPrizeUserId 
+          firstPrizeUserIds: firstIds, 
+          secondPrizeUserIds: secondIds, 
+          thirdPrizeUserIds: thirdIds 
         })
       });
       const result = await response.json();
       if (result.success) {
         setShowSuccess(true);
         setTimeout(() => setShowSuccess(false), 2000);
-        setFirstPrizeUserId('');
-        setSecondPrizeUserId('');
-        setThirdPrizeUserId('');
+        setFirstPrizeUserIds('');
+        setSecondPrizeUserIds('');
+        setThirdPrizeUserIds('');
         // 重新获取当前期号
         fetchCurrentIssue();
       } else {
@@ -306,7 +318,7 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
     fetchPoolBalance();
     fetchHistory();
     fetchCurrentIssue();
-  }, []);
+  }, [page, limit]);
 
   // 定期更新奖金池余额
   useEffect(() => {
@@ -699,25 +711,25 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
               <div className="space-y-3">
                 <input
                   type="text"
-                  value={firstPrizeUserId}
-                  onChange={(e) => setFirstPrizeUserId(e.target.value)}
-                  placeholder="输入一等奖用户ID"
+                  value={firstPrizeUserIds}
+                  onChange={(e) => setFirstPrizeUserIds(e.target.value)}
+                  placeholder="输入一等奖用户ID（1个）"
                   disabled={drawLoading}
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
                 />
                 <input
                   type="text"
-                  value={secondPrizeUserId}
-                  onChange={(e) => setSecondPrizeUserId(e.target.value)}
-                  placeholder="输入二等奖用户ID（可选）"
+                  value={secondPrizeUserIds}
+                  onChange={(e) => setSecondPrizeUserIds(e.target.value)}
+                  placeholder="输入二等奖用户ID（2个，逗号分隔）"
                   disabled={drawLoading}
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
                 />
                 <input
                   type="text"
-                  value={thirdPrizeUserId}
-                  onChange={(e) => setThirdPrizeUserId(e.target.value)}
-                  placeholder="输入三等奖用户ID（可选）"
+                  value={thirdPrizeUserIds}
+                  onChange={(e) => setThirdPrizeUserIds(e.target.value)}
+                  placeholder="输入三等奖用户ID（3个，逗号分隔）"
                   disabled={drawLoading}
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
                 />
@@ -730,7 +742,8 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
                 </button>
               </div>
               <p className="text-xs text-gray-500 mt-2">
-                设置后，开奖时将使用指定用户作为中奖者
+                设置后，开奖时将使用指定用户作为中奖者<br/>
+                <span className="text-red-500">提示：多用户ID请用英文逗号分隔</span>
               </p>
             </div>
           </div>
@@ -777,7 +790,7 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
                         <span className="text-xs text-gray-600">{parseFloat(item.firstPrize).toFixed(2)} 金币</span>
                         {item.winners && item.winners.firstPrize && item.winners.firstPrize.length > 0 && (
                           <span className="text-xs text-gray-600">
-                            中奖者：{item.winners.firstPrize[0].employeeId}
+                            中奖者：{item.winners.firstPrize.map(w => w.employeeId).join('、')}
                           </span>
                         )}
                       </div>
@@ -786,7 +799,7 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
                         <span className="text-xs text-gray-600">{parseFloat(item.secondPrize).toFixed(2)} 金币</span>
                         {item.winners && item.winners.secondPrize && item.winners.secondPrize.length > 0 && (
                           <span className="text-xs text-gray-600">
-                            中奖者：{item.winners.secondPrize[0].employeeId}
+                            中奖者：{item.winners.secondPrize.map(w => w.employeeId).join('、')}
                           </span>
                         )}
                       </div>
@@ -795,7 +808,7 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
                         <span className="text-xs text-gray-600">{parseFloat(item.thirdPrize).toFixed(2)} 金币</span>
                         {item.winners && item.winners.thirdPrize && item.winners.thirdPrize.length > 0 && (
                           <span className="text-xs text-gray-600">
-                            中奖者：{item.winners.thirdPrize[0].employeeId}
+                            中奖者：{item.winners.thirdPrize.map(w => w.employeeId).join('、')}
                           </span>
                         )}
                       </div>
@@ -819,8 +832,8 @@ const LotteryManagement: React.FC<LotteryManagementProps> = ({ onBack }) => {
                   </button>
                   <button
                     onClick={() => setPage(page + 1)}
-                    disabled={history.length < limit}
-                    className={`px-3 py-1 text-xs font-bold rounded-xl transition-all ${history.length < limit ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-yellow-50 text-yellow-600 hover:bg-yellow-100'}`}
+                    disabled={page * limit >= total}
+                    className={`px-3 py-1 text-xs font-bold rounded-xl transition-all ${page * limit >= total ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-yellow-50 text-yellow-600 hover:bg-yellow-100'}`}
                   >
                     下一页
                   </button>

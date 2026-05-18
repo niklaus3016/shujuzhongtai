@@ -3,9 +3,24 @@ import { ApiResponse } from '../types';
 // 根据环境选择合适的 API 地址
 const BASE_URLS = ['https://wfqmaepvjkdd.sealoshzh.site/api'];
 
+// 创建带超时的fetch请求
+function fetchWithTimeout(url: string, options: RequestInit, timeout: number = 30000): Promise<Response> {
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      reject(new Error(`请求超时，超过${timeout}ms`));
+    }, timeout);
+  });
+  
+  return Promise.race([
+    fetch(url, options),
+    timeoutPromise
+  ]);
+}
+
 export async function request<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  timeout: number = 30000
 ): Promise<T> {
   const token = localStorage.getItem('admin_token');
   
@@ -20,10 +35,10 @@ export async function request<T>(
   // 尝试不同的Base URL
   for (const baseUrl of BASE_URLS) {
     try {
-      const response = await fetch(`${baseUrl}${endpoint}`, {
+      const response = await fetchWithTimeout(`${baseUrl}${endpoint}`, {
         ...options,
         headers,
-      });
+      }, timeout);
 
       if (!response.ok) {
         try {

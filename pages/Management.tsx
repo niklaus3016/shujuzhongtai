@@ -29,6 +29,8 @@ const Management: React.FC<ManagementProps> = () => {
   const [statusLoading, setStatusLoading] = useState(true);
   const [pendingWithdrawals, setPendingWithdrawals] = useState(0);
   const [withdrawalLoading, setWithdrawalLoading] = useState(false);
+  const [welfarePendingWithdrawals, setWelfarePendingWithdrawals] = useState(0);
+  const [welfareWithdrawalLoading, setWelfareWithdrawalLoading] = useState(false);
   const [commissionRate, setCommissionRate] = useState(0.5);
   const [commissionLoading, setCommissionLoading] = useState(false);
   const [tempRate, setTempRate] = useState<string>('50');
@@ -41,6 +43,7 @@ const Management: React.FC<ManagementProps> = () => {
     // 当从提现管理页面返回时，刷新待处理数量
     if (activePage === 'main') {
       fetchPendingWithdrawals();
+      fetchWelfarePendingWithdrawals();
     }
   }, [activePage]);
 
@@ -67,6 +70,7 @@ const Management: React.FC<ManagementProps> = () => {
     fetchWithdrawStatus();
     fetchSystemStatus();
     fetchPendingWithdrawals();
+    fetchWelfarePendingWithdrawals();
     fetchCommissionRate();
   }, []);
 
@@ -95,6 +99,29 @@ const Management: React.FC<ManagementProps> = () => {
       console.error('Error fetching pending withdrawals:', error);
     } finally {
       setWithdrawalLoading(false);
+    }
+  };
+
+  const fetchWelfarePendingWithdrawals = async () => {
+    setWelfareWithdrawalLoading(true);
+    try {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch('https://wfqmaepvjkdd.sealoshzh.site/api/welfare/admin/withdraw/list', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const result = await response.json();
+      if (result.success && result.data?.withdrawals) {
+        const pendingCount = result.data.withdrawals.filter((item: any) => item.status === 'processing').length;
+        setWelfarePendingWithdrawals(pendingCount);
+      }
+    } catch (error) {
+      console.error('Error fetching welfare pending withdrawals:', error);
+    } finally {
+      setWelfareWithdrawalLoading(false);
     }
   };
 
@@ -473,7 +500,7 @@ const Management: React.FC<ManagementProps> = () => {
                 <p className="text-xs text-gray-500 mt-2">
                   分成比例决定了用户观看视频获得的金币比例，计算公式：
                   <br />
-                  <span className="font-medium">用户获得金币 = 视频ECPM × 观看时长 × 分成比例</span>
+                  <span className="font-medium">用户获得金币 = 视频ECPM × 分成比例</span>
                 </p>
               </div>
               
@@ -580,8 +607,8 @@ const Management: React.FC<ManagementProps> = () => {
     {
       id: 'gold-adjustment',
       icon: Wallet,
-      title: '用户金币调整',
-      description: '调整用户金币数量',
+      title: '月度金币调整',
+      description: '调整用户月度金币数量',
       color: 'text-green-500',
       bg: 'bg-green-50'
     },
@@ -719,9 +746,14 @@ const Management: React.FC<ManagementProps> = () => {
               <div className="flex items-center space-x-4">
                 <div className={`w-12 h-12 rounded-xl ${item.bg} flex items-center justify-center relative`}>
                   <Icon size={24} className={item.color} />
-                  {item.id === 'withdrawal' && pendingWithdrawals > 0 && (
+                  {(item.id === 'withdrawal' && pendingWithdrawals > 0) && (
                     <div className="absolute top-0 right-0 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold">
                       {pendingWithdrawals}
+                    </div>
+                  )}
+                  {(item.id === 'welfare-withdraw' && welfarePendingWithdrawals > 0) && (
+                    <div className="absolute top-0 right-0 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold">
+                      {welfarePendingWithdrawals}
                     </div>
                   )}
                 </div>

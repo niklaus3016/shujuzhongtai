@@ -90,8 +90,8 @@ const App: React.FC = () => {
 
     // Priority 2: All Users Secondary Page
     if (showAllUsers) {
-      return <UserList key="user-list" onBack={() => setShowAllUsers(false)} onSelectUser={(user) => {
-        setShowAllUsers(false);
+      return <UserList key="user-list" timeRange={timeRange} onBack={() => setShowAllUsers(false)} onSelectUser={(user) => {
+        // 不设置 setShowAllUsers(false)，保留用户列表状态，以便从用户详情返回时能回到用户列表
         setSelectedUser(user);
       }} />;
     }

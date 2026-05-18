@@ -198,8 +198,14 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
             title: `${timePrefix}活跃用户`,
             value: `${activeUsersCount}`,
             subValue: timeRange === '今日' && totalUsersCount > 0 
-              ? `/${totalUsersCount}=${((activeUsersCount / totalUsersCount) * 100).toFixed(2)}%` 
+              ? `/${totalUsersCount}=` 
               : undefined,
+            subValueSuffix: timeRange === '今日' && totalUsersCount > 0 
+              ? `${((activeUsersCount / totalUsersCount) * 100).toFixed(2)}%` 
+              : undefined,
+            subValueSuffixColor: timeRange === '今日' && totalUsersCount > 0 && ((activeUsersCount / totalUsersCount) * 100) < 70 
+              ? 'text-red-600' 
+              : 'text-green-600',
             icon: TrendingUp,
             color: 'text-emerald-600',
             bg: 'bg-emerald-50'
@@ -504,7 +510,7 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({ timeRange, on
                   {kpi.value}
                   {kpi.subValue && kpi.subValue !== '0' && (
                     <span className="ml-1.5 text-[10px] font-bold text-gray-600">
-                      ({kpi.subValue})
+                      ({kpi.subValue}<span className={kpi.subValueSuffixColor || 'text-gray-600'}>{kpi.subValueSuffix || ''}</span>)
                     </span>
                   )}
                 </div>

@@ -122,20 +122,12 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     const scrollPosition = window.scrollY || document.documentElement.scrollTop;
     const startTime = performance.now();
     try {
-      // 尝试从缓存获取数据
+      // 尝试从缓存获取数据（开发调试时禁用缓存）
       const cachedData = getCachedData('accounts_all');
       if (cachedData) {
-        console.log('从缓存加载账号数据');
-        const { accounts: cachedAccounts, teamLeaders: cachedTeamLeaders, groups: cachedGroups } = cachedData;
-        setAccounts(cachedAccounts);
-        setTeamLeaders(cachedTeamLeaders);
-        setGroups(cachedGroups);
-        setLoading(false);
-        // 恢复滚动位置
-        setTimeout(() => {
-          window.scrollTo(0, scrollPosition);
-        }, 0);
-        return;
+        console.log('从缓存加载账号数据，但强制刷新');
+        // 清除缓存，强制重新获取数据
+        clearCache();
       }
       
       // 获取当前用户信息
@@ -148,8 +140,9 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       console.log('团队名称:', teamName);
       
       // 并行获取所有数据，提高加载速度
+      // 获取所有团队账号（使用大pageSize确保获取全部）
       const [teamResponse, employeeResponse] = await Promise.all([
-        request<any>('/admin/account/list', { method: 'GET' }).catch(error => {
+        request<any>('/admin/account/list?pageSize=100', { method: 'GET' }).catch(error => {
           console.error('Error fetching team accounts:', error);
           return null;
         }),
@@ -247,30 +240,46 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       // 打印所有组长的完整信息
       console.log('所有组长完整信息:', groupLeaders);
       
-      // 收集组长的ID、用户名和真实姓名，用于过滤团队账号
+      // 只通过ID过滤团队账号，避免因为realName或username相同而错误过滤
       const groupLeaderIds = new Set(groupLeaders.map((g: any) => g._id));
-      const groupLeaderUsernames = new Set(groupLeaders.map((g: any) => g.username));
-      const groupLeaderRealNames = new Set(groupLeaders.map((g: any) => g.realName));
       
       console.log('合并后组长账号数:', groupLeaders.length);
-      
       console.log('提取的组长:', groupLeaders);
       console.log('组长ID列表:', groupLeaderIds);
-      console.log('组长用户名列表:', groupLeaderUsernames);
-      console.log('组长真实姓名列表:', groupLeaderRealNames);
       console.log('组长数量:', groupLeaders.length);
       
       // 过滤团队账号：
       // 1. 角色为NORMAL_ADMIN
-      // 2. 不在组长ID列表中
-      // 3. 用户名不在组长用户名列表中
-      // 4. 真实姓名不在组长真实姓名列表中
-      const teamAccounts = rawTeamAccounts.filter((a: any) => 
-        a.role === 'NORMAL_ADMIN' && 
-        !groupLeaderIds.has(a._id) && 
-        !groupLeaderUsernames.has(a.username) && 
-        !groupLeaderRealNames.has(a.realName)
-      );
+      // 2. 不在组长ID列表中（只通过ID判断，避免误过滤）
+      
+      // 先查看所有NORMAL_ADMIN账号
+      const allNormalAdmins = rawTeamAccounts.filter((a: any) => a.role === 'NORMAL_ADMIN');
+      console.log('所有NORMAL_ADMIN账号:', allNormalAdmins.map((a: any) => ({ 
+        _id: a._id, 
+        username: a.username, 
+        realName: a.realName,
+        teamName: a.teamName,
+        role: a.role 
+      })));
+      console.log('NORMAL_ADMIN总数:', allNormalAdmins.length);
+      
+      const teamAccounts = rawTeamAccounts.filter((a: any) => {
+        const isNormalAdmin = a.role === 'NORMAL_ADMIN';
+        const isInGroupLeaderIds = groupLeaderIds.has(a._id);
+        
+        const isFiltered = isNormalAdmin && !isInGroupLeaderIds;
+        
+        if (isNormalAdmin && !isFiltered) {
+          console.log('被过滤掉的NORMAL_ADMIN:', {
+            _id: a._id,
+            username: a.username,
+            realName: a.realName,
+            reason: 'ID在组长列表中'
+          });
+        }
+        
+        return isFiltered;
+      });
       
       console.log('过滤后的团队账号:', teamAccounts);
       

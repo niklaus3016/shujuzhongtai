@@ -252,27 +252,14 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
           method: 'GET'
         });
         
-        // 从API响应中提取提成数据 - 支持多种可能的返回结构
-        const data = response?.data || response; // 处理可能的包装层
-        
-        // 支持多层级的数据结构
-        const todayData = data?.today || data?.todayCommission;
-        const monthData = data?.month || data?.monthCommission;
-        const lastMonthData = data?.lastMonth || data?.lastMonthCommission || data?.last_month;
-        const allData = data?.all || data?.totalCommission;
-        
-        // 提取totalCommission字段，支持直接值或对象
-        const getCommission = (item: any) => {
-          if (typeof item === 'object' && item !== null) {
-            return Number(item.totalCommission || item.commission || item.amount || item);
-          }
-          return Number(item || 0);
-        };
-        
-        const todayEarnings = getCommission(todayData);
-        const monthEarnings = getCommission(monthData);
-        const lastMonthEarnings = getCommission(lastMonthData);
-        const totalEarnings = getCommission(allData);
+        // request函数已经自动提取了 result.data，所以response就是data对象
+        // 根据后端接口规范，totalCommission 在 today/month/lastMonth 对象内部
+        const todayEarnings = Number(response?.today?.totalCommission || 0);
+        const monthEarnings = Number(response?.month?.totalCommission || 0);
+        const lastMonthEarnings = Number(response?.lastMonth?.totalCommission || 0);
+
+        // 累计收益 = 本月收益 + 上月收益
+        const totalEarnings = monthEarnings + lastMonthEarnings;
 
         const earningsData = {
           today: todayEarnings,
@@ -571,8 +558,12 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                 <div className="text-xl font-black text-purple-600">¥{earnings.availableBalance.toFixed(2)}</div>
               </div>
               <div className="bg-orange-50 p-4 rounded-2xl shadow-sm">
-                <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">累计收益</div>
-                <div className="text-xl font-black text-orange-600">¥{earnings.total.toFixed(2)}</div>
+                <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">累计成功提现</div>
+                <div className="text-xl font-black text-orange-600">¥{withdrawRecords.filter(record => record.status === 1).reduce((sum, record) => sum + (record.amount || 0), 0).toFixed(2)}</div>
+              </div>
+              <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-4 rounded-2xl shadow-sm col-span-2 flex items-center justify-between">
+                <div className="text-2xl font-black text-white">总收益</div>
+                <div className="text-2xl font-black text-white">¥{(earnings.month + earnings.availableBalance + withdrawRecords.filter(record => record.status === 1).reduce((sum, record) => sum + (record.amount || 0), 0)).toFixed(2)}</div>
               </div>
             </div>
           </div>

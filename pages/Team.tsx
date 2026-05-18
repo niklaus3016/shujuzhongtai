@@ -586,11 +586,13 @@ const Team: React.FC = () => {
       commissionRate: ''
     });
     
+    // 将currentUser保存到状态，确保引用稳定
+    const [user, setUser] = useState(() => authService.getCurrentUser());
+    
     // 提取fetchAccounts为useCallback，避免重复定义
     const fetchAccounts = useCallback(async () => {
       console.log('=== 开始获取账号数据 ===');
-      const currentUser = authService.getCurrentUser();
-      const cacheKey = `accounts_team_${currentUser?.id || 'unknown'}`;
+      const cacheKey = `accounts_team_${user?.id || 'unknown'}`;
       
       // 先检查缓存
       const cachedData = cacheManager.get(cacheKey, 300000); // 5分钟缓存
@@ -605,7 +607,7 @@ const Team: React.FC = () => {
       
       setLoading(true);
       try {
-        const teamId = currentUser.id;
+        const teamId = user.id;
         
         // 并行调用两个接口
         const [groupLeaders, employees] = await Promise.all([
@@ -652,7 +654,7 @@ const Team: React.FC = () => {
         setLoading(false);
         console.log('=== 获取账号数据完成 ===');
       }
-    }, []);
+    }, [user]);
     
     // 组件挂载时加载账号数据
     useEffect(() => {
@@ -721,8 +723,6 @@ const Team: React.FC = () => {
       return 0;
     });
     
-    const currentUser = authService.getCurrentUser();
-    
     const toggleAccountStatus = async (account: any) => {
       try {
         const currentEnabled = account.status === 'enabled' || account.status === '1' || !account.status; // 没有status字段时默认为启用
@@ -740,7 +740,7 @@ const Team: React.FC = () => {
           });
         }
         // 清除缓存并重新加载数据
-        const cacheKey = `accounts_team_${currentUser?.id || 'unknown'}`;
+        const cacheKey = `accounts_team_${user?.id || 'unknown'}`;
         cacheManager.delete(cacheKey);
         fetchAccounts();
       } catch (error) {
@@ -784,7 +784,13 @@ const Team: React.FC = () => {
     };
     
     const handleEditAccount = async () => {
-      if (!editingAccount) return;
+      console.log('=== handleEditAccount 开始 ===');
+      if (!editingAccount) {
+        console.log('editingAccount为空，直接返回');
+        return;
+      }
+      console.log('editingAccount:', editingAccount);
+      console.log('user:', user);
 
       try {
         if (editingAccount.role === 'EMPLOYEE') {
@@ -798,7 +804,7 @@ const Team: React.FC = () => {
           const response = await request<any>(`/admin/employee/${editingAccount._id}`, {
             method: 'PUT',
             body: JSON.stringify({
-              parentId: currentUser.id,
+              parentId: user.id,
               realName: formData.realName,
               phone: formData.phone,
               region: formData.region,
@@ -829,18 +835,21 @@ const Team: React.FC = () => {
 
           console.log('Updated data:', updatedData);
 
-          // 直接更新本地状态，确保分组信息立即显示
-          setAccounts(prevAccounts => {
-            const newAccounts = prevAccounts.map(acc => {
-              if (acc._id === editingAccount._id) {
-                return updatedData;
-              }
-              return acc;
-            });
-            console.log('New accounts state updated');
-
-            // 同时更新缓存，确保60秒自动刷新时不会丢失修改
-            const cacheKey = `accounts_team_${currentUser?.id || 'unknown'}`;
+          // 使用API返回的数据更新本地状态
+          const newAccounts = accounts.map(acc => {
+            if (acc._id === editingAccount._id) {
+              return updatedData;
+            }
+            return acc;
+          });
+          console.log('New accounts state updated');
+          
+          // 更新本地状态
+          setAccounts(newAccounts);
+          
+          // 更新缓存，确保60秒自动刷新时不会丢失修改
+          try {
+            const cacheKey = `accounts_team_${user?.id || 'unknown'}`;
             const cachedData = cacheManager.get(cacheKey);
             const newCachedData = {
               groups: cachedData?.groups || groups,
@@ -848,55 +857,101 @@ const Team: React.FC = () => {
             };
             cacheManager.set(cacheKey, newCachedData);
             console.log('缓存已更新');
-
-            return newAccounts;
-          });
+          } catch (cacheError) {
+            console.error('更新缓存失败:', cacheError);
+            // 缓存更新失败不影响主流程
+          }
         } else {
+          console.log('=== 开始编辑组长 ===');
+          console.log('editingAccount:', editingAccount);
+          console.log('formData:', formData);
+          
           const commissionRate = formData.commissionRate !== undefined && formData.commissionRate !== '' ? parseFloat(formData.commissionRate) / 100 : undefined;
           const groupId = editingAccount.teamGroupId || editingAccount._id;
           
-          // 更新组长信息
-          const updateData = {
-            groupName: formData.groupName,
-            groupLeaderName: formData.realName,
-            ...(commissionRate !== undefined && { commission: commissionRate }),
-            ...(formData.phone && { phone: formData.phone })
-          };
+          console.log('groupId:', groupId);
+          console.log('commissionRate:', commissionRate);
           
-          const response = await request<any>(`/admin/employee/group-leader/${groupId}`, {
-            method: 'PUT',
-            body: JSON.stringify(updateData)
-          });
+          // 更新组长信息（根据后端接口文档：禁止修改groupLeaderName）
+          const updateData: any = {};
+          if (formData.groupName) {
+            updateData.groupName = formData.groupName;
+          }
+          if (commissionRate !== undefined) {
+            updateData.commission = commissionRate;
+          }
+          if (editingAccount.userId) {
+            updateData.groupLeaderId = editingAccount.userId;
+          }
           
-          console.log('更新组长信息成功，响应:', response);
+          console.log('updateData:', updateData);
+          console.log('groups数组:', groups);
+          console.log('editingAccount.groupName:', editingAccount.groupName);
+          console.log('formData.groupName:', formData.groupName);
           
-          // 直接更新本地状态，确保组长信息立即显示
-          setAccounts(prevAccounts => {
-            const newAccounts = prevAccounts.map(account => {
+          // 从后端获取正确的组信息（包含真正的groupId）
+          let correctGroupId = groupId;
+          try {
+            const groupList = await request<any[]>(`/admin/employee/team-leader/groups?teamId=${user.id}`, {
+              method: 'GET'
+            });
+            console.log('获取到的组列表:', groupList);
+            
+            const realGroup = groupList.find(g => g.groupName === formData.groupName || g.groupName === editingAccount.groupName);
+            if (realGroup && realGroup.groupId) {
+              correctGroupId = realGroup.groupId;
+              console.log('找到正确的组ID:', correctGroupId);
+            } else {
+              console.warn('未能找到匹配的组，使用默认ID');
+            }
+          } catch (e) {
+            console.warn('获取组列表失败:', e);
+          }
+          
+          console.log('最终使用的groupID:', correctGroupId);
+          
+          try {
+            const response = await request<any>(`/admin/employee/group-leader/${correctGroupId}`, {
+              method: 'PUT',
+              body: JSON.stringify(updateData)
+            });
+            
+            console.log('更新组长信息成功，响应:', response);
+            
+            // 直接更新本地状态，确保组长信息立即显示
+            const newAccounts = accounts.map(account => {
               if (account._id === editingAccount._id) {
                 return {
                   ...account,
-                  groupName: formData.groupName,
-                  realName: formData.realName,
-                  ...(commissionRate !== undefined && { commission: commissionRate }),
-                  ...(formData.phone && { phone: formData.phone })
+                  groupName: formData.groupName || account.groupName,
+                  ...(commissionRate !== undefined && { commission: commissionRate })
                 };
               }
               return account;
             });
-
-            // 同时更新缓存，确保60秒自动刷新时不会丢失修改
-            const cacheKey = `accounts_team_${currentUser?.id || 'unknown'}`;
-            const cachedData = cacheManager.get(cacheKey);
-            const newCachedData = {
-              groups: cachedData?.groups || groups,
-              accounts: newAccounts
-            };
-            cacheManager.set(cacheKey, newCachedData);
-            console.log('缓存已更新');
-
-            return newAccounts;
-          });
+            
+            console.log('newAccounts:', newAccounts);
+            setAccounts(newAccounts);
+            
+            // 更新缓存，确保60秒自动刷新时不会丢失修改
+            try {
+              const cacheKey = `accounts_team_${user?.id || 'unknown'}`;
+              const cachedData = cacheManager.get(cacheKey);
+              const newCachedData = {
+                groups: cachedData?.groups || groups,
+                accounts: newAccounts
+              };
+              cacheManager.set(cacheKey, newCachedData);
+              console.log('缓存已更新');
+            } catch (cacheError) {
+              console.error('更新缓存失败:', cacheError);
+              // 缓存更新失败不影响主流程
+            }
+            
+          } catch (apiError) {
+            console.error('更新组长信息失败:', apiError.message);
+            throw apiError;
+          }
         }
         setShowEditModal(false);
         setEditingAccount(null);
@@ -928,7 +983,7 @@ const Team: React.FC = () => {
         setShowDeleteModal(false);
         setDeletingAccount(null);
         // 清除缓存并重新加载数据
-        const cacheKey = `accounts_team_${currentUser?.id || 'unknown'}`;
+        const cacheKey = `accounts_team_${user?.id || 'unknown'}`;
         cacheManager.delete(cacheKey);
         fetchAccounts();
       } catch (error: any) {
@@ -962,8 +1017,8 @@ const Team: React.FC = () => {
           const groupLeaderResult = await request<any>('/admin/employee/group-leader/add', {
             method: 'POST',
             body: JSON.stringify({
-              teamLeaderId: currentUser.id,
-              teamName: currentUser.teamName || '鼎盛战队',
+              teamLeaderId: user.id,
+              teamName: user.teamName || '鼎盛战队',
               groupName: formData.groupName,
               commission: commissionRate,
               groupLeaderName: formData.realName,
@@ -978,14 +1033,14 @@ const Team: React.FC = () => {
           alert('组长信息已提交，请等待超管开通账号');
           
           // 清除缓存并重新加载数据
-          const cacheKey = `accounts_team_${currentUser?.id || 'unknown'}`;
+          const cacheKey = `accounts_team_${user?.id || 'unknown'}`;
           cacheManager.delete(cacheKey);
           fetchAccounts();
         } else {
           await request<any>('/admin/employee/create', {
             method: 'POST',
             body: JSON.stringify({
-              parentId: currentUser.id,
+              parentId: user.id,
               realName: formData.realName,
               phone: formData.phone,
               region: formData.region,
@@ -995,7 +1050,7 @@ const Team: React.FC = () => {
           });
           
           // 清除缓存并重新加载数据
-          const cacheKey = `accounts_team_${currentUser?.id || 'unknown'}`;
+          const cacheKey = `accounts_team_${user?.id || 'unknown'}`;
           cacheManager.delete(cacheKey);
           fetchAccounts();
         }
@@ -1024,7 +1079,7 @@ const Team: React.FC = () => {
                 </h1>
                 <button 
                   onClick={() => {
-                    const cacheKey = `accounts_team_${currentUser?.id || 'unknown'}`;
+                    const cacheKey = `accounts_team_${user?.id || 'unknown'}`;
                     cacheManager.delete(cacheKey);
                     fetchAccounts();
                   }}
@@ -1287,17 +1342,8 @@ const Team: React.FC = () => {
                       <input
                         type="text"
                         value={formData.realName}
-                        onChange={(e) => setFormData({ ...formData, realName: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-bold text-gray-700 block mb-1">手机号</label>
-                      <input
-                        type="text"
-                        value={formData.phone}
-                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
+                        disabled
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 bg-gray-100 cursor-not-allowed"
                       />
                     </div>
 
@@ -1307,6 +1353,8 @@ const Team: React.FC = () => {
                         type="number"
                         value={formData.commissionRate}
                         onChange={(e) => setFormData({ ...formData, commissionRate: e.target.value })}
+                        min="1"
+                        max="50"
                         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
                       />
                     </div>

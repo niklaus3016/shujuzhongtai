@@ -59,7 +59,10 @@ const WelfareLotteryManagement: React.FC<WelfareLotteryManagementProps> = ({ onB
   const swipeRef = useSwipeBack({ onBack });
   const [activeSection, setActiveSection] = useState<'lottery' | 'withdraw'>(initialSection);
   const [showOnlyWithdraw, setShowOnlyWithdraw] = useState(initialSection === 'withdraw');
-  const [activeTab, setActiveTab] = useState<'prizes' | 'settings' | 'userWallet' | 'lotteryRecords' | 'withdrawals' | 'records'>('prizes');
+  // 如果初始进入提现管理，默认选中待处理提现
+  const [activeTab, setActiveTab] = useState<'prizes' | 'settings' | 'userWallet' | 'lotteryRecords' | 'withdrawals' | 'records'>(
+    initialSection === 'withdraw' ? 'withdrawals' : 'prizes'
+  );
   const [prizes, setPrizes] = useState<Prize[]>([]);
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [records, setRecords] = useState<Withdrawal[]>([]);

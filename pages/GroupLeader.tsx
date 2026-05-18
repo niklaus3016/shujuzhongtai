@@ -101,8 +101,10 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
             icon: Users,
             color: 'text-purple-600',
             bg: 'bg-purple-50',
-            growth: data.commissionGrowthRate ? `${data.commissionGrowthRate.toFixed(2)}%` : undefined,
-            isUp: data.commissionGrowthRate > 0
+            ...(localTimeRange === 'today' && {
+              growth: data.commissionGrowthRate ? `${data.commissionGrowthRate.toFixed(2)}%` : undefined,
+              isUp: data.commissionGrowthRate > 0
+            })
           },
           {
             title: '本组业绩金额',
@@ -110,8 +112,10 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
             icon: Coins,
             color: 'text-green-600',
             bg: 'bg-green-50',
-            growth: data.earningsGrowthRate ? `${data.earningsGrowthRate.toFixed(2)}%` : undefined,
-            isUp: data.earningsGrowthRate > 0
+            ...(localTimeRange === 'today' && {
+              growth: data.earningsGrowthRate ? `${data.earningsGrowthRate.toFixed(2)}%` : undefined,
+              isUp: data.earningsGrowthRate > 0
+            })
           },
           {
             title: '本组用户总数',
@@ -126,8 +130,10 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
             icon: Zap,
             color: 'text-yellow-600',
             bg: 'bg-yellow-50',
-            growth: data.adExposureGrowthRate ? `${data.adExposureGrowthRate.toFixed(2)}%` : undefined,
-            isUp: data.adExposureGrowthRate > 0
+            ...(localTimeRange === 'today' && {
+              growth: data.adExposureGrowthRate ? `${data.adExposureGrowthRate.toFixed(2)}%` : undefined,
+              isUp: data.adExposureGrowthRate > 0
+            })
           }
         ];
 
@@ -207,8 +213,10 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
                 icon: Users,
                 color: 'text-purple-600',
                 bg: 'bg-purple-50',
-                growth: data.commissionGrowthRate ? `${data.commissionGrowthRate.toFixed(2)}%` : undefined,
-                isUp: data.commissionGrowthRate > 0
+                ...(range === 'today' && {
+                  growth: data.commissionGrowthRate ? `${data.commissionGrowthRate.toFixed(2)}%` : undefined,
+                  isUp: data.commissionGrowthRate > 0
+                })
               },
               {
                 title: '本组业绩金额',
@@ -216,8 +224,10 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
                 icon: Coins,
                 color: 'text-green-600',
                 bg: 'bg-green-50',
-                growth: data.earningsGrowthRate ? `${data.earningsGrowthRate.toFixed(2)}%` : undefined,
-                isUp: data.earningsGrowthRate > 0
+                ...(range === 'today' && {
+                  growth: data.earningsGrowthRate ? `${data.earningsGrowthRate.toFixed(2)}%` : undefined,
+                  isUp: data.earningsGrowthRate > 0
+                })
               },
               {
                 title: '本组用户总数',
@@ -232,8 +242,10 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
                 icon: Zap,
                 color: 'text-yellow-600',
                 bg: 'bg-yellow-50',
-                growth: data.adExposureGrowthRate ? `${data.adExposureGrowthRate.toFixed(2)}%` : undefined,
-                isUp: data.adExposureGrowthRate > 0
+                ...(range === 'today' && {
+                  growth: data.adExposureGrowthRate ? `${data.adExposureGrowthRate.toFixed(2)}%` : undefined,
+                  isUp: data.adExposureGrowthRate > 0
+                })
               }
             ];
             
