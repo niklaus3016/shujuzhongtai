@@ -402,8 +402,8 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
         
         const text = await response.text();
         const result = JSON.parse(text);
-        const enabledValue = result?.enabled?.enabled;
-        const isEnabled = enabledValue === true || enabledValue === 'true' || enabledValue === 1 || enabledValue === '1';
+        const enabledValue = result?.enabled?.enabled ?? result?.enabled ?? result?.status;
+        const isEnabled = enabledValue === true || enabledValue === 'true' || enabledValue === 1 || enabledValue === '1' || enabledValue === 'enabled';
         setWithdrawEnabled(isEnabled);
         setCachedData(cacheKey, isEnabled, 1800000); // 30分钟缓存
       } catch (err) {
