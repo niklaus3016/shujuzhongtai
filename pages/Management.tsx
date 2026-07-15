@@ -17,11 +17,12 @@ import GoldAdjustment from './GoldAdjustment';
 import GoldAdjustmentToday from './GoldAdjustmentToday';
 import WelfareLotteryManagement from './WelfareLotteryManagement';
 import GroupLeaderLevelConfigManagement from './GroupLeaderLevelConfigManagement';
+import ECPMChangeRecord from './ECPMChangeRecord';
 
 interface ManagementProps {}
 
 const Management: React.FC<ManagementProps> = () => {
-  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification' | 'gold-adjustment' | 'gold-adjustment-today' | 'welfare-lottery' | 'welfare-withdraw' | 'level-config'>('main');
+  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification' | 'gold-adjustment' | 'gold-adjustment-today' | 'welfare-lottery' | 'welfare-withdraw' | 'level-config' | 'ecpm-record'>('main');
   const [withdrawEnabled, setWithdrawEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showDeductionModal, setShowDeductionModal] = useState(false);
@@ -586,6 +587,10 @@ const Management: React.FC<ManagementProps> = () => {
     return <GroupLeaderLevelConfigManagement onBack={() => setActivePage('main')} />;
   }
 
+  if (activePage === 'ecpm-record') {
+    return <ECPMChangeRecord onBack={() => setActivePage('main')} />;
+  }
+
   const menuItems = [
     {
       id: 'account',
@@ -594,6 +599,14 @@ const Management: React.FC<ManagementProps> = () => {
       description: '开设团队长账号和员工账号',
       color: 'text-blue-500',
       bg: 'bg-blue-50'
+    },
+    {
+      id: 'ecpm-record',
+      icon: TrendingUp,
+      title: 'ECPM变化记录',
+      description: '查看每5分钟ECPM均值及趋势',
+      color: 'text-cyan-500',
+      bg: 'bg-cyan-50'
     },
     {
       id: 'commission',
@@ -743,6 +756,8 @@ const Management: React.FC<ManagementProps> = () => {
                   toggleWithdraw();
                 } else if (item.id === 'account') {
                   setActivePage('account');
+                } else if (item.id === 'ecpm-record') {
+                  setActivePage('ecpm-record');
                 } else if (item.id === 'target') {
                   setActivePage('target');
                 } else if (item.id === 'withdrawal') {
