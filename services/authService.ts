@@ -87,5 +87,64 @@ export const authService = {
       console.error('Update password failed:', error);
       throw error;
     }
+  },
+
+  normalizeRole(role: string | undefined): string {
+    if (!role) return '';
+    return role.trim().toUpperCase().replace(/_/g, '');
+  },
+
+  isSuperAdmin(user: AdminUser | null | undefined): boolean {
+    if (!user) return false;
+    const normalized = this.normalizeRole(user.role);
+    return normalized === 'SUPERADMIN';
+  },
+
+  isAdminManager(user: AdminUser | null | undefined): boolean {
+    if (!user) return false;
+    const normalized = this.normalizeRole(user.role);
+    return normalized === 'ADMINMANAGER';
+  },
+
+  isTeamLeader(user: AdminUser | null | undefined): boolean {
+    if (!user) return false;
+    const normalized = this.normalizeRole(user.role);
+    return normalized === 'NORMALADMIN';
+  },
+
+  isGroupLeader(user: AdminUser | null | undefined): boolean {
+    if (!user) return false;
+    const normalized = this.normalizeRole(user.role);
+    return normalized === 'GROUPLEADER';
+  },
+
+  isEmployee(user: AdminUser | null | undefined): boolean {
+    if (!user) return false;
+    const normalized = this.normalizeRole(user.role);
+    return normalized === 'EMPLOYEE';
+  },
+
+  isManagement(user: AdminUser | null | undefined): boolean {
+    if (!user) return false;
+    const normalized = this.normalizeRole(user.role);
+    return ['SUPERADMIN', 'ADMINMANAGER', 'NORMALADMIN', 'GROUPLEADER'].includes(normalized);
+  },
+
+  isSuperOrAdminManager(user: AdminUser | null | undefined): boolean {
+    if (!user) return false;
+    const normalized = this.normalizeRole(user.role);
+    return ['SUPERADMIN', 'ADMINMANAGER'].includes(normalized);
+  },
+
+  getRoleDisplayName(role: string | undefined): string {
+    const normalized = this.normalizeRole(role);
+    const roleMap: Record<string, string> = {
+      'SUPERADMIN': '超级管理员',
+      'ADMINMANAGER': '高级管理员',
+      'NORMALADMIN': '团队长',
+      'GROUPLEADER': '组长',
+      'EMPLOYEE': '员工',
+    };
+    return roleMap[normalized] || (role || '未知');
   }
 };

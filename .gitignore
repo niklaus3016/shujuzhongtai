@@ -9,3 +9,22 @@ android/
 *.apk
 *.aab
 *.keystore
+
+# Build output
+dist/
+
+# Test files
+*.mjs
+*.cjs
+*.js
+!src/
+!services/
+!utils/
+!pages/
+!components/
+!hooks/
+!types/
+
+# Documentation
+*.md
+!README.md

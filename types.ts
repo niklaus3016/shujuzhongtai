@@ -1,6 +1,7 @@
 
 export enum UserRole {
   SUPER_ADMIN = 'superadmin',
+  ADMIN_MANAGER = 'ADMIN_MANAGER',
   NORMAL_ADMIN = 'NORMAL_ADMIN',
   GROUP_LEADER = 'GROUP_LEADER',
   EMPLOYEE = 'EMPLOYEE'
@@ -16,7 +17,7 @@ export interface AdminUser {
   parentId?: string; // For employees, who is their admin
   coins?: number; // For employees
   commission?: number; // For normal admins
-  status: 'enabled' | 'disabled' | '1' | '0';
+  status: 'enabled' | 'disabled' | '1' | '0' | 'active' | 'inactive';
   avatar?: string;
   teamName?: string; // For team leaders, the name of their team
   teamGroupId?: string; // For group leaders, the id of their group
@@ -30,6 +31,7 @@ export interface AdminUser {
   zeroEarningsDays?: number; // 0收益天数
   createdAt?: string; // 创建时间
   updatedAt?: string; // 更新时间
+  managedTeamIds?: string[]; // 高管管理的团队长ID列表
 }
 
 export interface ApiResponse<T> {
@@ -55,7 +57,8 @@ export enum AppTab {
   RANKING = '排名',
   PROFILE = '我的',
   GROUP_LEADER_MANAGEMENT = '组长管理',
-  GROUP_MANAGEMENT = '团队管理'
+  GROUP_MANAGEMENT = '团队管理',
+  PERFORMANCE = '业绩'
 }
 
 export interface KPIStats {

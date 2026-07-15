@@ -1,353 +1,597 @@
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { 
-  Coins, Eye, Zap, Users, BarChart3, 
-  TrendingUp, TrendingDown, Clock, RefreshCw
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import {
+  Wallet, Coins, Eye, Users, BarChart3,
+  TrendingUp, TrendingDown, Clock, Zap,
+  Building2, ArrowRightLeft, UsersRound, Target, UserPlus, Activity
 } from 'lucide-react';
 import { authService } from '../services/authService';
 import { request } from '../services/api';
 import { cacheManager } from '../services/cacheManager';
-import { UserRole, TimeRange } from '../types';
 
 interface GroupLeaderProps {
   timeRange: string;
   onRefresh: () => void;
 }
 
+type KpiCard = {
+  title: string;
+  value: string;
+  growth?: string;
+  isUp?: boolean;
+  subValue?: string;
+  icon: any;
+  color: string;
+  bg: string;
+  dim?: boolean;
+};
+
+type KpiSections = {
+  summary: KpiCard[];
+  direct: KpiCard[];
+  indirect: KpiCard[];
+  directMgmt: KpiCard[];
+  indirectMgmt: KpiCard[];
+};
+
+const TIME_RANGE_TO_PARAM: Record<string, string> = {
+  '今日': 'today',
+  '昨日': 'yesterday',
+  '本周': 'week',
+  '本月': 'month',
+};
+const TIME_RANGE_TO_PREFIX: Record<string, string> = {
+  '今日': '今日',
+  '昨日': '昨日',
+  '本周': '本周',
+  '本月': '本月',
+};
+
+const fmtMoney = (v: number) =>
+  `¥${(Number.isFinite(v) ? v : 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+const fmtCount = (v: number) =>
+  `${(Number.isFinite(v) ? Math.round(v) : 0).toLocaleString()}`;
+const fmtPct = (v: number) =>
+  `${(Number.isFinite(v) ? v : 0).toFixed(1)}%`;
+const growthText = (v: number | null | undefined) => {
+  if (v === null || v === undefined || !Number.isFinite(Number(v))) return '';
+  const n = Number(v);
+  const sign = n > 0 ? '+' : '';
+  return `${sign}${n.toFixed(1)}%`;
+};
+
+function transformKpi(raw: any, timeRangeLabel?: string): KpiSections {
+  const d = raw && typeof raw === 'object' ? raw : {};
+  const n = (k: string, fallback = 0) => {
+    const v = Number(d[k]);
+    return Number.isFinite(v) ? v : fallback;
+  };
+
+  // 组长视角下: team* = direct* (indirect* 恒为 0)
+  const teamRevenue = n('teamRevenue');
+  const teamCommission = n('teamCommission');
+  const directRevenue = n('directRevenue');
+  const directCommission = n('directCommission');
+  const directImpressions = n('directImpressions');
+
+  const directUserCount = n('directUserCount');
+  const directActiveUsers = n('directActiveUsers');
+  const directActiveRate = n('directActiveRate');
+
+  const teamRevenueGrowth = d.teamRevenueGrowth;
+  const teamCommissionGrowth = d.teamCommissionGrowth;
+  const directRevenueGrowth = d.directRevenueGrowth;
+  const directCommissionGrowth = d.directCommissionGrowth;
+  const directImpressionsGrowth = d.directImpressionsGrowth;
+  const indirectRevenueGrowth = d.indirectRevenueGrowth;
+  const indirectCommissionGrowth = d.indirectCommissionGrowth;
+  const indirectImpressionsGrowth = d.indirectImpressionsGrowth;
+
+  // 计算本组的平均金币 = (本组业绩元 * 1000) / 曝光数
+  const avgGoldPerAd =
+    directImpressions > 0 ? (directRevenue * 1000) / directImpressions : 0;
+
+  // 环比标签只在「今日」「本月」展示，昨日/本周不显示
+  const showGrowth = timeRangeLabel === '今日' || timeRangeLabel === '本月';
+  const grd1 = showGrowth ? growthText(teamRevenueGrowth) : '';
+  const isup1 = showGrowth ? Number(teamRevenueGrowth) > 0 : undefined;
+  const grd2 = showGrowth ? growthText(teamCommissionGrowth) : '';
+  const isup2 = showGrowth ? Number(teamCommissionGrowth) > 0 : undefined;
+  const gD = (raw: any) => showGrowth ? growthText(raw ?? 0) : '';
+  const uD = (raw: any) => showGrowth ? Number(raw ?? 0) > 0 : undefined;
+
+  const summary: KpiCard[] = [
+    {
+      title: '本组总业绩',
+      value: fmtMoney(teamRevenue),
+      ...(grd1 ? { growth: grd1, isUp: isup1 } : {}),
+      icon: Wallet,
+      color: 'text-green-600',
+      bg: 'bg-green-50',
+    },
+    {
+      title: '本组总提成',
+      value: fmtMoney(teamCommission),
+      ...(grd2 ? { growth: grd2, isUp: isup2 } : {}),
+      icon: Coins,
+      color: 'text-purple-600',
+      bg: 'bg-purple-50',
+    },
+  ];
+
+  const direct: KpiCard[] = [
+    {
+      title: '组内业绩',
+      value: fmtMoney(directRevenue),
+      growth: gD(directRevenueGrowth),
+      isUp: uD(directRevenueGrowth),
+      icon: Building2,
+      color: 'text-indigo-600',
+      bg: 'bg-indigo-50',
+    },
+    {
+      title: '组内提成',
+      value: fmtMoney(directCommission),
+      growth: gD(directCommissionGrowth),
+      isUp: uD(directCommissionGrowth),
+      icon: BarChart3,
+      color: 'text-fuchsia-600',
+      bg: 'bg-fuchsia-50',
+    },
+    {
+      title: '广告总曝光',
+      value: fmtCount(directImpressions),
+      growth: gD(directImpressionsGrowth),
+      isUp: uD(directImpressionsGrowth),
+      icon: Eye,
+      color: 'text-blue-600',
+      bg: 'bg-blue-50',
+    },
+  ];
+
+  // 组长无间推概念，展示本组平均金币作为替代（3 张更有价值的数据）。对应环比字段后端补齐中，缺的按 0 展示。
+  const indirect: KpiCard[] = [
+    {
+      title: '单条平均金币',
+      value: avgGoldPerAd.toFixed(2),
+      growth: gD((d as any).avgGoldPerAdGrowth),
+      isUp: uD((d as any).avgGoldPerAdGrowth),
+      icon: Zap,
+      color: 'text-yellow-600',
+      bg: 'bg-yellow-50',
+    },
+    {
+      title: '本组在册',
+      value: `${fmtCount(directUserCount)} 人`,
+      growth: gD((d as any).directUserCountGrowth),
+      isUp: uD((d as any).directUserCountGrowth),
+      icon: Users,
+      color: 'text-sky-700',
+      bg: 'bg-sky-50',
+    },
+    {
+      title: '本组活跃',
+      value: `${fmtCount(directActiveUsers)} 人`,
+      growth: gD((d as any).directActiveUsersGrowth),
+      isUp: uD((d as any).directActiveUsersGrowth),
+      icon: Activity,
+      color: 'text-emerald-600',
+      bg: 'bg-emerald-50',
+    },
+  ];
+
+  const directMgmt: KpiCard[] = [
+    {
+      title: '在册用户',
+      value: `${fmtCount(directUserCount)} 人`,
+      icon: Users,
+      color: 'text-sky-700',
+      bg: 'bg-sky-50',
+    },
+    {
+      title: '活跃用户',
+      value: `${fmtCount(directActiveUsers)} 人`,
+      icon: Activity,
+      color: 'text-emerald-600',
+      bg: 'bg-emerald-50',
+    },
+    {
+      title: '活跃率',
+      value: fmtPct(directActiveRate),
+      icon: Target,
+      color:
+        Number(directActiveRate) >= 30 ? 'text-emerald-600' : 'text-red-500',
+      bg: 'bg-emerald-50',
+    },
+  ];
+
+  // 右半：放一些本组衍生指标，避免全灰
+  const indirectMgmt: KpiCard[] = [
+    {
+      title: '人均业绩',
+      value: directUserCount > 0 ? fmtMoney(directRevenue / directUserCount) : '¥0.00',
+      icon: Wallet,
+      color: 'text-teal-600',
+      bg: 'bg-teal-50',
+    },
+    {
+      title: '人均提成',
+      value: directUserCount > 0 ? fmtMoney(directCommission / directUserCount) : '¥0.00',
+      icon: Coins,
+      color: 'text-rose-600',
+      bg: 'bg-rose-50',
+    },
+    {
+      title: '人均曝光',
+      value: directUserCount > 0 ? fmtCount(directImpressions / directUserCount) : '0',
+      icon: Eye,
+      color: 'text-sky-600',
+      bg: 'bg-sky-50',
+    },
+  ];
+
+  return { summary, direct, indirect, directMgmt, indirectMgmt };
+}
+
+const SectionTitle: React.FC<{ icon: any; title: string; hint?: string }> = ({
+  icon: Icon,
+  title,
+  hint,
+}) => (
+  <div className="flex items-center justify-between mb-2 px-1">
+    <div className="flex items-center space-x-1.5">
+      <Icon size={12} className="text-[#1E40AF]" />
+      <h3 className="text-[11px] font-bold text-gray-800">{title}</h3>
+    </div>
+    {hint && <span className="text-[9px] text-gray-400">{hint}</span>}
+  </div>
+);
+
+const CardGrid: React.FC<{ cards: KpiCard[] }> = ({ cards }) => (
+  <div className="grid grid-cols-3 gap-2">
+    {cards.map((kpi, i) => {
+      const Icon = kpi.icon;
+      return (
+        <div
+          key={i}
+          className={`bg-white p-3 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all duration-300 ${
+            kpi.dim ? 'opacity-60' : ''
+          }`}
+        >
+          <div className="flex items-center justify-between mb-1.5">
+            <div
+              className={`p-2 rounded-xl shadow-sm ${kpi.bg} ${
+                kpi.dim ? 'bg-gray-100' : ''
+              }`}
+            >
+              <Icon size={16} className={kpi.color} />
+            </div>
+            {kpi.growth && !kpi.dim && (
+              <div
+                className={`text-[9px] font-bold flex items-center px-2 py-0.5 rounded-full ${
+                  kpi.isUp
+                    ? 'text-[#10B981] bg-emerald-50'
+                    : 'text-[#EF4444] bg-red-50'
+                }`}
+              >
+                {kpi.isUp ? (
+                  <TrendingUp size={10} className="mr-0.5" />
+                ) : (
+                  <TrendingDown size={10} className="mr-0.5" />
+                )}
+                {kpi.growth}
+              </div>
+            )}
+          </div>
+          <div className="text-gray-400 text-[10px] font-medium mb-1 tracking-wide">
+            {kpi.title}
+          </div>
+          <div
+            className={`text-base font-bold leading-tight ${
+              kpi.dim ? 'text-gray-400' : 'text-gray-900'
+            }`}
+          >
+            {kpi.value}
+            {kpi.subValue && (
+              <span className="ml-1 text-[10px] font-bold text-gray-500">
+                ({kpi.subValue})
+              </span>
+            )}
+          </div>
+          {kpi.dim && (
+            <div className="mt-1 text-[9px] text-gray-400">组长视角无间推</div>
+          )}
+        </div>
+      );
+    })}
+  </div>
+);
+
 const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [kpiData, setKpiData] = useState<any[]>([]);
-  // 时间范围映射
-  const timeRangeMap: Record<string, string> = {
-    '今日': 'today',
-    '昨日': 'yesterday',
-    '本周': 'week',
-    '本月': 'month'
-  };
-  
-  // 使用映射后的时间范围
-  const [localTimeRange, setLocalTimeRange] = useState<string>(timeRangeMap[timeRange] || 'today');
-  
-  // 使用 useMemo 缓存 currentUser，避免每次渲染都返回新对象
+  const [sections, setSections] = useState<KpiSections | null>(null);
+
   const currentUser = useMemo(() => authService.getCurrentUser(), []);
-  
-  // 获取缓存数据
+  const prefix = TIME_RANGE_TO_PREFIX[timeRange] || '今日';
+
   const getCachedData = useCallback((key: string) => {
-    // 为不同时间范围设置不同的缓存时间
-    const cacheTime = key.includes('today') ? 300000 : 600000; // 今日数据5分钟，其他10分钟
+    const cacheTime = key.includes('today') ? 300000 : 600000;
     return cacheManager.get(key, cacheTime);
   }, []);
-  
-  // 设置缓存数据
   const setCachedData = useCallback((key: string, data: any) => {
     cacheManager.set(key, data);
   }, []);
-  
-  // 监听timeRange变化
-  useEffect(() => {
-    setLocalTimeRange(timeRangeMap[timeRange] || 'today');
-  }, [timeRange]);
-  
-  // 监听localTimeRange变化，重新加载数据
-  useEffect(() => {
-    // 延迟调用，确保fetchData已经定义
-    setTimeout(() => {
-      fetchData();
-    }, 0);
-  }, [localTimeRange]);
-  
-  // 获取用户对应的团队和组信息
-  const getUserGroupInfo = () => {
-    return {
-      teamName: currentUser?.teamName || '团队',
-      groupName: currentUser?.groupName || '组',
-      groupId: currentUser?.teamGroupId || ''
-    };
-  };
 
-  const fetchData = useCallback(async (isRefresh = false) => {
-    if (isRefresh) {
-      setRefreshing(true);
-    } else {
-      const cacheKey = `${localTimeRange}_${currentUser?.id || 'unknown'}`;
-      const cachedData = getCachedData(cacheKey);
-      if (cachedData) {
-        setKpiData(cachedData);
-        setLoading(false);
-        // 后台预加载其他时间范围的数据（不阻塞主流程）
-        setTimeout(() => {
-          preloadOtherTimeRanges();
-        }, 100);
-        return;
+  const teamGroupId = currentUser?.teamGroupId || '';
+
+  const fetchKpiRaw = useCallback(
+    async (rangeParam: string) => {
+      let url = `/admin/dashboard/kpi?range=${rangeParam}`;
+      if (teamGroupId) {
+        url += `&group=${encodeURIComponent(teamGroupId)}`;
       }
-      setLoading(true);
-    }
+      const raw = await request<any>(url, { method: 'GET' });
+      return raw;
+    },
+    [teamGroupId]
+  );
 
-    try {
-      if (!currentUser) {
-        throw new Error('用户未登录');
-      }
+  const fetchData = useCallback(
+    async (isRefresh = false) => {
+      const rangeParam = TIME_RANGE_TO_PARAM[timeRange] || 'today';
+      const cacheKey = `gl_kpi_${rangeParam}_${currentUser?.id || 'u'}`;
 
-      const apiUrl = `/group-leader/stats?range=${localTimeRange}`;
-      console.log('正在请求组长数据:', apiUrl);
-      const data = await request<any>(apiUrl, { method: 'GET' });
-      console.log('组长数据API返回:', data);
-
-      if (data) {
-        const transformedKpis = [
-          {
-            title: '组提成收益',
-            value: `¥${(data.totalCommission || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
-            icon: Users,
-            color: 'text-purple-600',
-            bg: 'bg-purple-50',
-            ...(localTimeRange === 'today' && {
-              growth: data.commissionGrowthRate ? `${data.commissionGrowthRate.toFixed(2)}%` : undefined,
-              isUp: data.commissionGrowthRate > 0
-            })
-          },
-          {
-            title: '本组业绩金额',
-            value: `¥${(data.totalEarnings || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
-            icon: Coins,
-            color: 'text-green-600',
-            bg: 'bg-green-50',
-            ...(localTimeRange === 'today' && {
-              growth: data.earningsGrowthRate ? `${data.earningsGrowthRate.toFixed(2)}%` : undefined,
-              isUp: data.earningsGrowthRate > 0
-            })
-          },
-          {
-            title: '本组用户总数',
-            value: `${data.memberCount || 0}`,
-            icon: Users,
-            color: 'text-blue-600',
-            bg: 'bg-blue-50'
-          },
-          {
-            title: '广告总曝光',
-            value: `${data.totalAdExposure || 0}`,
-            icon: Zap,
-            color: 'text-yellow-600',
-            bg: 'bg-yellow-50',
-            ...(localTimeRange === 'today' && {
-              growth: data.adExposureGrowthRate ? `${data.adExposureGrowthRate.toFixed(2)}%` : undefined,
-              isUp: data.adExposureGrowthRate > 0
-            })
-          }
-        ];
-
-        const cacheKey = `${localTimeRange}_${currentUser?.id || 'unknown'}`;
-        setCachedData(cacheKey, transformedKpis);
-        setKpiData(transformedKpis);
+      if (isRefresh) {
+        setRefreshing(true);
       } else {
-        setKpiData([]);
-      }
-
-      // 后台预加载其他时间范围的数据（不阻塞主流程）
-      setTimeout(() => {
-        preloadOtherTimeRanges();
-      }, 100);
-    } catch (error) {
-      console.error('获取组长数据失败:', error);
-      console.error('错误详情:', error instanceof Error ? error.message : error);
-      console.error('当前用户:', currentUser);
-      setKpiData([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [localTimeRange, currentUser, getCachedData, setCachedData]);
-
-  // 带重试机制的请求函数
-  const requestWithRetry = useCallback(async (url: string, options: RequestInit = {}, retries = 2) => {
-    let lastError: Error;
-    
-    for (let i = 0; i <= retries; i++) {
-      try {
-        return await request<any>(url, options);
-      } catch (error) {
-        lastError = error as Error;
-        // 只对503错误进行重试
-        if (!(lastError.message.includes('503'))) {
-          throw error;
-        }
-        // 指数退避策略
-        if (i < retries) {
-          const delay = Math.pow(2, i) * 1000;
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
-    }
-    throw lastError!;
-  }, []);
-
-  // 后台预加载其他时间范围的数据
-  const preloadOtherTimeRanges = useCallback(async () => {
-    if (!currentUser || !currentUser.token) return;
-    
-    // 所有时间范围
-    const allTimeRanges = ['today', 'yesterday', 'week', 'month'];
-    // 排除当前时间范围
-    const otherTimeRanges = allTimeRanges.filter(range => range !== localTimeRange);
-    
-    // 只预加载KPI数据，不预加载用户列表数据，提高加载速度
-    // 使用Promise.allSettled而不是Promise.all，避免一个请求失败影响其他请求
-    await Promise.allSettled(
-      otherTimeRanges.map(async (range) => {
-        const cacheKey = `${range}_${currentUser?.id || 'unknown'}`;
-        
-        if (getCachedData(cacheKey)) {
+        const cached = getCachedData(cacheKey);
+        if (cached) {
+          setSections(cached);
+          setLoading(false);
+          setTimeout(() => preloadOtherTimeRanges(), 100);
           return;
         }
-        
+        setLoading(true);
+      }
+
+      try {
+        const raw = await fetchKpiRaw(rangeParam);
+        const transformed = transformKpi(raw, timeRange);
+        setSections(transformed);
+        setCachedData(cacheKey, transformed);
+        setTimeout(() => preloadOtherTimeRanges(), 100);
+      } catch (e) {
+        console.error('[GroupLeader] KPI获取失败:', e);
+        setSections(transformKpi({}, timeRange));
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [timeRange, currentUser, fetchKpiRaw, getCachedData, setCachedData]
+  );
+
+  const preloadOtherTimeRanges = useCallback(async () => {
+    if (!currentUser) return;
+    const all = Object.keys(TIME_RANGE_TO_PARAM);
+    const others = all.filter((r) => r !== timeRange);
+    await Promise.allSettled(
+      others.map(async (rangeLabel) => {
+        const p = TIME_RANGE_TO_PARAM[rangeLabel];
+        const key = `gl_kpi_${p}_${currentUser.id}`;
+        if (getCachedData(key)) return;
         try {
-          const apiUrl = `/group-leader/stats?range=${range}`;
-          const data = await requestWithRetry(apiUrl, { method: 'GET' });
-          
-          if (data) {
-            const transformedKpis = [
-              {
-                title: '组提成收益',
-                value: `¥${(data.totalCommission || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
-                icon: Users,
-                color: 'text-purple-600',
-                bg: 'bg-purple-50',
-                ...(range === 'today' && {
-                  growth: data.commissionGrowthRate ? `${data.commissionGrowthRate.toFixed(2)}%` : undefined,
-                  isUp: data.commissionGrowthRate > 0
-                })
-              },
-              {
-                title: '本组业绩金额',
-                value: `¥${(data.totalEarnings || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
-                icon: Coins,
-                color: 'text-green-600',
-                bg: 'bg-green-50',
-                ...(range === 'today' && {
-                  growth: data.earningsGrowthRate ? `${data.earningsGrowthRate.toFixed(2)}%` : undefined,
-                  isUp: data.earningsGrowthRate > 0
-                })
-              },
-              {
-                title: '本组用户总数',
-                value: `${data.memberCount || 0}`,
-                icon: Users,
-                color: 'text-blue-600',
-                bg: 'bg-blue-50'
-              },
-              {
-                title: '广告总曝光',
-                value: `${data.totalAdExposure || 0}`,
-                icon: Zap,
-                color: 'text-yellow-600',
-                bg: 'bg-yellow-50',
-                ...(range === 'today' && {
-                  growth: data.adExposureGrowthRate ? `${data.adExposureGrowthRate.toFixed(2)}%` : undefined,
-                  isUp: data.adExposureGrowthRate > 0
-                })
-              }
-            ];
-            
-            setCachedData(cacheKey, transformedKpis);
-          }
-        } catch (error) {
-          // 只在控制台记录错误，不影响用户界面
-          console.debug(`预加载 ${range} 数据失败:`, error);
+          const raw = await fetchKpiRaw(p);
+          const transformed = transformKpi(raw, rangeLabel);
+          setCachedData(key, transformed);
+        } catch (e) {
+          /* ignore */
         }
       })
     );
-  }, [localTimeRange, currentUser, getCachedData, setCachedData, requestWithRetry]);
+  }, [timeRange, currentUser, fetchKpiRaw, getCachedData, setCachedData]);
 
-  // 当timeRange属性变化时，更新localTimeRange状态
   useEffect(() => {
-    setLocalTimeRange(timeRangeMap[timeRange] || 'today');
-  }, [timeRange]);
+    if (currentUser) fetchData(true);
+  }, [fetchData, currentUser]);
 
-  // 当localTimeRange变化时，刷新数据
   useEffect(() => {
-    // 只有当currentUser存在时才加载数据
-    // 避免未登录状态下请求API
-    if (currentUser) {
-      // 组件挂载时强制刷新数据，不使用缓存
-      // 避免使用缓存中的旧数据导致显示"暂无数据"
-      fetchData(true);
-    }
-  }, [fetchData, localTimeRange, currentUser]);
-
-  // 自动刷新机制 - 只在用户主动刷新后启用
-  useEffect(() => {
-    if (currentUser) {
-      // 检查Dashboard组件是否已经有自动刷新
-      // 如果有，就不再设置自动刷新，避免重复的API请求
-      if (!(window as any).dashboardAutoRefresh) {
-        // 设置自动刷新定时器，每5分钟刷新一次，使用静默刷新模式
-        const interval = setInterval(() => {
-          // 静默刷新：不显示刷新动画，只更新缓存
-          fetchData(false);
-        }, 300000); // 5分钟
-        
-        // 清理函数
-        return () => clearInterval(interval);
-      }
-    }
+    if (!currentUser) return;
+    if ((window as any).dashboardAutoRefresh) return;
+    const iv = setInterval(() => fetchData(false), 300000);
+    return () => clearInterval(iv);
   }, [currentUser, fetchData]);
 
   const handleRefresh = useCallback(() => {
     fetchData(true);
-    onRefresh();
+    onRefresh?.();
   }, [fetchData, onRefresh]);
 
-  return (
-    <div className="pb-6">
-      <div className="mt-4 space-y-2">
-        {/* KPI数据卡片 */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-md">
-          <div className="px-4 py-4 grid grid-cols-2 gap-3">
-            {loading ? (
-              // 加载状态
-              <div className="col-span-2 flex flex-col items-center justify-center py-12">
-                <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
-                <p className="text-gray-600">加载中...</p>
-              </div>
-            ) : kpiData.length > 0 ? (
-              kpiData.map((kpi, idx) => {
-                const Icon = kpi.icon;
-                return (
-                  <div key={idx} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-md hover:shadow-lg transition-all duration-300 animate-in fade-in duration-500">
+  if (loading) {
+    const blocks =
+      timeRange === '本周' || timeRange === '本月'
+        ? ['汇总', '业绩拆解']
+        : ['汇总', '业绩拆解', '管理数据'];
+    return (
+      <div className="pb-6 mt-4 space-y-4">
+        {blocks.map((name, bi) => (
+          <div
+            key={bi}
+            className="bg-white p-4 rounded-2xl border border-gray-100 shadow-md"
+          >
+            <div className="grid grid-cols-2 gap-3">
+              {Array(bi === 0 ? 2 : 3)
+                .fill(0)
+                .map((_, i) => (
+                  <div
+                    key={i}
+                    className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm animate-pulse"
+                  >
                     <div className="flex items-center justify-between mb-2">
-                      <div className={`p-2.5 rounded-xl ${kpi.bg} shadow-sm`}>
-                        <Icon size={20} className={kpi.color} />
+                      <div className="p-2 rounded-xl bg-gray-100">
+                        <Clock size={16} className="text-gray-400" />
                       </div>
-                      {kpi.growth && (
-                        <div className={`text-[9px] font-bold flex items-center ${kpi.isUp ? 'text-[#10B981]' : 'text-[#EF4444]'} bg-opacity-10 px-2 py-0.5 rounded-full`}>
-                          {kpi.isUp ? <TrendingUp size={10} className="mr-0.5" /> : <TrendingDown size={10} className="mr-0.5" />}
-                          {kpi.growth}
-                        </div>
-                      )}
+                      <div className="w-12 h-3 bg-gray-100 rounded-full"></div>
                     </div>
-                    <div className="text-gray-500 text-[10px] font-medium mb-1 uppercase tracking-wider">{kpi.title}</div>
-                    <div className="text-lg font-bold leading-none text-gray-900">
-                      {kpi.value}
-                      {kpi.subValue && (
-                        <span className="ml-1.5 text-[10px] font-bold text-gray-600">
-                          ({kpi.subValue})
-                        </span>
-                      )}
-                    </div>
+                    <div className="w-20 h-2.5 bg-gray-100 rounded-full mb-1.5"></div>
+                    <div className="w-16 h-5 bg-gray-100 rounded-full"></div>
                   </div>
-                );
-              })
-            ) : (
-              // 空状态
-              <div className="col-span-2 p-8 text-center text-gray-400 bg-white rounded-2xl border border-gray-100">
-                <div className="text-sm mb-2">暂无数据</div>
-                <div className="text-[10px]">请稍后刷新或检查网络连接</div>
-              </div>
-            )}
+                ))}
+            </div>
           </div>
-        </div>
+        ))}
       </div>
+    );
+  }
+
+  const d = sections?.direct || [];
+  const r = sections?.indirect || [];
+  const dm = sections?.directMgmt || [];
+  const rm = sections?.indirectMgmt || [];
+
+  const taggedKpi = (k: KpiCard, tag: string, tagStyle: string): KpiCard & { _tag: string; _tagStyle: string } =>
+    ({ ...k, _tag: tag, _tagStyle: tagStyle } as any);
+
+  const mergedPerf = [
+    ...d.map((c) => taggedKpi(c, '组内数据', 'text-indigo-600 bg-indigo-50 border border-indigo-100')),
+    ...r.map((c) => taggedKpi(c, '本组衍生', 'text-amber-600 bg-amber-50 border border-amber-100')),
+  ];
+
+  const mergedMgmt = [
+    ...dm.map((c) => taggedKpi(c, '本组管理', 'text-sky-600 bg-sky-50 border border-sky-100')),
+    ...rm.map((c) => taggedKpi(c, '本组人均', 'text-teal-600 bg-teal-50 border border-teal-100')),
+  ];
+
+  // 宽卡：徽标 + 图标/增长在顶部，标题/数值横向展开
+  const WideCard: React.FC<{ kpi: KpiCard & { _tag?: string; _tagStyle?: string } }> = ({ kpi }) => {
+    const Icon = kpi.icon;
+    return (
+      <div
+        className={`bg-white p-3 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all duration-300 ${
+          kpi.dim ? 'opacity-60' : ''
+        }`}
+      >
+        <div className="flex items-start justify-between mb-2">
+          <div
+            className={`p-2 rounded-xl shadow-sm flex-shrink-0 ${
+              kpi.dim ? 'bg-gray-100' : kpi.bg
+            }`}
+          >
+            <Icon size={14} className={kpi.dim ? 'text-gray-400' : kpi.color} />
+          </div>
+          {(kpi as any)._tag && (
+            <span
+              className={`text-[9px] font-black tracking-wider px-1.5 py-0.5 rounded-full flex-shrink-0 ${
+                (kpi as any)._tagStyle
+              }`}
+            >
+              {(kpi as any)._tag}
+            </span>
+          )}
+        </div>
+        <div className="text-gray-400 text-[9px] font-medium mb-1 tracking-wide flex items-center justify-between gap-2 min-w-0 w-full">
+          <span className="truncate">{kpi.title}</span>
+          {kpi.growth && !kpi.dim && (
+            <span
+              className={`text-[8px] font-bold flex items-center flex-shrink-0 leading-none ${
+                kpi.isUp
+                  ? 'text-[#10B981]'
+                  : 'text-[#EF4444]'
+              }`}
+            >
+              {kpi.isUp ? (
+                <TrendingUp size={7} className="mr-0.5" />
+              ) : (
+                <TrendingDown size={7} className="mr-0.5" />
+              )}
+              {kpi.growth}
+            </span>
+          )}
+        </div>
+        <div
+          className={`text-[14px] font-black leading-tight break-all ${
+            kpi.dim ? 'text-gray-400' : 'text-gray-900'
+          }`}
+        >
+          {kpi.value}
+          {kpi.subValue && (
+            <span className="ml-1 text-[9px] font-bold text-gray-500">
+              ({kpi.subValue})
+            </span>
+          )}
+        </div>
+        {kpi.dim && <div className="mt-1 text-[8px] text-gray-400">组长视角无间推</div>}
+      </div>
+    );
+  };
+
+  return (
+    <div className="pb-6 mt-4 space-y-4">
+      {/* ① 本组汇总 */}
+      <section className="bg-white p-4 rounded-2xl border border-gray-100 shadow-md">
+        <SectionTitle icon={Wallet} title={`${prefix}本组汇总`} hint="全组业绩 + 您实际到手提成" />
+        <div className="grid grid-cols-2 gap-3">
+          {sections?.summary.map((kpi, i) => {
+            const Icon = kpi.icon;
+            return (
+              <div
+                key={i}
+                className="bg-gradient-to-br from-white to-gray-50 p-3.5 rounded-2xl border border-gray-100 shadow-md hover:shadow-lg transition-all"
+              >
+                {/* 顶部：图标 + 标题并排（标题紧跟图标后） */}
+                <div className="flex items-center space-x-2 min-w-0 mb-2.5">
+                  <div className={`p-2 rounded-xl shadow-sm flex-shrink-0 ${kpi.bg}`}>
+                    <Icon size={18} className={kpi.color} />
+                  </div>
+                  <div className={`text-[13px] font-bold tracking-wide ${kpi.color} truncate`}>
+                    {kpi.title}
+                  </div>
+                </div>
+                {/* 金额 + 环比徽标同一行：金额在左（15px），徽标在右上角对齐，不挤也不遮 */}
+                <div className="flex items-start justify-between gap-2 min-w-0 w-full">
+                  <div className="text-[15px] leading-[1.15] font-black text-gray-900 break-all min-w-0">
+                    {kpi.value}
+                  </div>
+                  {kpi.growth && (
+                    <div
+                      className={`text-[9px] font-bold flex items-center px-1.5 py-0.5 rounded-full flex-shrink-0 mt-0.5 leading-none ${
+                        kpi.isUp
+                          ? 'text-[#10B981] bg-emerald-50'
+                          : 'text-[#EF4444] bg-red-50'
+                      }`}
+                    >
+                      {kpi.isUp ? (
+                        <TrendingUp size={8} className="mr-0.5" />
+                      ) : (
+                        <TrendingDown size={8} className="mr-0.5" />
+                      )}
+                      {kpi.growth}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* ② 管理数据：组长界面四个Tab（今日/昨日/本周/本月）全部显示，且只保留上一行 3 张（在册/活跃/活跃率）；业绩拆解整个section组长不显示 */}
+      <section className="bg-white p-4 rounded-2xl border border-gray-100 shadow-md">
+        <SectionTitle icon={UsersRound} title={`${prefix}管理数据`} hint="在册 / 活跃 / 人均" />
+        <div className="grid grid-cols-3 gap-2">
+          {mergedMgmt.slice(0, 3).map((k, i) => (
+            <WideCard key={`mg-${i}`} kpi={k as any} />
+          ))}
+        </div>
+      </section>
+
+      {/* 静默刷新占位（refreshing 不阻塞 UI） */}
+      {refreshing && (
+        <div className="fixed top-2 right-3 z-50 p-1 rounded-full bg-blue-50 shadow-sm animate-pulse">
+          <Clock size={12} className="text-blue-500" />
+        </div>
+      )}
     </div>
   );
 };

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, Target, ToggleLeft, ToggleRight, Wallet, ChevronRight,
-  UserPlus, Settings, TrendingUp, TrendingDown, Plus, ChevronLeft, Info, Check, Smartphone, AlertCircle, DollarSign
+  UserPlus, Settings, TrendingUp, TrendingDown, Plus, ChevronLeft, Info, Check, Smartphone, AlertCircle, DollarSign, Award
 } from 'lucide-react';
 import { request } from '../services/api';
+import { authService } from '../services/authService';
+import { UserRole } from '../types';
 import AccountManagement from './AccountManagement';
 import WeeklyTargetManagement from './DailyTargetManagement';
 import WithdrawalManagement from './WithdrawalManagement';
@@ -14,11 +16,12 @@ import VerificationManagement from './VerificationManagement';
 import GoldAdjustment from './GoldAdjustment';
 import GoldAdjustmentToday from './GoldAdjustmentToday';
 import WelfareLotteryManagement from './WelfareLotteryManagement';
+import GroupLeaderLevelConfigManagement from './GroupLeaderLevelConfigManagement';
 
 interface ManagementProps {}
 
 const Management: React.FC<ManagementProps> = () => {
-  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification' | 'gold-adjustment' | 'gold-adjustment-today' | 'welfare-lottery' | 'welfare-withdraw'>('main');
+  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification' | 'gold-adjustment' | 'gold-adjustment-today' | 'welfare-lottery' | 'welfare-withdraw' | 'level-config'>('main');
   const [withdrawEnabled, setWithdrawEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showDeductionModal, setShowDeductionModal] = useState(false);
@@ -224,7 +227,7 @@ const Management: React.FC<ManagementProps> = () => {
       const result = await response.json();
       if (result.success) {
         setCommissionRate(result.rate);
-        setTempRate((result.rate * 100).toString());
+        setTempRate(Number((result.rate * 100).toFixed(4)).toString());
       }
     } catch (error) {
       console.error('Error fetching commission rate:', error);
@@ -246,7 +249,7 @@ const Management: React.FC<ManagementProps> = () => {
       const result = await response.json();
       if (result.success) {
         setCommissionRate(newRate);
-        setTempRate((newRate * 100).toString());
+        setTempRate(Number((newRate * 100).toFixed(4)).toString());
         return true;
       } else {
         throw new Error(result.message || '设置失败');
@@ -283,7 +286,7 @@ const Management: React.FC<ManagementProps> = () => {
 
   useEffect(() => {
     if (activePage === 'commission') {
-      setTempRate((commissionRate * 100).toString());
+      setTempRate(Number((commissionRate * 100).toFixed(4)).toString());
     }
   }, [activePage, commissionRate]);
 
@@ -506,7 +509,7 @@ const Management: React.FC<ManagementProps> = () => {
               
               <div className="flex space-x-3">
                 <button
-                  onClick={() => setTempRate((commissionRate * 100).toString())}
+                  onClick={() => setTempRate(Number((commissionRate * 100).toFixed(4)).toString())}
                   disabled={commissionLoading}
                   className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${commissionLoading ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
                 >
@@ -579,6 +582,10 @@ const Management: React.FC<ManagementProps> = () => {
     return <WelfareLotteryManagement onBack={() => setActivePage('main')} initialSection="withdraw" />;
   }
 
+  if (activePage === 'level-config') {
+    return <GroupLeaderLevelConfigManagement onBack={() => setActivePage('main')} />;
+  }
+
   const menuItems = [
     {
       id: 'account',
@@ -635,6 +642,15 @@ const Management: React.FC<ManagementProps> = () => {
       description: '管理奖品概率和提现申请',
       color: 'text-pink-500',
       bg: 'bg-pink-50'
+    },
+    {
+      id: 'level-config',
+      icon: Award,
+      title: '职级管理',
+      description: '配置组长各职级的分成比例和达标业绩',
+      color: 'text-indigo-500',
+      bg: 'bg-indigo-50',
+      superadminOnly: true
     },
     {
       id: 'target',
@@ -695,6 +711,18 @@ const Management: React.FC<ManagementProps> = () => {
     }
   ];
 
+  // 根据角色过滤菜单项：职级管理和高管管理仅对 superadmin 可见
+  // ⚠️ 不要用 useMemo——组件体内有大量 early return（activePage==='xxx' return 子页），
+  //    放在 early return 之后的 useMemo 会触发 React "fewer hooks than expected" 白屏错误。
+  const currentUser = authService.getCurrentUser();
+  const roleStr = String(currentUser?.role);
+  const isSuperAdmin = roleStr === 'superadmin' || roleStr === 'SUPER_ADMIN';
+  const isAdminManager = roleStr === 'ADMIN_MANAGER';
+  const hasSuperPrivilege = isSuperAdmin || isAdminManager;
+  const filteredMenuItems = menuItems.filter(
+    (item) => !((item as any).superadminOnly && !isSuperAdmin)
+  );
+
   return (
     <div className="min-h-screen bg-[#F9FAFB] animate-in fade-in duration-300">
       <header className="sticky top-0 bg-white z-40 px-4 py-4 border-b border-gray-100">
@@ -705,7 +733,7 @@ const Management: React.FC<ManagementProps> = () => {
       </header>
 
       <div className="p-4 space-y-3">
-        {menuItems.map((item) => {
+        {filteredMenuItems.map((item) => {
           const Icon = item.icon;
           return (
             <div
@@ -731,6 +759,8 @@ const Management: React.FC<ManagementProps> = () => {
                   setActivePage('lottery');
                 } else if (item.id === 'welfare-lottery') {
                   setActivePage('welfare-lottery');
+                } else if (item.id === 'level-config') {
+                  setActivePage('level-config');
                 } else if (item.id === 'verification') {
                   setActivePage('verification');
                 } else if (item.id === 'gold-adjustment') {

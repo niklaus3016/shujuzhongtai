@@ -1,6 +1,6 @@
 import React from 'react';
 import { AppTab, UserRole } from '../types';
-import { Home, ShieldAlert, UserPlus, Users2, User, Settings, Users, Layers, UserCircle, Building2 } from 'lucide-react';
+import { Home, ShieldAlert, UserPlus, Users2, User, Settings, Users, Layers, UserCircle, Building2, BarChart3 } from 'lucide-react';
 import { authService } from '../services/authService';
 
 interface BottomNavProps {
@@ -26,18 +26,27 @@ const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab }) => {
         { id: AppTab.PROFILE, icon: User, label: '我的' },
       ];
     } else if (isTeamLeader) {
-      // 团队长：隐藏管理模块和预警模块，添加组管理
+      // 团队长：隐藏管理模块和预警模块，添加组管理；新增业绩菜单在「团队」与「帐号」之间
+      // 「新人」菜单此版本暂时下线（隐藏，后续版本再开启）
       return [
         { id: AppTab.DASHBOARD, icon: Home, label: '首页' },
-        { id: AppTab.NEW_USERS, icon: UserPlus, label: '新人' },
         { id: AppTab.GROUP_MANAGEMENT, icon: Building2, label: '团队' },
+        { id: AppTab.PERFORMANCE, icon: BarChart3, label: '业绩' },
         { id: AppTab.TEAM, icon: UserCircle, label: '帐号' },
         { id: AppTab.PROFILE, icon: User, label: '我的' },
       ];
     } else if (isGroupLeader) {
-      // 组长：只显示首页、我的
+      // 组长：首页 / 业绩 / 我的
       return [
         { id: AppTab.DASHBOARD, icon: Home, label: '首页' },
+        { id: AppTab.PERFORMANCE, icon: BarChart3, label: '业绩' },
+        { id: AppTab.PROFILE, icon: User, label: '我的' },
+      ];
+    } else if (currentUser?.role === UserRole.ADMIN_MANAGER) {
+      // 高管（ADMIN_MANAGER）：隐藏「新人」和「管理」菜单
+      return [
+        { id: AppTab.DASHBOARD, icon: Home, label: '首页' },
+        { id: AppTab.TEAM, icon: Users, label: '团队' },
         { id: AppTab.PROFILE, icon: User, label: '我的' },
       ];
     }

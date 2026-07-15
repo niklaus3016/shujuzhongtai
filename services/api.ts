@@ -3,6 +3,17 @@ import { ApiResponse } from '../types';
 // 根据环境选择合适的 API 地址
 const BASE_URLS = ['https://wfqmaepvjkdd.sealoshzh.site/api'];
 
+// 创建默认请求头
+function createDefaultHeaders(customHeaders?: HeadersInit): Headers {
+  const headers = new Headers(customHeaders);
+  const token = localStorage.getItem('admin_token');
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  headers.set('Content-Type', 'application/json');
+  return headers;
+}
+
 // 创建带超时的fetch请求
 function fetchWithTimeout(url: string, options: RequestInit, timeout: number = 30000): Promise<Response> {
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -22,14 +33,7 @@ export async function request<T>(
   options: RequestInit = {},
   timeout: number = 30000
 ): Promise<T> {
-  const token = localStorage.getItem('admin_token');
-  
-  const headers = new Headers(options.headers);
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-  headers.set('Content-Type', 'application/json');
-
+  const headers = createDefaultHeaders(options.headers);
   let lastError: Error;
   
   // 尝试不同的Base URL

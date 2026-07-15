@@ -1,15 +1,27 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { 
+import {
   ChevronLeft, UserPlus, Users, Search, ChevronRight,
-  Shield, User, Crown, Star, ToggleLeft, ToggleRight, Trash2, Phone, MapPin, Users2, Edit2, ChevronDown, CheckCircle, Download
+  Shield, User, Crown, Star, ToggleLeft, ToggleRight, Trash2, Phone, MapPin, Users2, Edit2, ChevronDown, CheckCircle, Download,
+  Wrench, Zap, Loader2, AlertTriangle
 } from 'lucide-react';
 import { request } from '../services/api';
 import { useSwipeBack } from '../hooks/useSwipeBack';
+import { cacheManager } from '../services/cacheManager';
+import {
+  LEVEL_V2_API,
+  LEVEL_V2_ORDER,
+  formatCommission,
+  getLevelV2Theme,
+  VALID_LEVELS_V2,
+  type LevelV2ConfigRow,
+} from '../utils/levelV2Service';
 
 interface Account {
   _id: string;
   username: string;
   password?: string;
+  // Q8 超管专属：明文密码（仅 /admin/supervisor/* 接口在 SUPER_ADMIN 调用时返回）
+  passwordPlain?: string;
   role: string;
   status: string;
   teamName?: string;
@@ -27,6 +39,11 @@ interface Account {
   superior?: string;
   isGroupLeader?: boolean;
   groupLeaderId?: string;
+  teamId?: string;
+  // Q5 ① 手动档标识（来源 Admin.js 字段）
+  manualLevel?: 'P1'|'P2'|'P3'|'P4'|'P5'|'P6'|'P7'|'P8' | string | null;
+  manualLevelSetAt?: string | number | Date | null;
+  managedTeamIds?: string[];
 }
 
 interface AccountManagementProps {
@@ -51,37 +68,26 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [showMessage, setShowMessage] = useState(false);
-  const [showOpenAccountModal, setShowOpenAccountModal] = useState(false);
-  const [openingAccount, setOpeningAccount] = useState<any>(null);
-  const [openAccountForm, setOpenAccountForm] = useState({
-    username: '',
-    password: ''
-  });
-  const [pendingGroupLeaders, setPendingGroupLeaders] = useState<any[]>([]);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   
-  // 数据缓存
-  const dataCacheRef = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
+  // 高管账号管理状态
+  const [adminManagers, setAdminManagers] = useState<Account[]>([]);
+  // 高管编辑时选中的团队
+  const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   
-  // 获取缓存数据
+  // 数据缓存（使用全局 cacheManager）
   const getCachedData = useCallback((key: string) => {
-    const cached = dataCacheRef.current.get(key);
-    if (cached && Date.now() - cached.timestamp < 60000) { // 1分钟缓存
-      return cached.data;
-    }
-    return null;
+    return cacheManager.get(key, 60000); // 1分钟缓存
   }, []);
   
   // 设置缓存数据
   const setCachedData = useCallback((key: string, data: any) => {
-    dataCacheRef.current.set(key, {
-      data,
-      timestamp: Date.now()
-    });
+    cacheManager.set(key, data, 60000); // 1分钟缓存
   }, []);
   
   // 清除缓存
   const clearCache = useCallback(() => {
-    dataCacheRef.current.clear();
+    cacheManager.clear();
   }, []);
   
   // 使用左滑返回hook
@@ -108,6 +114,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       if (userStr) {
         const user = JSON.parse(userStr);
         setCurrentUser(user);
+        const isSuper = user?.role === 'superadmin' || user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN_MANAGER';
+        setIsSuperAdmin(isSuper);
         return user;
       }
     } catch (error) {
@@ -122,260 +130,147 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     const scrollPosition = window.scrollY || document.documentElement.scrollTop;
     const startTime = performance.now();
     try {
-      // 尝试从缓存获取数据（开发调试时禁用缓存）
-      const cachedData = getCachedData('accounts_all');
-      if (cachedData) {
-        console.log('从缓存加载账号数据，但强制刷新');
-        // 清除缓存，强制重新获取数据
-        clearCache();
-      }
+      clearCache();
       
       // 获取当前用户信息
       const user = await fetchCurrentUser();
       const isTeamLeader = user?.role === 'NORMAL_ADMIN';
+      const isSuperAdmin = user?.role === 'superadmin' || user?.role === 'SUPER_ADMIN';
       const teamName = user?.teamName;
       
-      console.log('当前用户:', user);
-      console.log('是否团队长:', isTeamLeader);
-      console.log('团队名称:', teamName);
-      
-      // 并行获取所有数据，提高加载速度
-      // 获取所有团队账号（使用大pageSize确保获取全部）
-      const [teamResponse, employeeResponse] = await Promise.all([
-        request<any>('/admin/account/list?pageSize=100', { method: 'GET' }).catch(error => {
-          console.error('Error fetching team accounts:', error);
-          return null;
-        }),
-        request<any>('/admin/employee/list?pageSize=1000', { method: 'GET' }).catch(error => {
-          console.error('Error fetching employee accounts:', error);
-          return null;
-        })
+      // ✅ Q8 新方案：并行 3 个 GET（2 条新 /admin/supervisor/* + 老员工接口），彻底去掉 130 行合并去重管线
+      const [
+        suTLRes,
+        suGLRes,
+        employeeResponse,
+        suAMRes, // 高管列表
+      ] = await Promise.all([
+        request<any>('/admin/supervisor/team-leaders?pageSize=200', { method: 'GET' }).catch(e => (console.error('[supervisor] team-leaders ERR:', e), null)),
+        request<any>('/admin/supervisor/group-leaders?pageSize=200', { method: 'GET' }).catch(e => (console.error('[supervisor] group-leaders ERR:', e), null)),
+        request<any>('/admin/employee/list?pageSize=1000', { method: 'GET' }).catch(e => (console.error('员工接口 ERR:', e), null)),
+        request<any>('/admin/supervisor/admin-managers?pageSize=200', { method: 'GET' }).catch(e => (console.error('[supervisor] admin-managers ERR:', e), null)),
       ]);
-      
-      const apiTime = performance.now() - startTime;
-      console.log(`API请求时间: ${apiTime.toFixed(2)}ms`);
-      
-      // 打印原始API响应
-      console.log('团队账号API响应:', teamResponse);
-      console.log('员工账号API响应:', employeeResponse);
-      
-      // 处理团队账号数据
-      const rawTeamAccounts = teamResponse 
-        ? (Array.isArray(teamResponse) ? teamResponse : (teamResponse?.admins || [])) 
-        : [];
-      
-      console.log('原始团队账号数据:', rawTeamAccounts);
-      
-      // 处理员工账号数据
-      const employeeAccounts = employeeResponse 
-        ? (Array.isArray(employeeResponse) ? employeeResponse : (employeeResponse?.data || [])) 
-        : [];
-      
-      console.log('原始员工账号数据:', employeeAccounts);
-      console.log('员工账号数量:', employeeAccounts.length);
-      console.log('员工角色分布:', employeeAccounts.map((e: any) => ({ realName: e.realName, role: e.role, isGroupLeader: e.isGroupLeader })));
-      
-      // 从员工账号中提取组长（有groupId且是组长的员工）
-      const employeeGroupLeaders = employeeAccounts.filter((e: any) => {
-        const isLeader = e.isGroupLeader || e.role === 'group_leader' || e.role === 'GROUP_LEADER' || (e.groupId && e.groupId !== '');
-        console.log('检查员工:', e.realName, 'isGroupLeader:', e.isGroupLeader, 'role:', e.role, 'groupId:', e.groupId, 'groupName:', e.groupName, 'isLeader:', isLeader);
-        return isLeader;
-      });
-      
-      // 从团队账号中提取组长（role为GROUP_LEADER的账号）
-      const teamGroupLeaders = rawTeamAccounts.filter((a: any) => 
-        a.role === 'GROUP_LEADER' || a.role === 'group_leader'
-      ).map((leader: any) => ({
-        ...leader,
-        // 为超管创建的组长账号添加默认密码
-        // 注意：这只是为了显示方便，实际密码存储在后端
-        password: '123456'
-      }));
-      
-      // 合并组长账号并去重
-      const groupLeadersMap = new Map();
-      const allLeaders = [...employeeGroupLeaders, ...teamGroupLeaders];
-      
-      allLeaders.forEach(leader => {
-        // 优先使用 realName 和 teamName 的组合作为去重键
-        // 这样即使 _id 不同，只要是同一个人在同一个团队，就认为是同一个账号
-        const key = `${leader.realName}-${leader.teamName}`;
-        
-        if (key) {
-          // 如果已经存在，保留信息更完整的版本
-          const existingLeader = groupLeadersMap.get(key);
-          if (!existingLeader) {
-            groupLeadersMap.set(key, leader);
-          } else {
-            // 合并两个账号的信息，优先保留信息更完整的版本
-            // 同时优先保留超管创建的账号的ID，因为修改密码时需要使用管理员账号的ID
-            const isAdminAccount = leader.username && leader.username !== '未知用户名' && leader.username !== leader.realName;
-            const existingIsAdminAccount = existingLeader.username && existingLeader.username !== '未知用户名' && existingLeader.username !== existingLeader.realName;
-            
-            const updatedLeader = {
-              ...existingLeader,
-              // 保留信息更完整的版本
-              ...(Object.keys(leader).length > Object.keys(existingLeader).length ? leader : {}),
-              // 优先保留超管创建的账号的ID、用户名和密码
-              // 超管创建的账号是从团队账号中提取的，包含真实的username和password
-              ...(isAdminAccount ? { _id: leader._id, username: leader.username, password: leader.password } : {}),
-              // 保留现有的超管创建的账号的ID、用户名和密码（如果已经存在）
-              ...(existingIsAdminAccount ? { _id: existingLeader._id, username: existingLeader.username, password: existingLeader.password } : {}),
-              // 确保groupName字段正确保留
-              groupName: leader.groupName || existingLeader.groupName || leader.groupName,
-              // 确保commission字段正确保留
-              commission: leader.commission !== undefined ? leader.commission : existingLeader.commission,
-              // 确保isGroupLeader字段正确保留
-              isGroupLeader: leader.isGroupLeader || existingLeader.isGroupLeader
-            };
-            groupLeadersMap.set(key, updatedLeader);
-          }
-        }
-      });
-      
-      console.log('所有组长账号数:', allLeaders.length);
-      console.log('去重后组长账号数:', groupLeadersMap.size);
-      const groupLeaders = Array.from(groupLeadersMap.values());
-      
-      // 打印所有组长的完整信息
-      console.log('所有组长完整信息:', groupLeaders);
-      
-      // 只通过ID过滤团队账号，避免因为realName或username相同而错误过滤
-      const groupLeaderIds = new Set(groupLeaders.map((g: any) => g._id));
-      
-      console.log('合并后组长账号数:', groupLeaders.length);
-      console.log('提取的组长:', groupLeaders);
-      console.log('组长ID列表:', groupLeaderIds);
-      console.log('组长数量:', groupLeaders.length);
-      
-      // 过滤团队账号：
-      // 1. 角色为NORMAL_ADMIN
-      // 2. 不在组长ID列表中（只通过ID判断，避免误过滤）
-      
-      // 先查看所有NORMAL_ADMIN账号
-      const allNormalAdmins = rawTeamAccounts.filter((a: any) => a.role === 'NORMAL_ADMIN');
-      console.log('所有NORMAL_ADMIN账号:', allNormalAdmins.map((a: any) => ({ 
-        _id: a._id, 
-        username: a.username, 
-        realName: a.realName,
-        teamName: a.teamName,
-        role: a.role 
-      })));
-      console.log('NORMAL_ADMIN总数:', allNormalAdmins.length);
-      
-      const teamAccounts = rawTeamAccounts.filter((a: any) => {
-        const isNormalAdmin = a.role === 'NORMAL_ADMIN';
-        const isInGroupLeaderIds = groupLeaderIds.has(a._id);
-        
-        const isFiltered = isNormalAdmin && !isInGroupLeaderIds;
-        
-        if (isNormalAdmin && !isFiltered) {
-          console.log('被过滤掉的NORMAL_ADMIN:', {
-            _id: a._id,
-            username: a.username,
-            realName: a.realName,
-            reason: 'ID在组长列表中'
-          });
-        }
-        
-        return isFiltered;
-      });
-      
-      console.log('过滤后的团队账号:', teamAccounts);
-      
-      // 如果是团队长，只显示自己团队的数据
-      let filteredEmployees = employeeAccounts;
-      if (isTeamLeader && teamName) {
-        filteredEmployees = employeeAccounts.filter((e: any) => {
-          const employeeTeam = e.parentName || e.teamName || e.superior || '';
-          return employeeTeam === teamName;
-        });
-        console.log('团队长过滤 - 团队名:', teamName, '过滤后员工数:', filteredEmployees.length);
+
+      // 团队长列表（优先走新接口；如果新接口挂了回退到老 /admin/account/list）
+      let rawTeamAccounts: Account[] = [];
+      if (suTLRes && Array.isArray(suTLRes?.data ? suTLRes.data : suTLRes)) {
+        rawTeamAccounts = (suTLRes.data && !Array.isArray(suTLRes) ? suTLRes.data : suTLRes).map((x: any) => ({
+          ...x,
+          role: x.role || 'NORMAL_ADMIN',
+        }));
+      } else {
+        // 兜底：老接口
+        const old = await request<any>('/admin/account/list?pageSize=100', { method: 'GET' }).catch(() => null);
+        rawTeamAccounts = old ? (Array.isArray(old) ? old : (old?.admins || [])).filter((a: any) => a.role === 'NORMAL_ADMIN') : [];
       }
-      
-      // 过滤掉 filteredEmployees 中的组长账号，避免重复添加
-      const nonLeaderEmployees = filteredEmployees.filter((e: any) => {
-        const isLeader = e.isGroupLeader || e.role === 'group_leader' || e.role === 'GROUP_LEADER' || (e.groupId && e.groupId !== '');
-        return !isLeader;
+
+      // 组长列表（优先走新接口；回退到老合并管线）
+      let rawGroupLeaders: Account[] = [];
+      if (suGLRes && Array.isArray(suGLRes?.data ? suGLRes.data : suGLRes)) {
+        rawGroupLeaders = (suGLRes.data && !Array.isArray(suGLRes) ? suGLRes.data : suGLRes).map((x: any) => ({
+          ...x,
+          role: x.role || 'GROUP_LEADER',
+          isGroupLeader: true,
+          parentId: x.teamId || x.parentId,  // 兼容老代码里的 parentId 引用（战队下拉）
+          teamGroupId: x.groupId || x.teamGroupId || x._id,
+        }));
+      } else {
+        // 兜底：老合并管线
+        const oldAcc = await request<any>('/admin/account/list?pageSize=100', { method: 'GET' }).catch(() => null);
+        const oldEmp = employeeResponse ? (Array.isArray(employeeResponse) ? employeeResponse : employeeResponse.data || []) : [];
+        const acc = oldAcc ? (Array.isArray(oldAcc) ? oldAcc : (oldAcc.admins || [])) : [];
+        const empLeaders = oldEmp.filter((e: any) => e.isGroupLeader || e.role === 'group_leader' || e.role === 'GROUP_LEADER' || (e.groupId && e.groupId !== ''));
+        const accLeaders = acc.filter((a: any) => a.role === 'GROUP_LEADER' || a.role === 'group_leader').map((a: any) => ({ ...a, password: '123456' }));
+        const m = new Map();
+        [...empLeaders, ...accLeaders].forEach(l => {
+          const k = `${l.realName}-${l.teamName}`;
+          if (!k) return;
+          const e = m.get(k);
+          if (!e) { m.set(k, l); return; }
+          const isA = (l.username && l.username !== l.realName);
+          const eIsA = (e.username && e.username !== e.realName);
+          m.set(k, {
+            ...e, ...(Object.keys(l).length > Object.keys(e).length ? l : {}),
+            ...(isA ? { _id: l._id, username: l.username, password: l.password } : {}),
+            ...(eIsA ? { _id: e._id, username: e.username, password: e.password } : {}),
+            groupName: l.groupName || e.groupName,
+            commission: l.commission !== undefined ? l.commission : e.commission,
+            isGroupLeader: true,
+          });
+        });
+        rawGroupLeaders = Array.from(m.values());
+      }
+
+      // 如果是团队长，只显示自己团队的数据
+      let employeeAccounts: any[] = employeeResponse ? (Array.isArray(employeeResponse) ? employeeResponse : (employeeResponse?.data || [])) : [];
+      if (isTeamLeader && teamName) {
+        employeeAccounts = employeeAccounts.filter((e: any) => {
+          const et = e.parentName || e.teamName || e.superior || '';
+          return et === teamName;
+        });
+      }
+
+      // 员工扣掉已经是组长的（避免重复）
+      // ⚠️ 旧逻辑用「realName-teamName」字符串模糊去重，会误伤真实员工（如员工 5555 范洁 / 鼎盛战队，
+      //   跟组长范洁的 realName-teamName 撞 key 就被误删）。
+      //   新策略：只按「精确 employeeId 匹配」或员工自标识组长标志（isGroupLeader / group_leader / GROUP_LEADER / groupId非空）剔除，
+      //   绝不因为 realName-teamName 重合就误删；可登录员工身份一律保留。
+      const groupLeaderEmpIdSet = new Set<string>();
+      rawGroupLeaders.forEach(g => {
+        if (g.employeeId) groupLeaderEmpIdSet.add(String(g.employeeId));
       });
-      
-      // 合并账号数据（团队长 + 组长 + 非组长员工）
-      const allAccounts = [...teamAccounts, ...groupLeaders, ...nonLeaderEmployees];
-      const processTime = performance.now() - startTime;
-      console.log(`数据处理时间: ${(processTime - apiTime).toFixed(2)}ms`);
-      console.log('合并后总账号数:', allAccounts.length);
-      console.log('合并后组长账号数:', allAccounts.filter((a: any) => 
-        a.isGroupLeader || a.role === 'group_leader' || a.role === 'GROUP_LEADER' || (a.groupId && a.groupId !== '')
-      ).length);
-      console.log('合并后所有账号角色分布:', allAccounts.map((a: any) => ({ 
-        realName: a.realName, 
-        role: a.role, 
-        isGroupLeader: a.isGroupLeader, 
-        employeeId: a.employeeId 
-      })));
-      
-      // 从所有员工数据中提取组信息，而不是只从过滤后的员工数据中提取
-      const groupsMap = new Map();
-      employeeAccounts.forEach((e: any) => {
-        if ((e.groupId || e.teamGroupId) && e.groupName) {
-          const groupId = e.groupId || e.teamGroupId;
-          if (!groupsMap.has(groupId)) {
-            groupsMap.set(groupId, {
-              _id: groupId,
-              groupName: e.groupName,
-              teamLeaderId: e.parentId || '',
-              teamName: e.teamName || e.parentName || e.superior || ''
-            });
-          }
-        }
+      const nonLeaderEmployees = employeeAccounts.filter((e: any) => {
+        const isLeaderOld = e.isGroupLeader || e.role === 'group_leader' || e.role === 'GROUP_LEADER' || (e.groupId && e.groupId !== '');
+        if (isLeaderOld) return false;
+        if (e.employeeId && groupLeaderEmpIdSet.has(String(e.employeeId))) return false;
+        return true;
       });
-      const groups = Array.from(groupsMap.values());
-      
-      // 保存到缓存
-      setCachedData('accounts_all', {
-        accounts: allAccounts,
-        teamLeaders: teamAccounts,
-        groups: groups
-      });
-      
+
+      // setTeamLeaders（团队长 tab 下拉用）
+      setTeamLeaders(rawTeamAccounts);
+
+      // groups 下拉框数据（组长 tab 编辑弹窗的「选择组别」用，直接从 rawGroupLeaders 映射，保证和新接口一致）
+      const newGroups = rawGroupLeaders.map(g => ({
+        _id: g.groupId || g.teamGroupId || g._id || '',
+        groupName: g.groupName || '',
+        teamLeaderId: g.teamId || g.parentId || '',
+        teamName: g.teamName || g.parentName || '',
+      })).filter(g => !!g._id && !!g.groupName);
+      setGroups(newGroups);
+
+      // 全量 accounts（tab 过滤 useMemo 从这里分）
+      const allAccounts: Account[] = [
+        ...rawTeamAccounts,
+        ...rawGroupLeaders,
+        ...nonLeaderEmployees,
+      ];
       setAccounts(allAccounts);
-      setTeamLeaders(teamAccounts);
-      setGroups(groups);
-      
-      const totalTime = performance.now() - startTime;
-      console.log(`总加载时间: ${totalTime.toFixed(2)}ms`);
-    } catch (error) {
-      console.error('Error in fetchAccounts:', error);
+
+      // 高管列表（单独存储，不合并到 allAccounts）
+      let rawAdminManagers: Account[] = [];
+      if (suAMRes && Array.isArray(suAMRes?.data ? suAMRes.data : suAMRes)) {
+        rawAdminManagers = (suAMRes.data && !Array.isArray(suAMRes) ? suAMRes.data : suAMRes).map((x: any) => ({
+          ...x,
+          role: x.role || 'ADMIN_MANAGER',
+        }));
+      }
+      setAdminManagers(rawAdminManagers);
+
+      console.log(`[fetchAccounts] 新管线：团队长=${rawTeamAccounts.length}，组长=${rawGroupLeaders.length}，员工=${nonLeaderEmployees.length}，高管=${rawAdminManagers.length}，合计=${allAccounts.length}，耗时=${(performance.now() - startTime).toFixed(0)}ms`);
+    } catch (e: any) {
+      console.error('Error in fetchAccounts (supervisor pipeline):', e);
       setAccounts([]);
       setTeamLeaders([]);
       setGroups([]);
     } finally {
       setLoading(false);
-      // 恢复滚动位置
-      setTimeout(() => {
-        window.scrollTo(0, scrollPosition);
-      }, 0);
+      setTimeout(() => window.scrollTo(0, scrollPosition), 0);
     }
   }, [getCachedData, setCachedData]);
 
-  // 获取待开通的组长账号
-  const fetchPendingGroupLeaders = useCallback(async () => {
-    try {
-      const response = await request<any[]>('/admin/account/pending-group-leaders', {
-        method: 'GET'
-      });
-      console.log('待开通组长账号:', response);
-      setPendingGroupLeaders(response || []);
-    } catch (error) {
-      console.error('获取待开通组长账号失败:', error);
-      setPendingGroupLeaders([]);
-    }
-  }, []);
-
   useEffect(() => {
     fetchAccounts();
-    fetchPendingGroupLeaders();
-  }, [fetchAccounts, fetchPendingGroupLeaders]);
+  }, [fetchAccounts]);
 
 
 
@@ -388,7 +283,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         return;
       }
     } else if (addType === 'group') {
-      if (!formData.parentId || !formData.realName || !formData.phone || !formData.region || !formData.username || !formData.password || !formData.groupName) {
+      if (!formData.parentId || !formData.realName || !formData.phone || !formData.username || !formData.password || !formData.groupName) {
         setError('请填写所有必填字段');
         return;
       }
@@ -402,105 +297,63 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     setSaving(true);
     try {
       if (addType === 'team') {
-        await request<any>('/admin/account/create', {
+        // ✅ 新接口：/admin/supervisor/team-leaders（团队长新建）
+        const TL_DEFAULT_COMM = 0.08; // 老数据里 6/10 个 TL 都是 0.08，作为默认值
+        const commission = formData.commissionRate
+          ? (parseFloat(formData.commissionRate) / 100)
+          : TL_DEFAULT_COMM;
+        await request<any>('/admin/supervisor/team-leaders', {
           method: 'POST',
           body: JSON.stringify({
             teamName: formData.teamName,
             realName: formData.realName,
             phone: formData.phone,
+            // 员工/团队长/组长的地区字段：前端 region；新接口用 phone/teamName/realName，没有必填 region；也顺带传一份
             region: formData.region,
             username: formData.username,
-            password: formData.password,
-            role: 'NORMAL_ADMIN'
+            passwordPlain: formData.password,  // 新接口 passwordPlain（老代码写的是 password）
+            commission,
           })
         });
       } else if (addType === 'group') {
-        // 获取选中的团队信息
+        // ✅ 新接口：/admin/supervisor/group-leaders（组长新建=自动开通，无中间态）
+        // commission 使用默认值 0.08（前端不再让用户输入）
         const selectedTeam = teamLeaders.find(t => t._id === formData.parentId);
-        
-        // 获取分成比例，默认为10%
-        const commissionRate = formData.commissionRate ? parseFloat(formData.commissionRate) / 100 : 0.1;
-        
-        // 1. 先创建管理员账号
-        const adminResult = await request<any>('/admin/account/create', {
+        const commission = 0.08;
+        const payload = {
+          realName: formData.realName,
+          username: formData.username,
+          passwordPlain: formData.password,
+          phone: formData.phone,
+          teamId: formData.parentId,
+          teamName: selectedTeam?.teamName || '',
+          groupName: formData.groupName,
+          commission,
+        };
+        console.log('创建组长 payload:', JSON.stringify(payload, null, 2));
+        console.log('teamLeaders:', JSON.stringify(teamLeaders.map(t => ({_id: t._id, teamName: t.teamName})), null, 2));
+        await request<any>('/admin/supervisor/group-leaders', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+      } else {
+        // 普通员工（保留老接口）
+        const selectedGroup = groups.find(g => g._id === formData.groupId);
+        const selectedTeam = teamLeaders.find(t => t._id === formData.parentId);
+        await request<any>('/admin/employee/create', {
           method: 'POST',
           body: JSON.stringify({
-            username: formData.username,
-            password: formData.password,
-            role: 'GROUP_LEADER',
             parentId: formData.parentId,
-            teamName: selectedTeam?.teamName || '',
-            groupName: formData.groupName,
             realName: formData.realName,
             phone: formData.phone,
-            region: formData.region
-          })
-        });
-        
-        if (!adminResult) {
-          setError('创建管理员账号失败');
-          return;
-        }
-        
-        console.log('创建管理员账号结果:', adminResult);
-        
-        // 检查adminResult的结构
-        const adminId = adminResult.id || adminResult._id;
-        if (!adminId) {
-          setError('创建管理员账号失败，未返回ID');
-          return;
-        }
-        
-        // 2. 再将该管理员设置为组长
-        const groupLeaderResult = await request<any>('/admin/employee/group-leader/add', {
-          method: 'POST',
-          body: JSON.stringify({
-            teamLeaderId: formData.parentId,
+            region: formData.region,
+            teamGroupId: formData.groupId || '',
+            groupName: selectedGroup?.groupName || '',
             teamName: selectedTeam?.teamName || '',
-            groupName: formData.groupName,
-            commission: commissionRate,
-            groupLeaderId: adminId,
-            groupLeaderName: formData.realName
           })
         });
-        
-        console.log('设置组长结果:', groupLeaderResult);
-        
-        // 检查groupLeaderResult的结构
-        const groupId = groupLeaderResult._id || groupLeaderResult.id;
-        if (groupId) {
-          try {
-            // 更新管理员账号，设置teamGroupId
-            await request<any>(`/admin/account/${adminId}`, {
-              method: 'PUT',
-              body: JSON.stringify({
-                teamGroupId: groupId
-              })
-            });
-            console.log('更新管理员账号成功');
-          } catch (error) {
-            console.error('更新管理员账号失败:', error);
-            // 不阻止流程，继续执行
-          }
-        }
-      } else {
-          // 获取选中的组信息
-          const selectedGroup = groups.find(g => g._id === formData.groupId);
-          const selectedTeam = teamLeaders.find(t => t._id === formData.parentId);
-          
-          await request<any>('/admin/employee/create', {
-            method: 'POST',
-            body: JSON.stringify({
-              parentId: formData.parentId,
-              realName: formData.realName,
-              phone: formData.phone,
-              region: formData.region,
-              teamGroupId: formData.groupId || '',
-              groupName: selectedGroup?.groupName || ''
-            })
-          });
-        }
-      
+      }
+    
       setShowAddModal(false);
       setFormData({
         teamName: '',
@@ -516,12 +369,12 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         commissionRate: ''
       });
       
-      // 清除缓存并刷新账号列表
       clearCache();
       fetchAccounts();
     } catch (error: any) {
-      console.error('Error adding account:', error);
-      setError(error.message || '添加账号失败');
+      console.error('Error adding account (supervisor pipeline):', error);
+      console.error('Error stack:', error.stack);
+      setError(error.message || '添加账号失败（请检查用户名是否重复或密码是否过短）');
     } finally {
       setSaving(false);
     }
@@ -538,7 +391,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         return;
       }
     } else {
-      if (!formData.teamName || !formData.realName) {
+      if (!formData.realName) {
         setError('请填写所有必填字段');
         return;
       }
@@ -547,10 +400,9 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     setSaving(true);
     try {
       if (editingAccount.role === 'employee' || editingAccount.employeeId) {
-        // 获取选中的团队和组信息
+        // 员工（保留老接口）
         const selectedTeam = teamLeaders.find(t => t._id === formData.parentId);
         const selectedGroup = groups.find(g => g._id === formData.groupId);
-        
         await request<any>(`/admin/employee/${editingAccount._id}`, {
           method: 'PUT',
           body: JSON.stringify({
@@ -565,255 +417,113 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
             superior: selectedTeam?.teamName || editingAccount.teamName
           })
         });
-      } else {
-        const updateData: any = {
+      } else if (editingAccount.role === 'NORMAL_ADMIN') {
+        // ✅ 新接口：PUT /admin/supervisor/team-leaders/:id（编辑团队长）
+        //    commission 不提交！按你要求「分成比例不允许手动编辑」，传了后端也会忽略
+        const body: any = {
           realName: formData.realName,
           phone: formData.phone,
-          region: formData.region
         };
-        
-        // 根据账号类型设置不同的字段
-        if (editingAccount.role === 'NORMAL_ADMIN') {
-          updateData.teamName = formData.teamName;
-        } else if (editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader') {
-          updateData.groupName = formData.groupName;
-          // 更新提成比例
-          if (formData.commissionRate) {
-            updateData.commission = parseFloat(formData.commissionRate) / 100;
-          }
-        }
-        
-        // 只有当用户名和密码不为空时才更新
-        if (formData.username) {
-          updateData.username = formData.username;
-        }
-        if (formData.password) {
-          updateData.password = formData.password;
-        }
-        
-        // 对于组长账号，需要同时更新管理员账号和组长账号的信息
-        if (editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader') {
-          // 1. 先更新组长账号的信息
-          const groupLeaderUpdateData: any = {
-            groupName: formData.groupName,
-            groupLeaderName: formData.realName,
-            phone: formData.phone
-          };
-          
-          // 更新提成比例
-          if (formData.commissionRate) {
-            groupLeaderUpdateData.commission = parseFloat(formData.commissionRate) / 100;
-          }
-          
-          try {
-            // 尝试使用组长 ID 更新组长账号信息
-            const groupLeaderId = editingAccount.teamGroupId || editingAccount._id;
-            console.log('更新组长提成比例:', {
-              groupLeaderId,
-              teamGroupId: editingAccount.teamGroupId,
-              _id: editingAccount._id,
-              commission: formData.commissionRate,
-              groupName: formData.groupName
-            });
-            await request<any>(`/admin/employee/group-leader/${groupLeaderId}`, {
-              method: 'PUT',
-              body: JSON.stringify(groupLeaderUpdateData)
-            });
-          } catch (error) {
-            console.error('更新组长账号信息失败:', error);
-            // 继续执行，尝试更新管理员账号
-          }
-        }
-        
-        // 2. 更新管理员账号的信息
-        try {
-          // 直接使用editingAccount的ID，因为在合并数据时，我们已经确保了editingAccount包含了管理员账号的信息
-          await request<any>(`/admin/account/${editingAccount._id}`, {
-            method: 'PUT',
-            body: JSON.stringify(updateData)
-          });
-        } catch (error) {
-          console.error('更新管理员账号信息失败:', error);
-          // 继续执行，不抛出错误
-        }
+        // username / passwordPlain / teamName / status：只有用户填了/非默认才传
+        if (formData.username && formData.username !== editingAccount.username) body.username = formData.username;
+        if (formData.password) body.passwordPlain = formData.password; // 空=不改密码
+        if (formData.teamName) body.teamName = formData.teamName;
+        // 状态：如果老代码有改 status 的需求（目前只有切换按钮，但这里也支持）
+        const formOrigStatus = editingAccount.status;
+        if (formOrigStatus && ['active','inactive'].includes(formOrigStatus)) body.status = formOrigStatus;
+        await request<any>(`/admin/supervisor/team-leaders/${editingAccount._id}`, {
+          method: 'PUT',
+          body: JSON.stringify(body),
+        });
+      } else if (editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader' || editingAccount.isGroupLeader) {
+        // ✅ 新接口：PUT /admin/supervisor/group-leaders/:id（id = TeamGroup._id = editingAccount._id / groupId）
+        const tgId = editingAccount.groupId || editingAccount.teamGroupId || editingAccount._id;
+        const selectedTeam = teamLeaders.find(t => t._id === (formData.parentId || editingAccount.teamId || editingAccount.parentId));
+        const body: any = {
+          realName: formData.realName,
+          phone: formData.phone,
+        };
+        if (formData.username && formData.username !== editingAccount.username) body.username = formData.username;
+        if (formData.password) body.passwordPlain = formData.password; // 空=不改
+        if (formData.parentId || editingAccount.teamId) body.teamId = formData.parentId || editingAccount.teamId;
+        if (selectedTeam?.teamName || editingAccount.teamName) body.teamName = selectedTeam?.teamName || editingAccount.teamName;
+        if (formData.groupName) body.groupName = formData.groupName;
+        // ❌ commission 故意不传！「分成比例不允许手动编辑」
+        const origStatus = editingAccount.status;
+        if (origStatus && ['active','inactive'].includes(origStatus)) body.status = origStatus;
+        await request<any>(`/admin/supervisor/group-leaders/${tgId}`, {
+          method: 'PUT',
+          body: JSON.stringify(body),
+        });
+      } else if (editingAccount.role === 'ADMIN_MANAGER') {
+        // ✅ 新接口：PUT /admin/supervisor/admin-managers/:id（编辑高管，直接传 managedTeamIds）
+        const body: any = {
+          realName: formData.realName,
+          phone: formData.phone,
+          managedTeamIds: selectedTeamIds, // 直接包含团队分配
+        };
+        if (formData.username && formData.username !== editingAccount.username) body.username = formData.username;
+        if (formData.password) body.passwordPlain = formData.password; // 空=不改
+        await request<any>(`/admin/supervisor/admin-managers/${editingAccount._id}`, {
+          method: 'PUT',
+          body: JSON.stringify(body),
+        });
+      } else {
+        // 其他未知管理员（兜底老接口）
+        const updateData: any = { realName: formData.realName, phone: formData.phone, region: formData.region };
+        if (editingAccount.role === 'NORMAL_ADMIN') updateData.teamName = formData.teamName;
+        if (formData.username) updateData.username = formData.username;
+        if (formData.password) updateData.password = formData.password;
+        await request<any>(`/admin/account/${editingAccount._id}`, { method: 'PUT', body: JSON.stringify(updateData) });
       }
       
       setShowEditModal(false);
       setEditingAccount(null);
       setFormData({
-        teamName: '',
-        realName: '',
-        phone: '',
-        region: '',
-        username: '',
-        password: '',
-        employeeId: '',
-        parentId: '',
-        groupId: '',
-        groupName: '',
-        commissionRate: ''
+        teamName: '', realName: '', phone: '', region: '',
+        username: '', password: '', employeeId: '',
+        parentId: '', groupId: '', groupName: '', commissionRate: ''
       });
       
-      // 清除缓存并刷新账号列表
       clearCache();
       fetchAccounts();
     } catch (error: any) {
-      console.error('Error updating account:', error);
-      setError(error.message || '更新账号失败');
+      console.error('Error editing account (supervisor pipeline):', error);
+      setError(error.message || '编辑账号失败（请检查用户名是否重复）');
     } finally {
       setSaving(false);
     }
   };
 
   const handleDeleteAccount = async () => {
-    console.log('开始删除账号');
-    if (!deletingAccount) {
-      console.log('deletingAccount为空');
-      return;
-    }
-
-    console.log('删除账号信息:', deletingAccount);
+    if (!deletingAccount) return;
     setSaving(true);
     try {
-      // 对于组长账号，尝试使用组长删除API
-      const isGroupLeader = deletingAccount.isGroupLeader || deletingAccount.role === 'GROUP_LEADER' || deletingAccount.role === 'group_leader';
-      console.log('是否为组长:', isGroupLeader);
-      
-      if (isGroupLeader) {
-        // 尝试使用组长删除API
-        try {
-          const groupLeaderApiUrl = `/admin/employee/group-leader/${deletingAccount._id}`;
-          console.log('尝试使用组长删除API:', groupLeaderApiUrl);
-          const groupLeaderResponse = await request<any>(groupLeaderApiUrl, {
-            method: 'DELETE'
-          });
-          console.log('组长删除API响应:', groupLeaderResponse);
-        } catch (groupLeaderError) {
-          console.error('组长删除API失败，尝试使用管理员删除API:', groupLeaderError);
-          // 如果组长删除API失败，尝试使用管理员删除API
-          const adminApiUrl = `/admin/account/${deletingAccount._id}`;
-          console.log('尝试使用管理员删除API:', adminApiUrl);
-          const adminResponse = await request<any>(adminApiUrl, {
-            method: 'DELETE'
-          });
-          console.log('管理员删除API响应:', adminResponse);
-        }
+      const isTL = deletingAccount.role === 'NORMAL_ADMIN' && !deletingAccount.employeeId;
+      const isGL = deletingAccount.role === 'GROUP_LEADER' || deletingAccount.role === 'group_leader' || deletingAccount.isGroupLeader;
+      if (isTL) {
+        // ✅ 新接口：DELETE /admin/supervisor/team-leaders/:id（级联：删admins，保留TG/员工，归属清空）
+        await request<any>(`/admin/supervisor/team-leaders/${deletingAccount._id}`, { method: 'DELETE' });
+      } else if (isGL) {
+        // ✅ 新接口：DELETE /admin/supervisor/group-leaders/:id（id = TeamGroup._id = groupId / _id / teamGroupId）
+        const tgId = deletingAccount.groupId || deletingAccount.teamGroupId || deletingAccount._id;
+        await request<any>(`/admin/supervisor/group-leaders/${tgId}`, { method: 'DELETE' });
       } else if (deletingAccount.role === 'employee' || deletingAccount.employeeId) {
-        // 普通员工使用员工删除API
-        const employeeApiUrl = `/admin/employee/${deletingAccount._id}`;
-        console.log('使用员工删除API:', employeeApiUrl);
-        const employeeResponse = await request<any>(employeeApiUrl, {
-          method: 'DELETE'
-        });
-        console.log('员工删除API响应:', employeeResponse);
+        // 员工（保留老接口）
+        await request<any>(`/admin/employee/${deletingAccount._id}`, { method: 'DELETE' });
       } else {
-        // 其他账号使用管理员删除API
-        const adminApiUrl = `/admin/account/${deletingAccount._id}`;
-        console.log('使用管理员删除API:', adminApiUrl);
-        const adminResponse = await request<any>(adminApiUrl, {
-          method: 'DELETE'
-        });
-        console.log('管理员删除API响应:', adminResponse);
+        // 其他管理员（兜底老接口）
+        await request<any>(`/admin/account/${deletingAccount._id}`, { method: 'DELETE' });
       }
     } catch (error: any) {
-      console.error('Error deleting account:', error);
+      console.error('Error deleting account (supervisor pipeline):', error);
       setError(error.message || '删除账号失败');
     } finally {
-      // 清除缓存，确保重新获取最新数据
-      dataCacheRef.current.delete('accounts_all');
-      // 无论删除成功与否，都关闭弹窗并刷新账号列表
+      cacheManager.delete('accounts_all');
       setShowDeleteModal(false);
       setDeletingAccount(null);
       setSaving(false);
       fetchAccounts();
-      console.log('删除操作完成');
-    }
-  };
-
-  // 开通组长账号
-  const handleOpenAccount = (account: any) => {
-    if (!account) return;
-    
-    setOpeningAccount(account);
-    setOpenAccountForm({
-      username: '',
-      password: ''
-    });
-    setShowOpenAccountModal(true);
-  };
-
-  // 开通待开通的组长账号
-  const handleOpenPendingGroupLeader = (pending: any) => {
-    if (!pending) return;
-    
-    setOpeningAccount({
-      ...pending,
-      _id: pending.id,
-      groupName: pending.groupName,
-      teamName: pending.teamName,
-      parentId: pending.teamLeaderId
-    });
-    setOpenAccountForm({
-      username: '',
-      password: ''
-    });
-    setShowOpenAccountModal(true);
-  };
-  
-  const handleConfirmOpenAccount = async () => {
-    if (!openingAccount || !openAccountForm.username || !openAccountForm.password) {
-      setError('请填写用户名和密码');
-      return;
-    }
-    
-    try {
-      // 1. 创建管理员账号
-      const adminResult = await request<any>('/admin/account/create', {
-        method: 'POST',
-        body: JSON.stringify({
-          username: openAccountForm.username,
-          password: openAccountForm.password,
-          role: 'GROUP_LEADER',
-          parentId: openingAccount.parentId || '',
-          teamName: openingAccount.teamName || '',
-          groupName: openingAccount.groupName || '',
-          realName: openingAccount.realName || openingAccount.groupName || '',
-          phone: openingAccount.phone || '',
-          teamGroupId: openingAccount.teamGroupId || openingAccount._id || openingAccount.id
-        })
-      });
-      
-      console.log('创建管理员账号结果:', adminResult);
-      
-      const adminId = adminResult.id || adminResult._id;
-      if (!adminId) {
-        throw new Error('创建管理员账号失败，未返回ID');
-      }
-      
-      // 2. 更新组长的groupLeaderId字段
-      const groupId = openingAccount.teamGroupId || openingAccount._id || openingAccount.id;
-      await request<any>(`/admin/employee/group-leader/${groupId}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          groupLeaderId: adminId,
-          groupLeaderName: openingAccount.realName || openAccountForm.username || ''
-        })
-      });
-      
-      // 显示开通成功提示
-      setMessage(`账号开通成功，用户名：${openAccountForm.username}，密码：${openAccountForm.password}`);
-      setShowMessage(true);
-      
-      // 关闭弹窗
-      setShowOpenAccountModal(false);
-      
-      // 刷新账号列表和待开通列表
-      clearCache();
-      fetchAccounts();
-      fetchPendingGroupLeaders();
-    } catch (error) {
-      console.error('Error opening account:', error);
-      setError('开通账号失败，请重试');
     }
   };
 
@@ -837,19 +547,41 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       console.log('保存滚动位置:', scrollPositionRef.current);
       
       if (account.role === 'employee' || account.employeeId) {
+        // 员工状态切换必须用专门的 /status 子路径 + enabled/disabled 枚举：
+        //   - 编辑实体 PUT /admin/employee/${_id} 会把 status 字段过滤掉（HTTP 200 但不落库）
+        //   - /status 子路径若传 active/inactive 会被后端 400 "无效的状态值" 拒绝
+        const empNewStatus = account.status === 'enabled' ? 'disabled' : 'enabled';
         await request<any>(`/admin/employee/${account._id}/status`, {
           method: 'PUT',
-          body: JSON.stringify({ status: newStatus })
+          body: JSON.stringify({ status: empNewStatus })
         });
+        // newStatus 变量是团队长分支的 active/inactive，这里员工实际走的是 empNewStatus
+        // 更新本地 state 时用 empNewStatus（否则 UI 显示 active/inactive 会和后端 enabled/disabled 不一致导致刷新跳变）
+        (function refreshLocalStateAfterEmpToggle() {
+          setAccounts(prev => prev.map(a => a._id === account._id ? { ...a, status: empNewStatus } : a));
+        })();
+        // 然后直接 return，不要走下面统一的 setAccounts（它会把 status 写成团队长那套 active/inactive）
+        // 再恢复滚动位置
+        [0, 50, 100, 200, 300, 500].forEach(delay => {
+          setTimeout(() => {
+            if (scrollPositionRef.current > 0) {
+              window.scrollTo({ top: scrollPositionRef.current, behavior: 'auto' });
+              console.log(`已恢复滚动位置(${delay}ms):`, scrollPositionRef.current);
+              if (delay === 500) scrollPositionRef.current = 0;
+            }
+          }, delay);
+        });
+        return; // ✅ 员工分支在这里结束，不进下面的团队长分支 active/inactive 刷新逻辑
       } else {
         // 使用更新账号的API来切换状态，而不是专门的状态切换API
+        // 团队长/组长账号集合 status 枚举 = active / inactive
         await request<any>(`/admin/account/${account._id}`, {
           method: 'PUT',
           body: JSON.stringify({ status: newStatus })
         });
       }
       
-      // 更新本地状态，不重新获取所有数据
+      // 更新本地状态（团队长/组长分支才会走到这里：上面员工分支已经 return 了）
        setAccounts(prevAccounts => {
          const newAccounts = prevAccounts.map(a => 
            a._id === account._id ? { ...a, status: newStatus } : a
@@ -891,6 +623,12 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       groupName: account.groupName || '',
       commissionRate: account.commission ? (Math.round(account.commission * 100 * 100) / 100).toString() : ''
     });
+    // 初始化高管团队选择
+    if (account.role === 'ADMIN_MANAGER') {
+      setSelectedTeamIds(account.managedTeamIds || []);
+    } else {
+      setSelectedTeamIds([]);
+    }
     setShowEditModal(true);
   };
 
@@ -899,7 +637,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     setShowDeleteModal(true);
   };
 
-  const [activeTab, setActiveTab] = useState<'team-leader' | 'group-leader' | 'employee'>('employee');
+  const [activeTab, setActiveTab] = useState<'team-leader' | 'group-leader' | 'employee' | 'admin-manager'>('team-leader');
 
   // 导出员工账号功能
   const handleExportEmployees = () => {
@@ -943,38 +681,52 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     document.body.removeChild(link);
   };
 
+  // 统一排序：启用的放前面，禁用的放最后；3 个 tab（团队长/组长/员工）都用同一套规则
+  const sortDisabledToBottom = <T extends { status?: string | null | undefined }>(list: T[]) => {
+    return [...list].sort((a, b) => {
+      const isDisabled = (s: T['status']) => s === 'inactive' || s === 'disabled';
+      return Number(isDisabled(a.status)) - Number(isDisabled(b.status));
+    });
+  };
+
   // 过滤账号列表
   const filteredAccounts = useMemo(() => {
     let filtered = accounts;
-    
+
     // 根据当前标签页过滤
     if (activeTab === 'team-leader') {
-      filtered = accounts.filter(a => 
+      filtered = accounts.filter(a =>
         !a.employeeId && a.role === 'NORMAL_ADMIN'
       );
     } else if (activeTab === 'group-leader') {
       // 过滤组长账号
-      filtered = accounts.filter(a => 
+      filtered = accounts.filter(a =>
         a.role === 'GROUP_LEADER' || a.role === 'group_leader' || a.isGroupLeader || (a.groupId && a.groupId !== '')
       );
+    } else if (activeTab === 'admin-manager') {
+      // 过滤高管账号
+      filtered = adminManagers;
     } else {
         // 过滤非组长员工
-        filtered = accounts.filter(a => 
+        filtered = accounts.filter(a =>
           a.employeeId && !(a.role === 'GROUP_LEADER' || a.role === 'group_leader' || a.isGroupLeader || (a.groupId && a.groupId !== ''))
         );
       }
-    
+
     // 根据搜索关键词过滤
     if (searchKeyword.trim()) {
       const keyword = searchKeyword.toLowerCase();
-      filtered = filtered.filter(a => 
+      filtered = filtered.filter(a =>
         (a.realName && a.realName.toLowerCase().includes(keyword)) ||
         (a.username && a.username.toLowerCase().includes(keyword)) ||
         (a.phone && a.phone.includes(keyword)) ||
         (a.employeeId && a.employeeId.includes(keyword))
       );
     }
-    
+
+    // ✅ 排序：禁用的全部放到最后（TL / GL / EMP 同逻辑）
+    filtered = sortDisabledToBottom(filtered);
+
     console.log('过滤后的账号列表:', filtered);
     return filtered;
   }, [accounts, activeTab, searchKeyword]);
@@ -1057,11 +809,6 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           }`}
         >
           组长账号 ({groupLeaderCount})
-          {pendingGroupLeaders.length > 0 && (
-            <span className="ml-1 text-xs bg-red-500 text-white rounded-full px-1.5 py-0.5">
-              {pendingGroupLeaders.length}
-            </span>
-          )}
         </button>
         <button
           onClick={() => setActiveTab('employee')}
@@ -1073,6 +820,19 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         >
           员工账号 ({employeeCount})
         </button>
+        {/* 超管专属：高管账号标签 */}
+        {isSuperAdmin && (
+          <button
+            onClick={() => setActiveTab('admin-manager')}
+            className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+              activeTab === 'admin-manager'
+                ? 'bg-[#1E40AF] text-white'
+                : 'bg-white text-gray-500 border border-gray-100'
+            }`}
+          >
+            高管账号 ({adminManagers.length})
+          </button>
+        )}
         <button
           onClick={handleExportEmployees}
           className="px-3 py-2 text-xs font-bold bg-green-500 text-white rounded-xl transition-all hover:bg-green-600 flex items-center space-x-1"
@@ -1093,7 +853,9 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
           <div className="py-20 text-center">
             <User className="mx-auto text-gray-200 mb-2" size={48} />
             <p className="text-xs text-gray-400 font-bold">
-              {activeTab === 'team-leader' ? '暂无团队长账号' : activeTab === 'group-leader' ? '暂无组长账号' : '暂无员工账号'}
+              {activeTab === 'team-leader' ? '暂无团队长账号' : 
+               activeTab === 'group-leader' ? '暂无组长账号' :
+               activeTab === 'admin-manager' ? '暂无高管账号' : '暂无员工账号'}
             </p>
           </div>
         ) : (
@@ -1103,13 +865,17 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                 <div className="flex items-start justify-between">
                   <div className="flex items-center space-x-3 flex-1">
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                      account.role === 'NORMAL_ADMIN' 
-                        ? 'bg-purple-100 text-purple-600'
-                        : account.role === 'GROUP_LEADER' || account.role === 'group_leader'
-                          ? 'bg-orange-100 text-orange-600'
-                          : 'bg-blue-100 text-blue-600'
+                      account.role === 'ADMIN_MANAGER'
+                        ? 'bg-red-100 text-red-600'
+                        : account.role === 'NORMAL_ADMIN' 
+                          ? 'bg-purple-100 text-purple-600'
+                          : account.role === 'GROUP_LEADER' || account.role === 'group_leader'
+                            ? 'bg-orange-100 text-orange-600'
+                            : 'bg-blue-100 text-blue-600'
                     }`}>
-                      {account.role === 'NORMAL_ADMIN' ? (
+                      {account.role === 'ADMIN_MANAGER' ? (
+                        <Shield size={20} />
+                      ) : account.role === 'NORMAL_ADMIN' ? (
                         <Crown size={20} />
                       ) : account.role === 'GROUP_LEADER' || account.role === 'group_leader' ? (
                         <Star size={20} />
@@ -1119,50 +885,124 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                     </div>
                     <div className="flex-1 min-w-0 space-y-1">
                       {/* 组长账号的显示逻辑 */}
-                      {account.role === 'GROUP_LEADER' || account.role === 'group_leader' || account.isGroupLeader ? (
+                      {(account.role === 'GROUP_LEADER' || account.role === 'group_leader' || account.isGroupLeader) ? (
                         <>
                           {account.teamName && (
                             <p className="text-base text-[#1E40AF] font-bold">
                               {account.teamName}
                             </p>
                           )}
-                          <p className="text-sm text-gray-900 flex items-center">
-                            组别：{account.groupName || '无'}
+                          <p className="text-sm text-orange-500 font-bold flex items-center">
+                            组名：{account.groupName || '无'}
                           </p>
-                          <h3 className="text-sm text-gray-900">
+                          <h3 className="text-sm text-[#1E40AF] font-bold">
                             组长：{account.realName || '无'}
                           </h3>
-                          {account.commission !== undefined && (
-                            <p className="text-sm font-bold text-gray-900 flex items-center">
-                              分成：{(account.commission * 100).toFixed(0)}%
-                            </p>
-                          )}
                           {account.username && (
                             <p className="text-xs text-gray-500">
                               用户名：{account.username}
                             </p>
                           )}
-                        </>
-                      ) : (
-                        /* 团队长和员工账号的显示逻辑（恢复原样） */
-                        <>
-                          {account.teamName && (
-                            <p className="text-sm text-[#1E40AF] font-bold">
-                              {account.teamName}
+                          {/* ✅ 超管可见明文密码：只要有 username 就显示；历史账号 passwordPlain 为空显示默认密码 */}
+                          {account.username && (
+                            <p className="text-xs text-gray-500">
+                              密码：<span className="font-mono">{account.passwordPlain || account.password || '123456（默认）'}</span>
                             </p>
                           )}
-                          <h3 className="text-sm font-bold text-gray-900">
-                            {account.realName || '无'}
-                            {account.employeeId && !(account.role === 'GROUP_LEADER' || account.role === 'group_leader' || account.isGroupLeader) && <span className="ml-2 text-[#1E40AF]">({account.employeeId})</span>}
-                          </h3>
+                          {/* 组长卡片：手机号（有值显示，空留空占位，无图标）强制一行显示 */}
+                          <p className="text-xs text-gray-500 flex items-center whitespace-nowrap">
+                            手机号：{account.phone || ''}
+                          </p>
+                        </>
+                      ) : account.role === 'ADMIN_MANAGER' ? (
+                        /* ====== 高管账号卡片 ====== */
+                        <>
+                          <p className="text-base text-red-600 font-bold">
+                            {account.realName || '高管'}
+                          </p>
+                          <p className="text-sm text-[#1E40AF] font-bold">
+                            高管
+                          </p>
+                          {account.username && (
+                            <p className="text-xs text-gray-500">
+                              用户名：{account.username}
+                            </p>
+                          )}
+                          {account.username && (
+                            <p className="text-xs text-gray-500">
+                              密码：<span className="font-mono">{account.passwordPlain || account.password || '123456（默认）'}</span>
+                            </p>
+                          )}
+                          <p className="text-xs text-gray-500 flex items-center whitespace-nowrap">
+                            手机号：{account.phone || ''}
+                          </p>
+                          {/* 管理的团队数量 */}
+                          {account.managedTeamIds && account.managedTeamIds.length > 0 && (
+                            <p className="text-xs text-gray-500">
+                              管理团队数：{account.managedTeamIds.length} 个
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        /* 团队长和员工账号的显示逻辑 */
+                        <>
+                          {account.role === 'NORMAL_ADMIN' && !account.employeeId ? (
+                            /* ====== 团队长卡片统一抬头 ====== */
+                            <>
+                              {/* 战队名（有空兜底） */}
+                              {account.teamName ? (
+                                <p className="text-base text-[#1E40AF] font-bold">
+                                  {account.teamName}
+                                </p>
+                              ) : (
+                                <p className="text-base text-gray-400 font-bold">
+                                  战队：未命名
+                                </p>
+                              )}
+                              {/* 团队长：realName 为空则显示 username，保证 mgl_* 这类自动建的账号也能显示 */}
+                              <h3 className="text-sm font-bold text-[#1E40AF]">
+                                团队长：{account.realName || account.username || '未命名'}
+                              </h3>
+                            </>
+                          ) : (
+                            <>
+                              {account.teamName && (
+                                <p className="text-sm text-[#1E40AF] font-bold">
+                                  {account.teamName}
+                                </p>
+                              )}
+                              <h3 className="text-sm font-bold text-gray-900">
+                                {account.realName || '无'}
+                                {account.employeeId && <span className="ml-2 text-[#1E40AF]">({account.employeeId})</span>}
+                              </h3>
+                            </>
+                          )}
                           <div className="space-y-0.5">
+                            {/* 团队长显示用户名 + 明文密码（有 username 就显示密码；历史账号 passwordPlain 为空显示默认密码） */}
+                            {account.role === 'NORMAL_ADMIN' && !account.employeeId && account.username && (
+                              <p className="text-xs text-gray-500">
+                                用户名：{account.username}
+                              </p>
+                            )}
+                            {account.role === 'NORMAL_ADMIN' && !account.employeeId && account.username && (
+                              <p className="text-xs text-gray-500">
+                                密码：<span className="font-mono">{account.passwordPlain || account.password || '123456（默认）'}</span>
+                              </p>
+                            )}
+                            {/* 团队长卡片：手机号（有值显示，空留空占位，无图标）强制一行显示 */}
+                            {account.role === 'NORMAL_ADMIN' && !account.employeeId && (
+                              <p className="text-xs text-gray-500 flex items-center whitespace-nowrap">
+                                手机号：{account.phone || ''}
+                              </p>
+                            )}
                             {account.username && !account.employeeId && account.role !== 'NORMAL_ADMIN' && (
                               <p className="text-xs text-gray-500">
                                 用户名：{account.username}
                               </p>
                             )}
-                            {account.phone && (
-                              <p className="text-xs text-gray-500 flex items-center">
+                            {/* 共用区块：员工账号显示手机号（不误伤 TL/GL），强制一行显示 */}
+                            {!(account.role === 'NORMAL_ADMIN' || account.role === 'group_leader' || account.role === 'GROUP_LEADER' || account.isGroupLeader) && account.phone && (
+                              <p className="text-xs text-gray-500 flex items-center whitespace-nowrap">
                                 <Phone size={10} className="mr-1 flex-shrink-0" />
                                 {account.phone}
                               </p>
@@ -1219,72 +1059,10 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                         <div className={`w-5 h-5 rounded-full bg-white shadow-sm transition-all ${(account.status === 'active' || account.status === 'enabled' || account.status === '1' || !account.status) ? 'translate-x-4' : 'translate-x-0'}`}></div>
                       </button>
                     </div>
-                    {/* 显示开通状态（移到启用按钮下面） */}
-                    {(account.role === 'GROUP_LEADER' || account.role === 'group_leader' || account.isGroupLeader) && (
-                      <div className="mt-2 space-y-1">
-                        {!account.username ? (
-                          <button
-                            onClick={() => handleOpenAccount(account)}
-                            className="text-xs font-bold bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full hover:bg-yellow-200 transition-colors"
-                          >
-                            待开通
-                          </button>
-                        ) : (
-                          <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                            已开通
-                          </span>
-                        )}
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
             ))}
-
-            {/* 待开通的组长账号 */}
-            {activeTab === 'group-leader' && pendingGroupLeaders.length > 0 && (
-              <div className="mt-6">
-                <h3 className="text-sm font-bold text-gray-500 mb-3">待开通</h3>
-                <div className="space-y-3">
-                  {pendingGroupLeaders.map((pending) => (
-                    <div key={pending.id} className="bg-yellow-50 p-4 rounded-2xl border border-yellow-100">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center space-x-3 flex-1">
-                          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-yellow-100 text-yellow-600">
-                            <Star size={20} />
-                          </div>
-                          <div className="flex-1 min-w-0 space-y-1">
-                            <p className="text-base text-[#1E40AF] font-bold">
-                              {pending.teamName}
-                            </p>
-                            <p className="text-sm text-gray-900 flex items-center">
-                              组别：{pending.groupName}
-                            </p>
-                            <p className="text-sm text-gray-900">
-                              组长：{pending.groupLeaderName || '待填写'}
-                            </p>
-                            {pending.commission !== undefined && (
-                              <p className="text-sm font-bold text-gray-900 flex items-center">
-                                分成：{(pending.commission * 100).toFixed(0)}%
-                              </p>
-                            )}
-                            <p className="text-xs text-gray-500">
-                              创建时间：{new Date(pending.createdAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
-                            </p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleOpenPendingGroupLeader(pending)}
-                          className="text-xs font-bold bg-blue-100 text-blue-700 px-3 py-1.5 rounded-full hover:bg-blue-200 transition-colors"
-                        >
-                          开通账号
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -1326,7 +1104,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                   账号类型
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  <button
+                  {/* ✅ 暂时隐藏：不允许直接添加团队长账号 */}
+                  {/* <button
                     onClick={() => setAddType('team')}
                     className={`py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
                       addType === 'team'
@@ -1335,7 +1114,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                     }`}
                   >
                     团队长
-                  </button>
+                  </button> */}
                   <button
                     onClick={() => setAddType('group')}
                     className={`py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
@@ -1398,18 +1177,6 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                         className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                       />
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        分成比例 (%) <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        placeholder=""
-                        value={formData.commissionRate}
-                        onChange={(e) => setFormData({...formData, commissionRate: e.target.value})}
-                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
-                      />
-                    </div>
                   </>
                 )}
 
@@ -1462,18 +1229,37 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                 )}
 
                 {addType === 'team' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      团队名称 <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="请输入团队名称"
-                      value={formData.teamName}
-                      onChange={(e) => setFormData({...formData, teamName: e.target.value})}
-                      className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
-                    />
-                  </div>
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        团队名称 <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="请输入团队名称"
+                        value={formData.teamName}
+                        onChange={(e) => setFormData({...formData, teamName: e.target.value})}
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
+                      />
+                    </div>
+                    {/* ✅ 新建团队长加分项比例（%）：POST /supervisor/team-leaders 需要 commission */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        分成比例 (%) <span className="text-red-500">*</span>
+                        <span className="ml-2 text-gray-400 font-normal text-[11px]">默认 8%，创建后不可修改</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        placeholder="8（默认 8%，创建后不可修改）"
+                        value={formData.commissionRate}
+                        onChange={(e) => setFormData({...formData, commissionRate: e.target.value})}
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </>
                 )}
 
                 <div>
@@ -1503,24 +1289,27 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                         className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
                       />
                     </div>
-                    <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    所属地区 <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="请输入所属地区"
-                    value={formData.region}
-                    onChange={(e) => setFormData({...formData, region: e.target.value})}
-                    className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
-                  />
-                </div>
-                
-                {addType === 'employee' && (
-                  <p className="text-xs text-blue-600 mt-1">
-                    *员工号添加后，由系统自动生成4位随机数字
-                  </p>
-                )}
+                    {/* 所属地区：团队长和员工显示，组长隐藏 */}
+                    {addType !== 'group' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          所属地区 <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="请输入所属地区"
+                          value={formData.region}
+                          onChange={(e) => setFormData({...formData, region: e.target.value})}
+                          className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
+                        />
+                      </div>
+                    )}
+                    
+                    {addType === 'employee' && (
+                      <p className="text-xs text-blue-600 mt-1">
+                        *员工号添加后，由系统自动生成4位随机数字
+                      </p>
+                    )}
                   </>
                 )}
 
@@ -1654,21 +1443,83 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                 )}
 
                 {(editingAccount.role === 'NORMAL_ADMIN') && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        团队名称
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.teamName}
+                        onChange={(e) => setFormData({...formData, teamName: e.target.value})}
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    {/* 超管团队长编辑界面：分成比例已按要求隐藏（仅后端配置决定） */}
+                  </>
+                )}
+
+                {/* ====== 高管编辑：团队分配 ====== */}
+                {editingAccount.role === 'ADMIN_MANAGER' && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      团队名称
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      分配管理团队 <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      type="text"
-                      value={formData.teamName}
-                      onChange={(e) => setFormData({...formData, teamName: e.target.value})}
-                      className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
-                    />
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {teamLeaders.map(team => (
+                        <label
+                          key={team._id}
+                          className={`flex items-center p-3 rounded-xl border cursor-pointer transition-all ${
+                            selectedTeamIds.includes(team._id)
+                              ? 'border-blue-500 bg-blue-50'
+                              : 'border-gray-200 hover:border-gray-300 bg-white'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedTeamIds.includes(team._id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedTeamIds([...selectedTeamIds, team._id]);
+                              } else {
+                                setSelectedTeamIds(selectedTeamIds.filter(id => id !== team._id));
+                              }
+                            }}
+                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                          />
+                          <span className="ml-3 text-sm font-medium text-gray-700">
+                            {team.teamName || team.realName || team.username}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">
+                      已选择 {selectedTeamIds.length} 个团队
+                    </p>
                   </div>
                 )}
 
-                {(editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader') && (
+                {(editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader' || editingAccount.isGroupLeader) && (
                   <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        所属战队
+                      </label>
+                      <select
+                        value={formData.parentId || editingAccount.teamId || editingAccount.parentId || ''}
+                        onChange={(e) => {
+                          setFormData({...formData, parentId: e.target.value, groupId: ''});
+                        }}
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
+                      >
+                        <option value="">请选择战队</option>
+                        {teamLeaders.map(team => (
+                          <option key={team._id} value={team._id}>
+                            {team.teamName || team.realName || team._id}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         组名
@@ -1677,20 +1528,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                         type="text"
                         value={formData.groupName}
                         onChange={(e) => setFormData({...formData, groupName: e.target.value})}
-                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        分成比例 (%)
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={formData.commissionRate}
-                        onChange={(e) => setFormData({...formData, commissionRate: e.target.value})}
-                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                   </>
@@ -1720,17 +1558,20 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    所属地区 <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.region}
-                    onChange={(e) => setFormData({...formData, region: e.target.value})}
-                    className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
-                  />
-                </div>
+                {/* 所属地区：仅员工编辑界面显示；团队长和组长编辑界面隐藏 */}
+                {(editingAccount.role === 'employee' || (editingAccount.employeeId && !(editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader' || editingAccount.isGroupLeader))) && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      所属地区 <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.region}
+                      onChange={(e) => setFormData({...formData, region: e.target.value})}
+                      className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNS43IDUuM2wtNS01Ii8+PHBhdGggZD0iTTUuNy01LjNsNSA1Ii8+PC9zdmc+')] bg-no-repeat bg-right-3 bg-center"
+                    />
+                  </div>
+                )}
                 
                 {(editingAccount.role === 'employee' || (editingAccount.employeeId && !(editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader' || editingAccount.isGroupLeader))) && (
                   <div>
@@ -1817,57 +1658,6 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                   {saving ? '删除中...' : '确认删除'}
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* 开通账号弹窗 */}
-      {showOpenAccountModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-4/5 max-w-md">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">开通组长账号</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">用户名 *</label>
-                <input
-                  type="text"
-                  value={openAccountForm.username}
-                  onChange={(e) => setOpenAccountForm({ ...openAccountForm, username: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="请输入用户名"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">密码 *</label>
-                <input
-                  type="password"
-                  value={openAccountForm.password}
-                  onChange={(e) => setOpenAccountForm({ ...openAccountForm, password: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="请输入密码"
-                />
-              </div>
-            </div>
-            
-            {error && (
-              <p className="mt-3 text-sm text-red-600">{error}</p>
-            )}
-            
-            <div className="flex space-x-3 mt-6">
-              <button
-                onClick={() => setShowOpenAccountModal(false)}
-                className="flex-1 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 rounded-xl"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleConfirmOpenAccount}
-                className="flex-1 py-2.5 text-sm font-bold text-white bg-[#1E40AF] rounded-xl"
-              >
-                确认开通
-              </button>
             </div>
           </div>
         </div>

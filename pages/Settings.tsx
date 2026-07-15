@@ -1,24 +1,38 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  LogOut, ChevronRight, UserCircle2, Key, Loader2, RefreshCw
+import {
+  LogOut, ChevronRight, UserCircle2, Key, Loader2, RefreshCw,
 } from 'lucide-react';
 import Chart from 'chart.js/auto';
 import { authService } from '../services/authService';
 import { request } from '../services/api';
 import { UserRole } from '../types';
 import { cacheManager } from '../services/cacheManager';
+import {
+  LEVEL_V2_API,
+  LEVEL_V2_FALLBACK_8,
+  VALID_LEVELS_V2,
+  computeAdminLevelV2,
+  formatCommission,
+  getLevelV2Theme,
+  normalizeLevelConfig as normalizeLevelConfigV2,
+  type AdminLevelInfoV2,
+  type LevelV2ConfigRow,
+} from '../utils/levelV2Service';
 
 interface SettingsProps {
   onLogout: () => void;
 }
 
 const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
-  const currentUser = authService.getCurrentUser();
-  const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
-  const isGroupLeader = currentUser?.role === UserRole.GROUP_LEADER;
-  const isSuperAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
-  
+  // Q5 ⑤：currentUser 放 state，每次刷新重新拉（role 可能从 GROUP_LEADER → NORMAL_ADMIN，晋升后 teamGroupId 变 null 属正常）
+  const [currentUser, setCurrentUser] = useState<any>(() => authService.getCurrentUser());
+  useEffect(() => {
+    // 初次加载也从 localStorage 读最新的（防 role 缓存老的 GROUP_LEADER）
+    const fresh = authService.getCurrentUser();
+    if (fresh) setCurrentUser({ ...fresh });
+  }, []);
+
   // 团队名称映射表
   const teamNameMap: Record<string, string> = {
     'cuiding': '鼎盛战队',
@@ -57,6 +71,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
   const [withdrawRecords, setWithdrawRecords] = useState<any[]>([]);
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
   const [withdrawEnabled, setWithdrawEnabled] = useState(false);
+  const [showAllWithdrawRecords, setShowAllWithdrawRecords] = useState(false);
 
   // 收益数据状态
   const [earnings, setEarnings] = useState({
@@ -66,6 +81,50 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     total: 0,
     availableBalance: 0
   });
+
+  // Q5：职级 v2 统一 state（P1 组长 / P2~P8 团队长）。所有数字/主题全从 levelV2Service + 接口读，不写死。
+  interface MyLevelInfo {
+    currentLevel: string;            // 'P1' ~ 'P8'
+    currentLevelName: string;        // 接口返回的中文名称
+    currentCommission: number;       // Q5 ② = Admin.commission（小数 0.06=6%），晋升/调档已写入
+    isManual: boolean;               // Q5 ① manualLevel != null
+    manualLevelLabel?: string | null;// 展示「手动 · P7」
+    manualLevelSetAt?: Date | null;  // Q5 ① 最近手动调档时间
+    nextLevel?: string;              // 仅自动档且非 P8
+    nextCommission?: number;
+    nextLevelThreshold?: number;
+    revenueToNext?: number;
+    progressToNext?: number;
+    isMaxLevel: boolean;
+    belowWarning?: string | null;    // TL 被手动设为 P1 的提示（理论上后端 400 拦截，这里前端兜底）
+  }
+  const [myLevelInfo, setMyLevelInfo] = useState<MyLevelInfo | null>(null);
+  const [restoringAuto, setRestoringAuto] = useState(false); // 恢复自动计算 loading
+
+  // 兼容 role 大小写（后端可能返回 normal_admin / GROUP_LEADER / superadmin）
+  const roleUpper = String(currentUser?.role || '').toUpperCase().replace(/_/g, '_');
+  const isGroupLeaderV2 =
+    roleUpper === UserRole.GROUP_LEADER.toUpperCase() ||
+    roleUpper === 'GROUP_LEADER' ||
+    // Q5 ⑤：晋升后 role 若还是 GROUP_LEADER 但有 teamId 等，也兼容
+    (currentUser && currentUser.groupId != null && currentUser.teamGroupId != null);
+  const isTeamLeaderV2 =
+    roleUpper === UserRole.NORMAL_ADMIN.toUpperCase() ||
+    roleUpper === 'NORMAL_ADMIN';
+  const isSuperAdminV2 =
+    roleUpper === UserRole.SUPER_ADMIN.toUpperCase() ||
+    roleUpper === 'SUPER_ADMIN' ||
+    roleUpper === 'SUPERADMIN';
+  const isAdminManagerV2 =
+    roleUpper === UserRole.ADMIN_MANAGER.toUpperCase() ||
+    roleUpper === 'ADMIN_MANAGER';
+  // 覆盖旧的 isTeamLeader / isGroupLeader / isSuperAdmin（保持老代码引用兼容）
+  const isTeamLeader = isTeamLeaderV2;
+  const isGroupLeader = isGroupLeaderV2;
+  const isSuperAdmin = isSuperAdminV2;
+  void isGroupLeader;
+  void isTeamLeader;
+  void isSuperAdmin;
 
   // 加载状态
   const [loading, setLoading] = useState(true);
@@ -209,7 +268,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     
     if (!isRefresh) {
       // 检查缓存
-      const cacheKey = `earnings_${currentUser?.id || 'unknown'}_${isTeamLeader ? 'team' : isGroupLeader ? 'group' : 'admin'}`;
+      const cacheKey = `earnings_${currentUser?.id || 'unknown'}_${isTeamLeader ? 'team' : isGroupLeader ? 'group' : isAdminManagerV2 ? 'manager' : 'admin'}`;
       const cachedEarnings = getCachedData(cacheKey);
       if (cachedEarnings) {
         setEarnings(cachedEarnings);
@@ -219,60 +278,93 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     }
     
     try {
-      // 团队长获取自己团队的收益数据
-      if (isTeamLeader) {
-        // 使用新的团队长收益数据接口
-        const revenueResponse = await request<any>('/admin/dashboard/team-leader/commission', {
-          method: 'GET'
-        });
-        
-        console.log('[Settings] 团队长收益接口返回数据:', revenueResponse);
-        console.log('[Settings] 接口返回字段:', Object.keys(revenueResponse || {}));
-        
-        // 直接使用后端返回的数据，支持多种可能的字段名
-        const earningsData = {
-          today: revenueResponse.today || revenueResponse.todayCommission || revenueResponse.todayEarnings || 0,
-          month: revenueResponse.month || revenueResponse.monthCommission || revenueResponse.monthEarnings || 0,
-          lastMonth: revenueResponse.lastMonth || revenueResponse.lastMonthCommission || revenueResponse.lastMonthEarnings || revenueResponse.last_month || 0,
-          total: revenueResponse.total || revenueResponse.totalCommission || revenueResponse.totalEarnings || 0,
-          availableBalance: revenueResponse.availableBalance || revenueResponse.lastMonth || revenueResponse.lastMonthCommission || 0
-        };
-        
-        console.log('[Settings] 团队长最终收益数据:', earningsData);
-        
-        setEarnings(earningsData);
-        
-        // 缓存数据
-        const cacheKey = `earnings_${currentUser?.id || 'unknown'}_team`;
-        setCachedData(cacheKey, earningsData);
-      } else if (currentUser?.role === UserRole.GROUP_LEADER) {
-        // 组长获取自己组的收益数据
-        // 使用新的组长提成统计接口
-        const response = await request<any>('/group-leader/commission-stats', {
-          method: 'GET'
-        });
-        
-        // request函数已经自动提取了 result.data，所以response就是data对象
-        // 根据后端接口规范，totalCommission 在 today/month/lastMonth 对象内部
-        const todayEarnings = Number(response?.today?.totalCommission || 0);
-        const monthEarnings = Number(response?.month?.totalCommission || 0);
-        const lastMonthEarnings = Number(response?.lastMonth?.totalCommission || 0);
+      // ==============================================
+      // 统一解析：TL / GL 两接口结构已 100% 对齐（后端方案 A 上线）
+      //   - URL 仅按角色切换
+      //   - 解析逻辑完全复用同一段
+      //   - 命中顺序：扁平 today/month/lastMonth → 别名 Commission/Earnings → last_month 下划线 → 老嵌套 today.totalCommission → detail.*.totalCommission
+      //   - 超管保持独立 kpi 逻辑不变
+      // ==============================================
+      const earningsUrl: string | null = (() => {
+        if (isTeamLeader) return '/admin/dashboard/team-leader/commission';
+        if (currentUser?.role === UserRole.GROUP_LEADER) return '/group-leader/commission-stats';
+        if (isAdminManagerV2) return '/admin/dashboard/super/dividend-summary';
+        return null;
+      })();
 
-        // 累计收益 = 本月收益 + 上月收益
-        const totalEarnings = monthEarnings + lastMonthEarnings;
+      if (earningsUrl) {
+        // TL / GL 共用同一段解析
+        const raw = await request<any>(earningsUrl, { method: 'GET' });
+
+        if (isTeamLeader) {
+          console.log('[Settings] 团队长收益接口返回数据:', raw);
+          console.log('[Settings] 接口返回字段:', Object.keys(raw || {}));
+        } else {
+          console.log('[Settings] 组长收益接口返回数据:', raw);
+        }
+
+        // ====== 通用解析：扁平优先 → 别名 → 老嵌套兼容 ======
+        const readVal = (
+          flatKey: string,
+          aliases: string[],
+          oldDetailKey: string,
+        ): number => {
+          // 1) 扁平字段直接取（today / month / lastMonth / total / availableBalance）
+          if (typeof (raw as any)?.[flatKey] === 'number' && !Number.isNaN((raw as any)[flatKey])) {
+            return Number((raw as any)[flatKey]);
+          }
+          // 2) 各种别名（todayCommission / todayEarnings / monthCommission 等）
+          for (const a of aliases) {
+            if (typeof (raw as any)?.[a] === 'number' && !Number.isNaN((raw as any)[a])) {
+              return Number((raw as any)[a]);
+            }
+          }
+          // 3) last_month 下划线（lastMonth 特有）
+          if (flatKey === 'lastMonth' && typeof (raw as any)?.last_month === 'number' && !Number.isNaN((raw as any).last_month)) {
+            return Number((raw as any).last_month);
+          }
+          // 4) 老嵌套：response.today.totalCommission / response[oldDetailKey].totalCommission
+          if (oldDetailKey) {
+            const nested1 = (raw as any)?.[oldDetailKey]?.totalCommission;
+            if (typeof nested1 === 'number' && !Number.isNaN(nested1)) return Number(nested1);
+            // 5) detail 兼容：后端 detail.*.totalCommission
+            const nested2 = (raw as any)?.detail?.[oldDetailKey]?.totalCommission;
+            if (typeof nested2 === 'number' && !Number.isNaN(nested2)) return Number(nested2);
+            // 6) 高管接口嵌套格式：response.today.dividendTotal / response.month.dividendTotal
+            const nested3 = (raw as any)?.[oldDetailKey]?.dividendTotal;
+            if (typeof nested3 === 'number' && !Number.isNaN(nested3)) return Number(nested3);
+          }
+          return 0;
+        };
+
+        const todayEarnings     = readVal('today',     ['todayCommission',     'todayEarnings'],     'today');
+        const monthEarnings     = readVal('month',     ['monthCommission',     'monthEarnings'],     'month');
+        const lastMonthEarnings = readVal('lastMonth', ['lastMonthCommission', 'lastMonthEarnings'], 'lastMonth');
+
+        // total：优先读后端返回的开业至今累计 → 没有就 month + lastMonth 兜底
+        const totalFromBackend = readVal('total', ['totalCommission', 'totalEarnings'], '');
+        const totalEarnings = totalFromBackend > 0
+          ? totalFromBackend
+          : (monthEarnings + lastMonthEarnings);
+
+        // availableBalance：优先读后端真实可提现 → 没给就 lastMonth 兜底
+        const availableBalanceRaw = readVal('availableBalance', [], '');
+        const availableBalance = availableBalanceRaw > 0 || availableBalanceRaw === 0
+          ? availableBalanceRaw
+          : lastMonthEarnings;
 
         const earningsData = {
           today: todayEarnings,
           month: monthEarnings,
           lastMonth: lastMonthEarnings,
           total: totalEarnings,
-          availableBalance: lastMonthEarnings
+          availableBalance,
         };
-        
+
+        console.log('[Settings] 收益最终解析结果:', earningsData);
+
         setEarnings(earningsData);
-        
-        // 缓存数据
-        const cacheKey = `earnings_${currentUser?.id || 'unknown'}_group`;
+        const cacheKey = `earnings_${currentUser?.id || 'unknown'}_${isTeamLeader ? 'team' : isGroupLeader ? 'group' : 'manager'}`;
         setCachedData(cacheKey, earningsData);
       } else {
         // 超级管理员获取全局数据
@@ -321,7 +413,226 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     } finally {
       setLoadingEarnings(false);
     }
-  }, [isTeamLeader, currentUser, isGroupLeader]);
+  }, [isTeamLeader, currentUser, isGroupLeader, isAdminManagerV2]);
+
+  // Q5：统一获取我的职级信息（P1 组长 / P2~P8 团队长）。
+  //   - 只读缓存，绝不写入（避免污染业绩页缓存结构导致白屏）
+  //   - 兼容 v2（levelConfigV2 8 档）和旧缓存（levelConfig 4 档）
+  //   - 手动档：按 manualLevel 强制档位，标 isManual=true，提供恢复自动入口
+  const fetchMyLevelInfo = useCallback(async (isRefresh = false) => {
+    if (!currentUser) return;
+    const isGL = isGroupLeaderV2;
+    const isTL = isTeamLeaderV2;
+    if (!isGL && !isTL) return; // 超管不展示职级徽章
+
+    try {
+      const cacheKey = isGL
+        ? `gl_perf_${currentUser.id || 'unknown'}`
+        : `tl_perf_${currentUser.id || 'unknown'}`;
+
+      let data: any = null;
+      let totalRevenue = 0;
+      let cfg8: LevelV2ConfigRow[] = normalizeLevelConfigV2(LEVEL_V2_FALLBACK_8);
+      let manualLevel: any = null;
+      let manualLevelSetAt: any = null;
+      let serverCommission: number | null = null;
+
+      if (!isRefresh) {
+        const cached = getCachedData(cacheKey, 5 * 60 * 1000);
+        if (cached) {
+          // 只认 levelConfig + summary.totalRevenue 都完整的缓存
+          const hasV2 =
+            Array.isArray((cached as any).levelConfigV2) &&
+            (cached as any).levelConfigV2.length === 8 &&
+            (cached as any).levelConfigV2.every(
+              (c: any) => c && typeof c.level === 'string' && typeof c.commission === 'number',
+            );
+          const hasOld4 =
+            !hasV2 &&
+            Array.isArray((cached as any).levelConfig) &&
+            (cached as any).levelConfig.length === 4;
+          const hasRevenue =
+            (cached as any).summary &&
+            typeof Number((cached as any).summary?.totalRevenue) === 'number' &&
+            !Number.isNaN(Number((cached as any).summary?.totalRevenue));
+          if ((hasV2 || hasOld4) && hasRevenue) data = cached;
+        }
+      }
+
+      if (data) {
+        // ============== 归一化缓存（v2 8档 或 旧4档） ==============
+        totalRevenue = Number(data?.summary?.totalRevenue ?? 0);
+        if (Array.isArray((data as any).levelConfigV2) && (data as any).levelConfigV2.length === 8) {
+          cfg8 = normalizeLevelConfigV2((data as any).levelConfigV2);
+        } else {
+          cfg8 = normalizeLevelConfigV2(LEVEL_V2_FALLBACK_8);
+        }
+        const L = data.level || {};
+        manualLevel = L.manualLevel ?? data.manualLevel ?? null;
+        manualLevelSetAt = L.manualLevelSetAt ?? data.manualLevelSetAt ?? null;
+        if (typeof L.currentCommission === 'number') serverCommission = L.currentCommission;
+      } else {
+        // ============== 直接打业绩接口（只读，不写缓存） ==============
+        try {
+          const url = isGL ? '/group-leader/performance' : '/team-leader/performance';
+          const resp = await request<any>(url, { method: 'GET' });
+          const payload =
+            resp && (resp.success === true || resp.success === undefined)
+              ? resp.data ?? resp
+              : null;
+          if (!payload) {
+            console.warn('[Settings] 业绩接口未返回有效数据，职级暂不展示');
+            return;
+          }
+          totalRevenue = Number(payload?.summary?.totalRevenue ?? 0);
+
+          const fromResp = normalizeLevelConfigV2((payload as any).levelConfig);
+          if (fromResp.length === 8) cfg8 = fromResp;
+          else {
+            const fromL = normalizeLevelConfigV2((payload as any).level?.levelList);
+            if (fromL.length === 8) cfg8 = fromL;
+          }
+
+          manualLevel = payload?.manualLevel ?? payload?.level?.manualLevel ?? null;
+          manualLevelSetAt = payload?.manualLevelSetAt ?? payload?.level?.manualLevelSetAt ?? null;
+          if (typeof payload?.level?.currentCommission === 'number') {
+            serverCommission = payload.level.currentCommission;
+          } else if (typeof currentUser?.commission === 'number') {
+            serverCommission = currentUser.commission;
+          }
+        } catch (err) {
+          console.warn('[Settings] 职级接口失败，不展示职级徽章:', err);
+          return;
+        }
+      }
+
+      // ============== ✅ 最简方案：数据可疑时直接不展示，绝不 set 假 P2 ==============
+      //   TL 自动档 + totalRevenue===0 + commission>=0.10（P3及以上比例）→ 说明
+      //   totalRevenue 拿的是空/不完整缓存，serverCommission/admin.commission 才是真
+      //   → 不要夹取 P2 误导，直接 return，标签和提成比例都不显示，等下一次刷新。
+      const effectiveCommission =
+        typeof serverCommission === 'number' && !Number.isNaN(serverCommission)
+          ? serverCommission
+          : Number(currentUser?.commission ?? NaN);
+      if (
+        isTL &&
+        !manualLevel &&
+        totalRevenue === 0 &&
+        !Number.isNaN(effectiveCommission) &&
+        effectiveCommission >= 0.10 - 1e-9 // >= P3(10%) 就认为 totalRevenue 肯定不可能是 0
+      ) {
+        setMyLevelInfo(null);
+        return;
+      }
+
+      // ============== 算档 v2 ==============
+      let v2Info: AdminLevelInfoV2 = computeAdminLevelV2({
+        totalRevenue,
+        levelConfig: cfg8,
+        manualLevel,
+        manualLevelSetAt,
+      });
+
+      // TL 手动档被设为 P1：强制兜底到 P2 并标 belowWarning（理论后端400，这里避免白屏）
+      let belowWarning: string | null = null;
+      if (isTL && v2Info.isManual && v2Info.currentLevel === 'P1') {
+        const p2Cfg = cfg8.find((c) => c.level === 'P2') || cfg8[1];
+        belowWarning = 'TL 档位已按最低 P2 展示（后端不允许 P1）';
+        v2Info = {
+          ...v2Info,
+          currentLevel: 'P2',
+          currentLevelName: p2Cfg?.name || '初级团队长',
+          currentCommission: typeof p2Cfg?.commission === 'number' ? p2Cfg.commission : v2Info.currentCommission,
+          isMaxLevel: false,
+        };
+      }
+
+      // ============== 按角色强制夹取有效档位范围 ==============
+      let effectiveLevel = v2Info.currentLevel;
+      if (isGL && effectiveLevel !== 'P1') {
+        // GL 被手动设为 P2+：夹取 P1 + warning
+        const p1 = cfg8.find((c) => c.level === 'P1') || cfg8[0];
+        belowWarning = belowWarning || `组长职级已夹取到 P1（当前被指定 ${effectiveLevel}，请联系超管恢复自动）`;
+        effectiveLevel = 'P1';
+        v2Info = {
+          ...v2Info,
+          currentLevel: effectiveLevel,
+          currentLevelName: p1?.name || v2Info.currentLevelName || '组长',
+          currentCommission: typeof p1?.commission === 'number' ? p1.commission : v2Info.currentCommission,
+        };
+      }
+      // TL 自动档 + currentLevel==='P1'（totalRevenue<P2.minRevenue 真·起步期）：挂 P2，
+      // 但保留 commission=admin 真实值（不要硬改成 0.08，不然出现 P2+10% 的矛盾）。
+      if (isTL && !manualLevel && effectiveLevel === 'P1') {
+        const p2 = cfg8.find((c) => c.level === 'P2') || cfg8[1];
+        effectiveLevel = 'P2';
+        v2Info = {
+          ...v2Info,
+          currentLevel: effectiveLevel,
+          currentLevelName: p2?.name || '初级团队长',
+          progressToNext: 0,
+          isMaxLevel: false,
+        };
+      }
+      // TL 手动档 = P1：上面已经拦截过，这里防御一下
+      else if (isTL && manualLevel && effectiveLevel === 'P1') {
+        const p2 = cfg8.find((c) => c.level === 'P2') || cfg8[1];
+        effectiveLevel = 'P2';
+        v2Info = {
+          ...v2Info,
+          currentLevel: effectiveLevel,
+          currentLevelName: p2?.name || '初级团队长',
+          currentCommission: typeof p2?.commission === 'number' ? p2.commission : v2Info.currentCommission,
+          progressToNext: 1,
+          isMaxLevel: false,
+        };
+      }
+
+      const commission =
+        typeof serverCommission === 'number' && !Number.isNaN(serverCommission)
+          ? serverCommission
+          : v2Info.currentCommission;
+
+      const result: MyLevelInfo = {
+        currentLevel: effectiveLevel,
+        currentLevelName: v2Info.currentLevelName || cfg8.find((c) => c.level === effectiveLevel)?.name || '',
+        currentCommission: commission,
+        isManual: v2Info.isManual,
+        manualLevelLabel: v2Info.isManual ? (manualLevel || effectiveLevel) : null,
+        manualLevelSetAt: v2Info.manualLevelSetAt,
+        nextLevel: v2Info.isManual ? undefined : v2Info.nextLevel,
+        nextCommission: v2Info.isManual ? undefined : v2Info.nextCommission,
+        nextLevelThreshold: v2Info.isManual ? undefined : v2Info.nextLevelThreshold,
+        revenueToNext: v2Info.isManual ? undefined : v2Info.revenueToNext,
+        progressToNext: v2Info.isManual ? 1 : v2Info.progressToNext,
+        isMaxLevel: v2Info.isManual ? effectiveLevel === 'P8' : v2Info.isMaxLevel,
+        belowWarning,
+      };
+      setMyLevelInfo(result);
+    } catch (e) {
+      console.warn('[Settings] 职级信息解析出错:', e);
+      setMyLevelInfo(null);
+    }
+  }, [isGroupLeaderV2, isTeamLeaderV2, currentUser]);
+
+  // Q5 ⑥：点击「恢复自动计算」→ PUT /admin/:adminId/manual-level { level: null }
+  const handleRestoreAutoLevel = useCallback(async () => {
+    if (!currentUser?.id || !myLevelInfo?.isManual) return;
+    setRestoringAuto(true);
+    try {
+      await LEVEL_V2_API.setManualLevel(currentUser.id, null);
+      // 成功后清空缓存并重新拉
+      cacheManager.delete(`gl_perf_${currentUser.id || 'unknown'}`);
+      cacheManager.delete(`tl_perf_${currentUser.id || 'unknown'}`);
+      await fetchMyLevelInfo(true);
+      alert('已恢复自动按累计营收升降档位');
+    } catch (e: any) {
+      alert('恢复自动失败：' + (e?.message || '请稍后重试'));
+    } finally {
+      setRestoringAuto(false);
+    }
+  }, [currentUser, myLevelInfo?.isManual, fetchMyLevelInfo]);
+  void VALID_LEVELS_V2;
 
   // 获取提现记录
   const fetchWithdrawRecords = useCallback(async (isRefresh = false) => {
@@ -430,13 +741,14 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
       // 并行执行所有数据获取操作，提高加载速度
       Promise.allSettled([
         fetchEarnings(),
-        fetchWithdrawRecords()
+        fetchWithdrawRecords(),
+        fetchMyLevelInfo(),
       ]).finally(() => {
         setLoading(false);
       });
     }
-  }, [currentUser]);
-  
+  }, [currentUser, fetchMyLevelInfo]);
+
 
 
   // 刷新数据
@@ -445,18 +757,22 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
     setLoading(true);
     setLoadingEarnings(true);
     setLoadingWithdraw(true);
-    
+
     // 清空缓存
     cacheManager.clear();
-    
+    // Q5 ⑤：刷新时重新拉个人信息（role 可能从 GROUP_LEADER → NORMAL_ADMIN）
+    const fresh = authService.getCurrentUser();
+    if (fresh) setCurrentUser({ ...fresh });
+
     // 重新请求所有数据
     await Promise.allSettled([
       fetchEarnings(true),
-      fetchWithdrawRecords(true)
+      fetchWithdrawRecords(true),
+      fetchMyLevelInfo(true),
     ]).finally(() => {
       setLoading(false);
     });
-  }, [fetchEarnings, fetchWithdrawRecords]);
+  }, [fetchEarnings, fetchWithdrawRecords, fetchMyLevelInfo, currentUser, authService]);
 
   const sections = [
     {
@@ -483,44 +799,68 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                   <UserCircle2 size={40} className="text-white" />
                 )}
             </div>
-            <div>
-                <div className="flex items-center space-x-2">
-                    <h2 className="text-xl font-black">{currentUser?.username || 'Admin Pro'}</h2>
-                    {!isGroupLeader && (
-                    <span className="text-[10px] font-bold bg-gradient-to-r from-blue-500 to-purple-600 text-white px-3 py-1 rounded-full backdrop-blur-sm border border-white/20 uppercase shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105">
-                      {isSuperAdmin ? '超级管理员' : isTeamLeader ? getUserTeamName() : '普通管理员'}
-                    </span>
+            <div className="min-w-0">
+                <div className="flex items-center space-x-2 flex-wrap">
+                    <h2 className="text-xl font-black truncate">{currentUser?.username || 'Admin Pro'}</h2>
+                    {!isGroupLeaderV2 && !isTeamLeaderV2 && (
+                      <span className="text-[10px] font-bold bg-gradient-to-r from-blue-500 to-purple-600 text-white px-3 py-1 rounded-full backdrop-blur-sm border border-white/20 uppercase shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105">
+                        {isSuperAdmin ? '超级管理员' : isAdminManagerV2 ? '高级管理员' : '普通管理员'}
+                      </span>
                     )}
                 </div>
-
+                {/* Q5 ② 当前提成比例 + 最近调整时间（来自 Admin.commission，晋升/调档立即写入） */}
+                {myLevelInfo && (
+                  <div className="mt-1.5 flex items-center flex-wrap gap-x-2 gap-y-1 text-[11px] text-blue-100/90 font-semibold">
+                    <span>
+                      当前提成比例{' '}
+                      <span className="font-black text-white tracking-wide">
+                        {formatCommission(myLevelInfo.currentCommission)}
+                      </span>
+                    </span>
+                    {myLevelInfo.isManual && myLevelInfo.manualLevelSetAt && (
+                      <span className="inline-flex items-center text-amber-200/95">
+                        · 最近调整于{' '}
+                        {(() => {
+                          const d = new Date(myLevelInfo.manualLevelSetAt!);
+                          if (Number.isNaN(d.getTime())) return '--';
+                          const p = (n: number) => String(n).padStart(2, '0');
+                          return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+                        })()}
+                      </span>
+                    )}
+                    {myLevelInfo.belowWarning && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-red-500/80 text-white font-black ring-1 ring-red-300/40">
+                        ⚠ {myLevelInfo.belowWarning}
+                      </span>
+                    )}
+                  </div>
+                )}
             </div>
           </div>
           
-          {/* 刷新按钮 - 只在非组长和非团队长角色显示 */}
-          {!isGroupLeader && !isTeamLeader && (
-            <button
-              onClick={handleRefresh}
-              className="p-3 text-white hover:bg-white/10 rounded-xl transition-colors"
-              disabled={loading}
-            >
-              <RefreshCw className={loading ? 'animate-spin' : ''} size={20} />
-            </button>
-          )}
+          {/* 刷新按钮 - 所有角色统一显示（TL/GL 也要刷新职级/收益缓存） */}
+          <button
+            onClick={handleRefresh}
+            className="p-3 text-white hover:bg-white/10 rounded-xl transition-colors"
+            disabled={loading}
+          >
+            <RefreshCw className={loading ? 'animate-spin' : ''} size={20} />
+          </button>
         </div>
       </div>
 
       <div className="px-4 -mt-10 relative z-10 space-y-6">
-        {/* 我的收益板块 - 仅对团队长和组长显示 */}
+        {/* 我的收益/分红板块 */}
         {!isSuperAdmin && (
           <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-50">
             <div className="flex items-center justify-center gap-2 mb-4">
-              <h3 className="text-sm font-black text-gray-900">我的收益（元）</h3>
+              <h3 className="text-sm font-black text-gray-900">我的{isAdminManagerV2 ? '分红' : '收益'}（元）</h3>
               <button
                 onClick={() => {
                   handleRefresh();
                 }}
                 className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 transition-all flex items-center justify-center"
-                title="刷新收益数据"
+                title="刷新数据"
               >
                 <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -529,16 +869,16 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-blue-50 p-4 rounded-2xl shadow-sm">
-                <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">今日预估收益</div>
+                <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">今日预估{isAdminManagerV2 ? '分红' : '收益'}</div>
                 <div className="text-xl font-black text-blue-600">¥{earnings.today.toFixed(2)}</div>
               </div>
               <div className="bg-green-50 p-4 rounded-2xl shadow-sm">
-                <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">本月预估收益</div>
+                <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">本月预估{isAdminManagerV2 ? '分红' : '收益'}</div>
                 <div className="text-xl font-black text-green-600">¥{earnings.month.toFixed(2)}</div>
               </div>
               <div className="bg-purple-50 p-4 rounded-2xl shadow-sm">
                 <div className="flex items-center justify-between mb-2">
-                  <div className="text-[10px] font-bold text-gray-400 uppercase">上月收益</div>
+                  <div className="text-[10px] font-bold text-gray-400 uppercase">上月{isAdminManagerV2 ? '分红' : '收益'}</div>
                   <button
                     onClick={() => {
                       if (withdrawEnabled) {
@@ -555,15 +895,15 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                     提现
                   </button>
                 </div>
-                <div className="text-xl font-black text-purple-600">¥{earnings.availableBalance.toFixed(2)}</div>
+                <div className="text-xl font-black text-purple-600">¥{earnings.lastMonth.toFixed(2)}</div>
               </div>
               <div className="bg-orange-50 p-4 rounded-2xl shadow-sm">
                 <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">累计成功提现</div>
                 <div className="text-xl font-black text-orange-600">¥{withdrawRecords.filter(record => record.status === 1).reduce((sum, record) => sum + (record.amount || 0), 0).toFixed(2)}</div>
               </div>
               <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-4 rounded-2xl shadow-sm col-span-2 flex items-center justify-between">
-                <div className="text-2xl font-black text-white">总收益</div>
-                <div className="text-2xl font-black text-white">¥{(earnings.month + earnings.availableBalance + withdrawRecords.filter(record => record.status === 1).reduce((sum, record) => sum + (record.amount || 0), 0)).toFixed(2)}</div>
+                <div className="text-2xl font-black text-white">总{isAdminManagerV2 ? '分红' : '收益'}</div>
+                <div className="text-2xl font-black text-white">¥{(earnings.month + earnings.lastMonth + withdrawRecords.filter(record => record.status === 1).reduce((sum, record) => sum + (record.amount || 0), 0)).toFixed(2)}</div>
               </div>
             </div>
           </div>
@@ -580,7 +920,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
               </div>
             ) : withdrawRecords.length > 0 ? (
               <div className="space-y-3">
-                {withdrawRecords.map((record, index) => {
+                {(showAllWithdrawRecords ? withdrawRecords : withdrawRecords.slice(0, 2)).map((record, index) => {
                   const statusStyle = (() => {
                     switch (record.status) {
                       case 0:
@@ -612,11 +952,19 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                     </div>
                   );
                 })}
+                {withdrawRecords.length > 2 && (
+                  <button
+                    onClick={() => setShowAllWithdrawRecords(!showAllWithdrawRecords)}
+                    className="w-full py-3 bg-gray-50 text-[11px] font-bold text-[#1E40AF] hover:text-[#1E3A8A] transition-colors"
+                  >
+                    {showAllWithdrawRecords ? '收起' : `查看全部（${withdrawRecords.length}条）`}
+                  </button>
+                )}
               </div>
             ) : (
               <div className="p-8 text-center">
                 <div className="text-gray-300 mb-2">暂无提现记录</div>
-                <div className="text-[10px] text-gray-400">点击上月收益的提现按钮申请提现</div>
+                <div className="text-[10px] text-gray-400">点击上月{isAdminManagerV2 ? '分红' : '收益'}的提现按钮申请提现</div>
               </div>
             )}
           </div>
@@ -873,7 +1221,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                     </svg>
                   </div>
                   <h4 className="text-lg font-bold text-gray-900 mb-2">暂无提现记录</h4>
-                  <p className="text-sm text-gray-500">点击上月收益的提现按钮申请提现</p>
+                  <p className="text-sm text-gray-500">点击上月{isAdminManagerV2 ? '分红' : '收益'}的提现按钮申请提现</p>
                 </div>
               )}
               <div className="pt-4">

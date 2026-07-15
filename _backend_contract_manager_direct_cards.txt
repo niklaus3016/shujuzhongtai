@@ -1,0 +1,300 @@
+================================================================================
+【前端需求】超管团队Tab新接口：管理者直属业绩卡扁平列表
+================================================================================
+文档用途：超管底栏「团队」Tab 从原来的「10战队 × (战队卡 + N子组卡) 嵌套桶排序结构」
+          改为「所有管理者（团队长 + 组长）每人一张直属业绩卡」的扁平列表，
+          彻底杜绝嵌套聚合的前端逻辑bug和重复统计问题。
+          本契约后端按此实现后，前端只需开 feature flag 即可切换，旧管线作废。
+
+--------------------------------------------------------------------------------
+1. 接口基本信息
+--------------------------------------------------------------------------------
+URL     : GET /api/admin/dashboard/super/manager-direct-cards
+Method  : GET
+Header  : Authorization: Bearer <admin_token>（必须带登录 token）
+鉴权    : token 解析出的 role 必须是 SUPER_ADMIN（超管，注意全小写 superadmin 也是超管）
+          非超管 → HTTP 403 + { success: false, message: "无权访问（仅超管）" }
+权限    : 仅超管可查，团队长(NORMAL_ADMIN)、组长(GROUP_LEADER)、普通员工均不可用
+
+--------------------------------------------------------------------------------
+2. Query 参数（全部 camelCase）
+--------------------------------------------------------------------------------
+参数名       类型     必填   默认值   说明
+──────────────────────────────────────────────────────────────────────────────
+range        string   否     today    统计窗口：today=今日 / month=本月
+                                          口径必须与 /admin/dashboard/kpi 的 range
+                                          完全一致（包括时区和时间窗口起止，
+                                          可复用 kpi 接口的 _window 计算逻辑）
+role         string   否     空       可选过滤：NORMAL_ADMIN=只看团队长
+                                               GROUP_LEADER=只看组长
+                                               空=全部管理者（团队长+组长）
+limit        int      否     1000     分页可选，默认一次性给全（管理者不会超100）
+page         int      否     1        分页页码（配合 limit 用）
+──────────────────────────────────────────────────────────────────────────────
+
+--------------------------------------------------------------------------------
+3. 管理者枚举范围（和 /admin/account/list 对齐，角色字符串保留原始大小写）
+--------------------------------------------------------------------------------
+从 Admin 表枚举以下所有账号（排除 status=disabled/deleted 的）：
+  ① role == 'NORMAL_ADMIN' 或 role == 'NORMALADMIN' 或 role == 'teamleader'
+     （团队长 / TL，全平台约 10 人）
+  ② role == 'GROUP_LEADER' 或 role == 'GROUPLEADER' 或 role == 'gl'
+     （组长 / GL，全平台约 10~30 人）
+注意：不包含 role=SUPER_ADMIN（超管自己不算业绩管理者）
+
+--------------------------------------------------------------------------------
+4. 【最关键】直属成员的关联口径（三种并集 + 去重，避免漏人 / 重复统计）
+--------------------------------------------------------------------------------
+对每一位管理者 Admin，其「直属 EMPLOYEE 成员集合」定义为：
+满足以下条件 **任一** 的 Employee 记录（三条件取并集后按 Employee._id 去重）：
+
+  条件 A（登录账号链）  ：Employee.supervisorUsername   == Admin.username
+                           ↓ 对应字段来自 /admin/dashboard/users 的探查：
+                             user.supervisorUsername = "huangzhenhui"
+                             等于 admin.username = "huangzhenhui" ✅
+
+  条件 B（真实姓名链）  ：Employee.supervisorRealName   == Admin.realName
+                           ↓ 对应字段探查：
+                             user.supervisorRealName = "黄振汇"
+                             等于 admin.realName = "黄振汇" ✅
+                           （兼容脏数据：历史部分员工只填了中文名没填username）
+
+  条件 C（TeamGroup链，兼容极端脏数据）：
+         Employee.teamGroupId == Admin._id   （之前有脏数据把组长 Admin._id
+                                                 填到 Employee.teamGroupId 里了）
+
+  ⚠️ 最终成员集合 = (条件A ∪ 条件B ∪ 条件C) . DISTINCT(Employee._id)
+     同一位 Employee 如果同时满足多个条件，只能算 1 次（memberCount、业绩都不重复）
+
+  ❌ 禁止使用的字段（/admin/dashboard/users 探查确认不存在，别按错误字段写）：
+     - Employee.parentId（不存在）
+     - Employee.isDirect（不存在）
+     - 任何其他未在上面 A/B/C 列出的字段
+
+--------------------------------------------------------------------------------
+5. 统计字段计算（单位必须统一！）
+--------------------------------------------------------------------------------
+统一单位约定：
+  ● 金额 / 业绩   → 「元」为单位，保留 2 位小数（和 /admin/dashboard/kpi 的
+                   teamRevenue=419.83 单位一致，不要出现 41983 这种分/厘）
+                   ← 注意：Employee.earnings 是「厘」级（探查 user.earnings
+                      =34838.004=¥34.84），所以求和后必须 / 1000 转元！
+  ● 人数 / 次数   → 整数（成员数、广告次数）
+  ● 金币 / Ecpm   → 保留 2 位小数（单次广告平均金币）
+  ● 百分比        → 数值本身，不用额外 ×100（如 -86.2 表示 -86.2%，
+                   对齐 /admin/dashboard/kpi 的 teamRevenueGrowth=-86.2）
+
+每个管理者字段（响应 JSON 每个元素）：
+──────────────────────────────────────────────────────────────────────────────
+字段名                      类型      必填  计算口径 / 说明
+──────────────────────────────────────────────────────────────────────────────
+── 管理者基础信息（供前端显示 + view-as-other 跳转 ID Bag） ──
+_id                         string    ✅   Admin._id（Mongo ObjectId，原样）
+objectId                    string    ✅   等于 Admin._id（前端兼容用，=上面）
+adminId                     string    ✅   等于 Admin._id（前端兼容用，=上面）
+username                    string    ✅   Admin.username（登录账号，如huangzhenhui）
+userId                      string    ✅   Admin.username 或 Admin.userId（有就填，
+                                            供 view-as-other 多参数命中）
+realName                    string    ✅   Admin.realName（真实姓名，如"黄振汇"，
+                                            没填空字符串，别填 null）
+employeeId                  string    是有  Admin.employeeId（员工工号数字串，
+                                            有就填，供多参数命中）
+role                        string    ✅   Admin.role 原样（NORMAL_ADMIN /
+                                            GROUP_LEADER，大小写保留，前端自己 norm）
+level                       string    ✅   职级码：P1 / P2 / ... / P8（字符串）
+                                            取 Admin.level 或 Admin.currentLevel；
+                                            没值时按 commissionRate 兜底：
+                                              ≥0.16=P8 ≥0.14=P7 ≥0.12=P6
+                                              ≥0.10=P5 ≥0.08=P2 其他=P1
+levelManual                 boolean   是有  是否手动档（true=🔧琥珀色徽章，
+                                            Admin.levelManual 或 Admin.isManual）
+teamName                    string    是有  Admin.teamName（所属战队名，如"鼎盛战队"，
+                                            搜索框模糊搜团队名用）
+groupName                   string    是有  Admin.groupName（组长所属小组名，
+                                            GL 有，TL 可能空，搜作用）
+commissionRate              number    ✅   佣金比例：小数，如 0.08=8%
+                                            取 Admin.commission 或 LevelConfig
+                                            对应 level 的 commission，必须填。
+
+── 直属业绩统计（基于前述「条件A∪B∪C并集去重」的成员集合） ──
+memberCount                 int       ✅   直属成员总人数（并集去重后的数量）
+todayActive                 int       ✅   今日活跃人数（range=today 时，成员
+                                            watched>0 的人数；range=month 时，
+                                            本月 watched>0 的人数）
+todayRevenue                number    ✅   当前 range 下直属成员总业绩（元，
+                                            sum(Employee.earnings)/1000，2位小数）
+monthlyRevenue              number    ✅   当前 range=today 时=本月截至今日的
+                                            累计总业绩（元，2位小数）；
+                                            当前 range=month 时=todayRevenue
+                                            （对齐现有卡片 sortBy=today/month 逻辑）
+todayAdCount                int       ✅   当前 range 下直属成员总广告次数
+                                            （sum(Employee.watched)，整数）
+avgEcpm                     number    ✅   平均单次广告金币（2位小数）：
+                                            todayAdCount>0
+                                            ? (todayRevenue * 1000 / todayAdCount)
+                                            : 0
+                                            （乘以1000是因为 todayRevenue 是元，
+                                              要转换成厘级 Ecpm 单位，对齐卡面）
+yesterdayRevenue            number    ✅   上一窗口总业绩（元，2位小数）：
+                                            range=today → 昨日直属成员总业绩
+                                            range=month → 上月整月总业绩
+                                            （用于计算 growthRate 环比）
+growthRate                  number    ✅   环比百分比（对齐 kpi.teamRevenueGrowth）：
+                                            if yesterdayRevenue > 0:
+                                              (todayRevenue-yesterdayRevenue)
+                                              / yesterdayRevenue * 100
+                                            elif todayRevenue > 0: 9999
+                                            else: 0
+                                            （2位小数，可能负数）
+
+── 前端可选（后端方便就给，不强制，但建议给） ──
+createdAt                   string    是有  Admin.createdAt（ISO 字符串）
+status                      string    是有  Admin.status（active/enabled/disabled，
+                                            前面过滤掉非启用的，这里只是透传）
+──────────────────────────────────────────────────────────────────────────────
+
+--------------------------------------------------------------------------------
+6. 响应包装格式（与 /admin/dashboard/kpi 和 /admin/dashboard/users 对齐）
+--------------------------------------------------------------------------------
+成功 HTTP 200：
+{
+  "success": true,
+  "message": "ok",                            // 可省略
+  "data": [ card1, card2, card3, ... ],       // 数组，元素=第5节的卡片对象
+  "pagination": {                              // 可选，没分页可省
+    "total": 28,                               // 管理者总数
+    "page": 1,
+    "pageSize": 1000
+  },
+  "_debug": {                                  // 强烈建议加这个（方便联调）
+    "range": "today",
+    "window": {                                // 同 kpi._window，用来对账
+      "startISO": "2026-07-12T16:00:00.000Z",
+      "endISO":   "2026-07-13T05:46:27.070Z"
+    },
+    "directRules": "A(supervisorUsername) ∪ B(supervisorRealName) ∪ C(teamGroupId), DISTINCT by _id",
+    "sampleChecks": [                          // 示例对账用，每个管理者一条简表
+      { "adminName": "黄振汇", "countA": 73, "countB": 73, "countC": 0,
+        "unionDistinct": 73, "todayRevenue": 352.65 }
+    ]
+  }
+}
+
+失败 HTTP 4xx/5xx：
+{ "success": false, "message": "错误说明中文，直接给用户看的那种" }
+
+⚠️  注意：不要用 /admin/account/list 那种外层 admins 键的包装！
+         dashboard/super 下面的接口统一用 success + data 包装，对齐 kpi/users。
+
+--------------------------------------------------------------------------------
+7. 排序建议（后端可直接排好序，前端就不需要再排一次了）
+--------------------------------------------------------------------------------
+按以下顺序排序（前端如果要再排也可，但建议后端就排好，保证 API 文档示例和 UI一致）：
+  1. role 优先：NORMAL_ADMIN（团队长）在前，GROUP_LEADER（组长）在后
+  2. 同 role 内：todayRevenue 倒序（高→低）
+
+--------------------------------------------------------------------------------
+8. 真实示例响应（黄振汇 TL + 崔鼎 TL + 范洁 GL 三卡）
+--------------------------------------------------------------------------------
+{
+  "success": true,
+  "data": [
+    {
+      "_id": "6a471c416632c6529a0d1234",
+      "objectId": "6a471c416632c6529a0d1234",
+      "adminId": "6a471c416632c6529a0d1234",
+      "username": "huangzhenhui",
+      "userId": "huangzhenhui",
+      "realName": "黄振汇",
+      "employeeId": "10086",
+      "role": "NORMAL_ADMIN",
+      "level": "P4",
+      "levelManual": false,
+      "teamName": "鼎盛战队",
+      "groupName": "",
+      "commissionRate": 0.10,
+      "memberCount": 100,
+      "todayActive": 73,
+      "todayRevenue": 352.65,
+      "monthlyRevenue": 12345.67,
+      "todayAdCount": 9625,
+      "avgEcpm": 366.40,
+      "yesterdayRevenue": 396.26,
+      "growthRate": -11.01
+    },
+    {
+      "_id": "6a471c416632c6529a0d5678",
+      "objectId": "6a471c416632c6529a0d5678",
+      "adminId": "6a471c416632c6529a0d5678",
+      "username": "cuidin",
+      "userId": "cuidin",
+      "realName": "崔鼎",
+      "employeeId": "10001",
+      "role": "NORMAL_ADMIN",
+      "level": "荣耀",
+      "levelManual": true,
+      "teamName": "鼎盛战队",
+      "groupName": "",
+      "commissionRate": 0.16,
+      "memberCount": 85,
+      "todayActive": 55,
+      "todayRevenue": 56.56,
+      "monthlyRevenue": 2345.67,
+      "todayAdCount": 1234,
+      "avgEcpm": 458.30,
+      "yesterdayRevenue": 50.12,
+      "growthRate": 12.85
+    },
+    {
+      "_id": "6a471c416632c6529a0d9999",
+      "objectId": "6a471c416632c6529a0d9999",
+      "adminId": "6a471c416632c6529a0d9999",
+      "username": "fanjie",
+      "userId": "fanjie",
+      "realName": "范洁",
+      "employeeId": "20031",
+      "role": "GROUP_LEADER",
+      "level": "P2",
+      "levelManual": false,
+      "teamName": "洁然如初战队",
+      "groupName": "洁然如初代理",
+      "commissionRate": 0.08,
+      "memberCount": 51,
+      "todayActive": 30,
+      "todayRevenue": 52.65,
+      "monthlyRevenue": 1865.43,
+      "todayAdCount": 666,
+      "avgEcpm": 790.54,
+      "yesterdayRevenue": 48.00,
+      "growthRate": 9.69
+    }
+  ],
+  "pagination": { "total": 28, "page": 1, "pageSize": 1000 }
+}
+
+--------------------------------------------------------------------------------
+9. 联调 / 验收标准（前端如何判断你写对了）
+--------------------------------------------------------------------------------
+后端同学自测清单（按顺序）：
+ [1] 用 admin/admin123456 登录拿 token，请求：
+        GET /api/admin/dashboard/super/manager-direct-cards?range=today
+     HTTP 200，data 数组长度 ≥18（10TL+8GL 左右的量级）
+ [2] 每一项 _id / realName / role / memberCount / todayRevenue 五个字段
+     全部非空，没有 null 没有 undefined
+ [3] 取「黄振汇」那一项的 memberCount=100、todayRevenue≈350 左右，
+     与 /admin/dashboard/kpi?range=today&team=鼎盛战队 返回的
+     teamUserCount≈100 / teamRevenue≈352.65 大致对得上（允许 ±5% 误差，
+     因为直属 vs 全战队的定义不同，但数值应该在同一个数量级）
+ [4] 取任一 GL（如范洁）：memberCount 应该是其直属员工，51 左右；
+     不能把其下 subTeam 的 100 多号人全算进来（否则就不是"直属"了）
+ [5] 切换 range=month：todayRevenue 应该比 today 场景的数值大 20~60 倍
+     （月累计 vs 日），且 growthRate=对比上月整月
+ [6] 用 TL 账号（如 huangzhenhui / 其密码）请求本接口 → 必须 HTTP 403，
+     success=false，message="无权访问（仅超管）"
+
+前端对接开关：
+  后端联调通过后告诉我，我在 GroupManagement.tsx 里把
+  `USE_NEW_MANAGER_DIRECT_API = false` 改成 `true` 即可切换；
+  旧的 4 接口并查 + 桶排序 + header 合成逻辑会保留 1 个月作兜底，
+  新接口稳定 2 周后我再删旧管线。
+================================================================================

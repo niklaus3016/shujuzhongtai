@@ -113,16 +113,6 @@ const UserDetail: React.FC<UserDetailProps> = ({ user, onBack }) => {
         <div className="flex items-center space-x-4 mb-4">
           <div>
             <h2 className="text-xl font-black text-gray-900 leading-tight">ID: {user.id}{user.name ? ` (${user.name})` : ''}</h2>
-            <div className="mt-1 flex items-center space-x-3">
-              <p className="text-[11px] font-bold flex items-center">
-                <span className="bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded mr-1">团队</span>
-                <span className="text-blue-600">{user.superior || '无'}</span>
-              </p>
-              <p className="text-[11px] font-bold flex items-center">
-                <span className="bg-orange-50 text-orange-600 px-1.5 py-0.5 rounded mr-1">组别</span>
-                <span className="text-orange-600">{user.groupName || '无'}</span>
-              </p>
-            </div>
           </div>
         </div>
       </div>

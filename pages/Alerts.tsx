@@ -10,6 +10,10 @@ import { authService } from '../services/authService';
 
 interface LowPerformanceUser {
   id: string;
+  /** emp_<employeeId>，收益详情接口首选参数（命中方案A①） */
+  userId?: string;
+  /** 纯数字 employeeId，收益详情接口备选参数（命中方案A②） */
+  employeeId?: string;
   name: string;
   avatar: string;
   yesterdayWatched: number;
@@ -84,11 +88,11 @@ const mockSystemAlerts = [
 ];
 
 const mockLowPerfUsers: LowPerformanceUser[] = [
-  { id: '8701', name: '赵*刚', avatar: 'https://picsum.photos/seed/a1/100/100', yesterdayWatched: 320, yesterdayEarnings: 42.5, ipCount: 1, deviceCount: 1, ecpm: 132.8, reason: '次数及收益双低' },
-  { id: '8702', name: '马*腾', avatar: 'https://picsum.photos/seed/a2/100/100', yesterdayWatched: 480, yesterdayEarnings: 72.0, ipCount: 1, deviceCount: 1, ecpm: 150.0, reason: '次数低于500' },
-  { id: '8703', name: '周*鸿', avatar: 'https://picsum.photos/seed/a3/100/100', yesterdayWatched: 1200, yesterdayEarnings: 38.5, ipCount: 2, deviceCount: 1, ecpm: 32.1, reason: '收益低于50 (eCPM偏低)' },
-  { id: '8704', name: '李*宏', avatar: 'https://picsum.photos/seed/a4/100/100', yesterdayWatched: 150, yesterdayEarnings: 15.0, ipCount: 1, deviceCount: 1, ecpm: 100.0, reason: '严重不活跃' },
-  { id: '8705', name: '丁*磊', avatar: 'https://picsum.photos/seed/a5/100/100', yesterdayWatched: 499, yesterdayEarnings: 49.9, ipCount: 1, deviceCount: 1, ecpm: 100.0, reason: '临界异常' },
+  { id: '8701', userId: 'emp_8701', employeeId: '8701', name: '赵*刚', avatar: 'https://picsum.photos/seed/a1/100/100', yesterdayWatched: 320, yesterdayEarnings: 42.5, ipCount: 1, deviceCount: 1, ecpm: 132.8, reason: '次数及收益双低' },
+  { id: '8702', userId: 'emp_8702', employeeId: '8702', name: '马*腾', avatar: 'https://picsum.photos/seed/a2/100/100', yesterdayWatched: 480, yesterdayEarnings: 72.0, ipCount: 1, deviceCount: 1, ecpm: 150.0, reason: '次数低于500' },
+  { id: '8703', userId: 'emp_8703', employeeId: '8703', name: '周*鸿', avatar: 'https://picsum.photos/seed/a3/100/100', yesterdayWatched: 1200, yesterdayEarnings: 38.5, ipCount: 2, deviceCount: 1, ecpm: 32.1, reason: '收益低于50 (eCPM偏低)' },
+  { id: '8704', userId: 'emp_8704', employeeId: '8704', name: '李*宏', avatar: 'https://picsum.photos/seed/a4/100/100', yesterdayWatched: 150, yesterdayEarnings: 15.0, ipCount: 1, deviceCount: 1, ecpm: 100.0, reason: '严重不活跃' },
+  { id: '8705', userId: 'emp_8705', employeeId: '8705', name: '丁*磊', avatar: 'https://picsum.photos/seed/a5/100/100', yesterdayWatched: 499, yesterdayEarnings: 49.9, ipCount: 1, deviceCount: 1, ecpm: 100.0, reason: '临界异常' },
 ];
 
 interface AlertsProps {
@@ -308,10 +312,12 @@ const Alerts: React.FC<AlertsProps> = ({ onSelectUser }) => {
                               className="relative overflow-hidden"
                               onClick={() => {
                                 // Navigate to user detail page
+                                // 优先级：emp_<employeeId>（方案A①）→ 纯数字 employeeId（方案A②）→ id 兜底；匹配后端 earnings 接口识别顺序
                                 if (onSelectUser) {
+                                  const safeUserId = user.userId || user.employeeId || user.id;
                                   onSelectUser({
                                     id: user.id,
-                                    userId: user.id,
+                                    userId: safeUserId,
                                     name: user.name,
                                     avatar: user.avatar,
                                     watched: user.yesterdayWatched,
