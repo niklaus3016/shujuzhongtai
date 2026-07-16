@@ -7,6 +7,7 @@ interface ECPMRecord {
   startTime: string;
   endTime: string;
   averageECPM: number;
+  count: number;
   createdAt: string;
   date?: string;
 }
@@ -202,12 +203,13 @@ const ECPMChangeRecord: React.FC<ECPMChangeRecordProps> = ({ onBack }) => {
         startDate.setDate(startDate.getDate() + 1);
       }
       
-      const headers = ['日期', '开始时间', '结束时间', '平均ECPM'];
+      const headers = ['日期', '开始时间', '结束时间', '平均ECPM', '记录条数'];
       const rows = allRecords.map(record => [
         record.date || exportStartDate,
         record.startTime,
         record.endTime === '00:00' && record.startTime !== '00:00' ? '24:00' : record.endTime,
-        record.averageECPM
+        record.averageECPM,
+        record.count || 0
       ]);
       
       const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
@@ -256,7 +258,7 @@ const ECPMChangeRecord: React.FC<ECPMChangeRecordProps> = ({ onBack }) => {
     ? Math.min(...validRecords.map(r => r.averageECPM))
     : 0;
 
-  const chartData = filteredRecords.filter((_, index) => index % 3 === 0).map(record => ({
+  const chartData = filteredRecords.map(record => ({
     time: record.startTime,
     ecpm: record.averageECPM
   }));
@@ -436,6 +438,9 @@ const ECPMChangeRecord: React.FC<ECPMChangeRecordProps> = ({ onBack }) => {
                     <span className="text-xs text-gray-400 w-8">{index + 1}</span>
                     <span className="text-sm font-medium text-gray-900">
                       {record.startTime} ~ {(record.endTime === '00:00' && record.startTime !== '00:00') ? '24:00' : record.endTime}
+                    </span>
+                    <span className="text-xs text-gray-400">
+                      ({record.count || 0}条)
                     </span>
                   </div>
                   <span className={`text-sm font-bold ${record.averageECPM >= 100 ? 'text-green-500' : 'text-red-500'}`}>
