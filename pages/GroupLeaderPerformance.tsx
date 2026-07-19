@@ -951,7 +951,7 @@ const GroupLeaderPerformance: React.FC<GroupLeaderPerformanceProps> = ({
             </div>
           </div>
           <div className="text-right">
-            <div className="text-[10px] text-gray-400">本月截至今日</div>
+            <div className="text-[10px] text-gray-400">本月截至昨日</div>
             <div className="text-[14px] font-black text-blue-700">
               ¥ {formatMoney(currentMonthRevenue)}
             </div>
