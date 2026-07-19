@@ -604,7 +604,7 @@ const Management: React.FC<ManagementProps> = () => {
       id: 'ecpm-record',
       icon: TrendingUp,
       title: 'ECPM变化记录',
-      description: '查看每5分钟ECPM均值及趋势',
+      description: '查看每10分钟ECPM均值及趋势',
       color: 'text-cyan-500',
       bg: 'bg-cyan-50'
     },

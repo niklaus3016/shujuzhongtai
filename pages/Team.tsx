@@ -806,13 +806,16 @@ const Team: React.FC = () => {
         // 2) employees-simple → 员工列表
         // 3) team-leader/groups → 真正的 TeamGroup 列表（给「所属小组」下拉当数据源，
         //    _id/groupId=真正TeamGroup._id，groupLeaderId=组长本人Admin._id，避免前端传错 ID 类型）
-        const [groupLeaders, employees, realGroupList] = await Promise.all([
+        const results = await Promise.allSettled([
           request<any[]>('/admin/employee/group-leaders-simple?teamId=' + teamId, { method: 'GET' }),
           request<any[]>('/admin/employee/employees-simple?teamId=' + teamId, { method: 'GET' }),
           request<any[]>(`/admin/employee/team-leader/groups?teamId=${encodeURIComponent(teamId)}`, { method: 'GET' })
             .then(res => (Array.isArray(res) ? res : []))
             .catch(err => { console.warn('获取 TeamGroup 列表失败（下拉可能为空），继续：', err); return []; })
         ]);
+        const groupLeaders = results[0].status === 'fulfilled' ? results[0].value : [];
+        const employees = results[1].status === 'fulfilled' ? results[1].value : [];
+        const realGroupList = results[2].status === 'fulfilled' ? results[2].value : [];
         
         // 直接使用后端返回的数据，不需要任何转换
         const allGroups = groupLeaders || [];

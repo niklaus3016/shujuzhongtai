@@ -1488,20 +1488,8 @@ const GroupManagement: React.FC<GroupManagementProps> = ({ onViewGroupLeaderPerf
       }
     }
     return filtered.sort((a, b) => {
-      // ===== [快速分支：新接口 direct_members 扁平卡 → 100% 按产品要求排，不走战队 bucket 字典序！]
-      // 问题根因：direct_members 卡没有 _teamHeader，每张卡的 teamId=自身 Admin._id（各不相同），
-      //   走 bucketOf 时都进 999 桶但 bucketKey="T000999_<不同teamId>" → 按 ObjectId 字符串字典序排（完全乱序）
-      // 解决：只要两张都是 direct_members → 直接按 [rolePrio(TL<GL), -业绩倒序, -memberCount] 排
+      // ===== [新接口 direct_members 扁平卡 → 统一按业绩从高到低排序，不分角色] =====
       if (a.kind === 'direct_members' && b.kind === 'direct_members') {
-        const normR = (s: any): string => typeof s === 'string' ? s.trim().toUpperCase().replace(/_/g, '') : '';
-        const rolePrio = (g: Group): number => {
-          const nr = normR(g.groupLeaderRole);
-          if (nr === 'NORMALADMIN' || nr === 'TEAMLEADER' || nr === 'TL') return 0;
-          if (nr === 'GROUPLEADER' || nr === 'GL') return 1;
-          return 2;
-        };
-        const pa = rolePrio(a), pb = rolePrio(b);
-        if (pa !== pb) return pa - pb;
         const ra = sortBy === 'today' ? Number(a.todayRevenue || 0) : Number(a.monthlyRevenue || 0);
         const rb = sortBy === 'today' ? Number(b.todayRevenue || 0) : Number(b.monthlyRevenue || 0);
         if (rb !== ra) return rb - ra;

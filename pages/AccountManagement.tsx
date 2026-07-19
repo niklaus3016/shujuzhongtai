@@ -180,7 +180,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         const oldEmp = employeeResponse ? (Array.isArray(employeeResponse) ? employeeResponse : employeeResponse.data || []) : [];
         const acc = oldAcc ? (Array.isArray(oldAcc) ? oldAcc : (oldAcc.admins || [])) : [];
         const empLeaders = oldEmp.filter((e: any) => e.isGroupLeader || e.role === 'group_leader' || e.role === 'GROUP_LEADER' || (e.groupId && e.groupId !== ''));
-        const accLeaders = acc.filter((a: any) => a.role === 'GROUP_LEADER' || a.role === 'group_leader').map((a: any) => ({ ...a, password: '123456' }));
+        const accLeaders = acc.filter((a: any) => a.role === 'GROUP_LEADER' || a.role === 'group_leader');
         const m = new Map();
         [...empLeaders, ...accLeaders].forEach(l => {
           const k = `${l.realName}-${l.teamName}`;
@@ -906,7 +906,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                           {/* ✅ 超管可见明文密码：只要有 username 就显示；历史账号 passwordPlain 为空显示默认密码 */}
                           {account.username && (
                             <p className="text-xs text-gray-500">
-                              密码：<span className="font-mono">{account.passwordPlain || account.password || '123456（默认）'}</span>
+                              密码：<span className="font-mono">{account.passwordPlain || account.password || '11112222（默认）'}</span>
                             </p>
                           )}
                           {/* 组长卡片：手机号（有值显示，空留空占位，无图标）强制一行显示 */}
@@ -930,7 +930,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                           )}
                           {account.username && (
                             <p className="text-xs text-gray-500">
-                              密码：<span className="font-mono">{account.passwordPlain || account.password || '123456（默认）'}</span>
+                              密码：<span className="font-mono">{account.passwordPlain || account.password || '11112222（默认）'}</span>
                             </p>
                           )}
                           <p className="text-xs text-gray-500 flex items-center whitespace-nowrap">
@@ -986,7 +986,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                             )}
                             {account.role === 'NORMAL_ADMIN' && !account.employeeId && account.username && (
                               <p className="text-xs text-gray-500">
-                                密码：<span className="font-mono">{account.passwordPlain || account.password || '123456（默认）'}</span>
+                                密码：<span className="font-mono">{account.passwordPlain || account.password || '11112222（默认）'}</span>
                               </p>
                             )}
                             {/* 团队长卡片：手机号（有值显示，空留空占位，无图标）强制一行显示 */}
