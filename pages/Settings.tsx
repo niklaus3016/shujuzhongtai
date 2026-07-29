@@ -308,7 +308,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
           flatKey: string,
           aliases: string[],
           oldDetailKey: string,
-        ): number => {
+        ): number | undefined => {
           // 1) 扁平字段直接取（today / month / lastMonth / total / availableBalance）
           if (typeof (raw as any)?.[flatKey] === 'number' && !Number.isNaN((raw as any)[flatKey])) {
             return Number((raw as any)[flatKey]);
@@ -334,7 +334,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
             const nested3 = (raw as any)?.[oldDetailKey]?.dividendTotal;
             if (typeof nested3 === 'number' && !Number.isNaN(nested3)) return Number(nested3);
           }
-          return 0;
+          return undefined;
         };
 
         const todayEarnings     = readVal('today',     ['todayCommission',     'todayEarnings'],     'today');
@@ -349,7 +349,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
 
         // availableBalance：优先读后端真实可提现 → 没给就 lastMonth 兜底
         const availableBalanceRaw = readVal('availableBalance', [], '');
-        const availableBalance = availableBalanceRaw > 0 || availableBalanceRaw === 0
+        const availableBalance = availableBalanceRaw !== undefined
           ? availableBalanceRaw
           : lastMonthEarnings;
 

@@ -18,11 +18,12 @@ import GoldAdjustmentToday from './GoldAdjustmentToday';
 import WelfareLotteryManagement from './WelfareLotteryManagement';
 import GroupLeaderLevelConfigManagement from './GroupLeaderLevelConfigManagement';
 import ECPMChangeRecord from './ECPMChangeRecord';
+import DownloadConfig from './DownloadConfig';
 
 interface ManagementProps {}
 
 const Management: React.FC<ManagementProps> = () => {
-  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification' | 'gold-adjustment' | 'gold-adjustment-today' | 'welfare-lottery' | 'welfare-withdraw' | 'level-config' | 'ecpm-record'>('main');
+  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification' | 'gold-adjustment' | 'gold-adjustment-today' | 'welfare-lottery' | 'welfare-withdraw' | 'level-config' | 'ecpm-record' | 'download-config'>('main');
   const [withdrawEnabled, setWithdrawEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showDeductionModal, setShowDeductionModal] = useState(false);
@@ -591,6 +592,10 @@ const Management: React.FC<ManagementProps> = () => {
     return <ECPMChangeRecord onBack={() => setActivePage('main')} />;
   }
 
+  if (activePage === 'download-config') {
+    return <DownloadConfig onBack={() => setActivePage('main')} />;
+  }
+
   const menuItems = [
     {
       id: 'account',
@@ -607,6 +612,14 @@ const Management: React.FC<ManagementProps> = () => {
       description: '查看每10分钟ECPM均值及趋势',
       color: 'text-cyan-500',
       bg: 'bg-cyan-50'
+    },
+    {
+      id: 'download-config',
+      icon: Settings,
+      title: '下载链接配置',
+      description: '配置蓝奏云下载链接',
+      color: 'text-orange-500',
+      bg: 'bg-orange-50'
     },
     {
       id: 'commission',
@@ -758,6 +771,8 @@ const Management: React.FC<ManagementProps> = () => {
                   setActivePage('account');
                 } else if (item.id === 'ecpm-record') {
                   setActivePage('ecpm-record');
+                } else if (item.id === 'download-config') {
+                  setActivePage('download-config');
                 } else if (item.id === 'target') {
                   setActivePage('target');
                 } else if (item.id === 'withdrawal') {

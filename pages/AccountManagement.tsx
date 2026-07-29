@@ -44,6 +44,8 @@ interface Account {
   manualLevel?: 'P1'|'P2'|'P3'|'P4'|'P5'|'P6'|'P7'|'P8' | string | null;
   manualLevelSetAt?: string | number | Date | null;
   managedTeamIds?: string[];
+  // CSJ 设备数限制（仅员工账号使用）
+  csjDeviceLimit?: number;
 }
 
 interface AccountManagementProps {
@@ -104,7 +106,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
     parentId: '',
     groupId: '',
     groupName: '',
-    commissionRate: ''
+    commissionRate: '',
+    csjDeviceLimit: 1
   });
 
   // 获取当前登录用户信息
@@ -366,7 +369,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         parentId: '',
         groupId: '',
         groupName: '',
-        commissionRate: ''
+        commissionRate: '',
+        csjDeviceLimit: 1
       });
       
       clearCache();
@@ -403,19 +407,24 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
         // 员工（保留老接口）
         const selectedTeam = teamLeaders.find(t => t._id === formData.parentId);
         const selectedGroup = groups.find(g => g._id === formData.groupId);
+        const employeeBody: any = {
+          realName: formData.realName,
+          phone: formData.phone,
+          region: formData.region,
+          employeeId: formData.employeeId,
+          parentId: formData.parentId || editingAccount.parentId,
+          groupId: formData.groupId || editingAccount.groupId,
+          groupName: selectedGroup?.groupName || editingAccount.groupName,
+          teamName: selectedTeam?.teamName || editingAccount.teamName,
+          superior: selectedTeam?.teamName || editingAccount.teamName
+        };
+        // CSJ 设备数限制：仅超管和高管可修改
+        if (isSuperAdmin || currentUser?.role === 'ADMIN_MANAGER') {
+          employeeBody.csjDeviceLimit = formData.csjDeviceLimit;
+        }
         await request<any>(`/admin/employee/${editingAccount._id}`, {
           method: 'PUT',
-          body: JSON.stringify({
-            realName: formData.realName,
-            phone: formData.phone,
-            region: formData.region,
-            employeeId: formData.employeeId,
-            parentId: formData.parentId || editingAccount.parentId,
-            groupId: formData.groupId || editingAccount.groupId,
-            groupName: selectedGroup?.groupName || editingAccount.groupName,
-            teamName: selectedTeam?.teamName || editingAccount.teamName,
-            superior: selectedTeam?.teamName || editingAccount.teamName
-          })
+          body: JSON.stringify(employeeBody)
         });
       } else if (editingAccount.role === 'NORMAL_ADMIN') {
         // ✅ 新接口：PUT /admin/supervisor/team-leaders/:id（编辑团队长）
@@ -482,7 +491,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       setFormData({
         teamName: '', realName: '', phone: '', region: '',
         username: '', password: '', employeeId: '',
-        parentId: '', groupId: '', groupName: '', commissionRate: ''
+        parentId: '', groupId: '', groupName: '', commissionRate: '',
+        csjDeviceLimit: 1
       });
       
       clearCache();
@@ -621,7 +631,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
       parentId: account.parentId || '',
       groupId: account.groupId || account.teamGroupId || '',
       groupName: account.groupName || '',
-      commissionRate: account.commission ? (Math.round(account.commission * 100 * 100) / 100).toString() : ''
+      commissionRate: account.commission ? (Math.round(account.commission * 100 * 100) / 100).toString() : '',
+      csjDeviceLimit: account.csjDeviceLimit || 1
     });
     // 初始化高管团队选择
     if (account.role === 'ADMIN_MANAGER') {
@@ -1024,6 +1035,12 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                                 组别：{account.groupName || '无'}
                               </p>
                             )}
+                            {/* CSJ 设备数限制：仅超管和高管可见 */}
+                            {account.employeeId && (isSuperAdmin || currentUser?.role === 'ADMIN_MANAGER') && (
+                              <p className="text-xs text-green-600 flex items-center">
+                                CSJ设备数：{account.csjDeviceLimit || 1}
+                              </p>
+                            )}
                           </div>
                         </>
                       )}
@@ -1088,7 +1105,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                     parentId: '',
                     groupId: '',
                     groupName: '',
-                    commissionRate: ''
+                    commissionRate: '',
+                    csjDeviceLimit: 1
                   });
                 }}
                 className="p-2 hover:bg-gray-100 rounded-full"
@@ -1377,7 +1395,8 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                     parentId: '',
                     groupId: '',
                     groupName: '',
-                    commissionRate: ''
+                    commissionRate: '',
+                    csjDeviceLimit: 1
                   });
                 }}
                 className="p-2 hover:bg-gray-100 rounded-full"
@@ -1574,17 +1593,36 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                 )}
                 
                 {(editingAccount.role === 'employee' || (editingAccount.employeeId && !(editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader' || editingAccount.isGroupLeader))) && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      工号
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.employeeId}
-                      onChange={(e) => setFormData({...formData, employeeId: e.target.value})}
-                      className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        工号
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.employeeId}
+                        onChange={(e) => setFormData({...formData, employeeId: e.target.value})}
+                        className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    {/* CSJ 设备数限制：仅超管和高管可编辑 */}
+                    {(isSuperAdmin || currentUser?.role === 'ADMIN_MANAGER') && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          CSJ 每日设备数限制
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={formData.csjDeviceLimit}
+                          onChange={(e) => setFormData({...formData, csjDeviceLimit: Math.max(1, Math.min(20, parseInt(e.target.value) || 1))})}
+                          className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <p className="text-xs text-gray-400 mt-1">该员工每日在 CSJ 系统可登录的最大设备数（默认1）</p>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {!(editingAccount.role === 'employee' || (editingAccount.employeeId && !(editingAccount.role === 'GROUP_LEADER' || editingAccount.role === 'group_leader' || editingAccount.isGroupLeader))) && (
