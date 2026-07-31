@@ -1,6 +1,6 @@
 import React from 'react';
 import { AppTab, UserRole } from '../types';
-import { Home, ShieldAlert, UserPlus, Users2, User, Settings, Users, Layers, UserCircle, Building2, BarChart3 } from 'lucide-react';
+import { Home, ShieldAlert, UserPlus, Users2, User, Settings, Users, Layers, UserCircle, Building2, BarChart3, CircleUserRound } from 'lucide-react';
 import { authService } from '../services/authService';
 
 interface BottomNavProps {
@@ -43,10 +43,11 @@ const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab }) => {
         { id: AppTab.PROFILE, icon: User, label: '我的' },
       ];
     } else if (currentUser?.role === UserRole.ADMIN_MANAGER) {
-      // 高管（ADMIN_MANAGER）：隐藏「新人」和「管理」菜单
+      // 高管（ADMIN_MANAGER）：隐藏「新人」和「管理」菜单，添加「账号」菜单
       return [
         { id: AppTab.DASHBOARD, icon: Home, label: '首页' },
         { id: AppTab.TEAM, icon: Users, label: '团队' },
+        { id: AppTab.ACCOUNT, icon: CircleUserRound, label: '账号' },
         { id: AppTab.PROFILE, icon: User, label: '我的' },
       ];
     }

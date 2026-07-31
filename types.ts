@@ -58,7 +58,8 @@ export enum AppTab {
   PROFILE = '我的',
   GROUP_LEADER_MANAGEMENT = '组长管理',
   GROUP_MANAGEMENT = '团队管理',
-  PERFORMANCE = '业绩'
+  PERFORMANCE = '业绩',
+  ACCOUNT = '账号'
 }
 
 export interface KPIStats {

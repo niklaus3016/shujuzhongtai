@@ -13,6 +13,7 @@ import GroupManagement from './pages/GroupManagement';
 import GroupLeader from './pages/GroupLeader';
 import GroupLeaderPerformance from './pages/GroupLeaderPerformance';
 import TeamLeaderPerformance from './pages/TeamLeaderPerformance';
+import AccountList from './pages/AccountList';
 import BottomNav from './components/BottomNav';
 import Login from './pages/Login';
 import { authService } from './services/authService';
@@ -220,6 +221,8 @@ const App: React.FC = () => {
         return <Alerts key="alerts" onSelectUser={(user) => setSelectedUser(user)} />;
       case AppTab.PROFILE:
         return <Settings key="settings" onLogout={handleLogout} />;
+      case AppTab.ACCOUNT:
+        return <AccountList key={`account-list-${Date.now()}`} />;
       case AppTab.GROUP_LEADER_MANAGEMENT:
         return <GroupLeaderManagement key={`group-leader-management-${Date.now()}`} />;
       case AppTab.GROUP_MANAGEMENT:

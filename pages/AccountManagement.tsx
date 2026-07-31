@@ -1507,7 +1507,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                             className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                           />
                           <span className="ml-3 text-sm font-medium text-gray-700">
-                            {team.teamName || team.realName || team.username}
+                            {team.teamName ? `${team.teamName}（${team.username || team.realName || ''}）` : (team.realName || team.username)}
                           </span>
                         </label>
                       ))}
@@ -1617,6 +1617,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ onBack }) => {
                           max={20}
                           value={formData.csjDeviceLimit}
                           onChange={(e) => setFormData({...formData, csjDeviceLimit: Math.max(1, Math.min(20, parseInt(e.target.value) || 1))})}
+                          onFocus={(e) => e.target.select()}
                           className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                         <p className="text-xs text-gray-400 mt-1">该员工每日在 CSJ 系统可登录的最大设备数（默认1）</p>
