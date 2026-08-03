@@ -35,7 +35,7 @@ const AccountList: React.FC = () => {
     realName: '',
     phone: '',
     region: '',
-    csjDeviceLimit: 1
+    csjDeviceLimit: 0
   });
 
   const fetchEmployees = useCallback(async () => {
@@ -93,7 +93,7 @@ const AccountList: React.FC = () => {
           groupName: user.groupName || '',
           groupId: user.groupId || user.teamGroupId || '',
           status: user.status || 'enabled',
-          csjDeviceLimit: user.csjDeviceLimit || 1,
+          csjDeviceLimit: user.csjDeviceLimit ?? 0,
           createdAt: user.createdAt || user.registerTime || '',
           username: user.username || '',
           passwordPlain: user.passwordPlain || '',
@@ -158,7 +158,7 @@ const AccountList: React.FC = () => {
       realName: account.realName || '',
       phone: account.phone || '',
       region: account.region || '',
-      csjDeviceLimit: account.csjDeviceLimit || 1
+      csjDeviceLimit: account.csjDeviceLimit ?? 0
     });
     setShowEditModal(true);
   };
@@ -304,7 +304,7 @@ const AccountList: React.FC = () => {
                       </p>
                       {/* CSJ设备数（绿色） */}
                       <p className="text-xs text-green-600 flex items-center">
-                        CSJ设备数：{employee.csjDeviceLimit || 1}
+                        CSJ设备数：{employee.csjDeviceLimit ?? 0}
                       </p>
                     </div>
                   </div>
@@ -423,10 +423,10 @@ const AccountList: React.FC = () => {
                 </label>
                 <input
                   type="number"
-                  min={1}
+                  min={0}
                   max={20}
                   value={formData.csjDeviceLimit}
-                  onChange={(e) => setFormData({...formData, csjDeviceLimit: Math.max(1, Math.min(20, parseInt(e.target.value) || 1))})}
+                  onChange={(e) => setFormData({...formData, csjDeviceLimit: Math.max(0, Math.min(20, parseInt(e.target.value) || 0))})}
                   onFocus={(e) => e.target.select()}
                   className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
