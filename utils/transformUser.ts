@@ -22,6 +22,24 @@ interface TransformedUser {
 }
 
 export function transformUser(user: any, includeTrend: boolean = false): TransformedUser {
+  // 解析 isDirect：支持 boolean/number/string，也可从 sourceKind 推导
+  let isDirect: boolean | undefined;
+  if (typeof user.isDirect === 'boolean') {
+    isDirect = user.isDirect;
+  } else if (typeof user.isDirect === 'number') {
+    isDirect = user.isDirect === 1;
+  } else if (typeof user.isDirect === 'string') {
+    const v = user.isDirect.toLowerCase().trim();
+    if (v === 'true' || v === '1') isDirect = true;
+    else if (v === 'false' || v === '0') isDirect = false;
+  }
+  // 从 sourceKind 推导 isDirect（如果直接字段不可用）
+  if (isDirect === undefined && user.sourceKind) {
+    const sk = String(user.sourceKind);
+    if (sk === 'directD' || sk === 'glGroupG') isDirect = true;
+    else if (sk === 'subGroupG' || sk === 'subTlDirectD') isDirect = false;
+  }
+
   return {
     id: user.employeeId || user.userId || '',
     userId: user.userId || user.employeeId || '',
@@ -40,7 +58,7 @@ export function transformUser(user: any, includeTrend: boolean = false): Transfo
     supervisorUsername: user.supervisorUsername || undefined,
     supervisorRealName: user.supervisorRealName || undefined,
     supervisorName: user.supervisorName || undefined,
-    isDirect: typeof user.isDirect === 'boolean' ? user.isDirect : undefined,
+    isDirect,
     sourceKind: user.sourceKind || undefined,
     ...(includeTrend ? { trend: 'up' as const } : {}),
   };

@@ -653,7 +653,14 @@ const TeamLeaderPerformance: React.FC<TeamLeaderPerformanceProps> = ({
         let hasRealData = false;
         try {
           resp = await request<any>(requestUrl, { method: 'GET' });
+          console.log('[TeamLeaderPerformance] 接口响应原始数据:', resp);
           hasRealData = !!(resp && resp.summary && typeof resp.summary === 'object' && resp.summary.totalRevenue !== undefined);
+          console.log('[TeamLeaderPerformance] hasRealData:', hasRealData, {
+            hasSummary: !!(resp && resp.summary),
+            totalRevenue: resp?.summary?.totalRevenue,
+            respKeys: resp ? Object.keys(resp) : 'null',
+            summaryKeys: resp?.summary ? Object.keys(resp.summary) : 'null',
+          });
         } catch (e) {
           console.warn('[TeamLeaderPerformance] 接口失败，显示空态（全 0）:', e);
           resp = null;

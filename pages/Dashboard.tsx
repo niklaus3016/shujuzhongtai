@@ -107,11 +107,18 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
   // 状态变量定义
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshCounter, setRefreshCounter] = useState(0);
   const [sortBy, setSortBy] = useState<'watched' | 'earnings' | 'agc'>('earnings');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [memberFilter, setMemberFilter] = useState<'all' | 'direct' | 'indirect'>('all');
   const [kpiData, setKpiData] = useState<any[]>([]);
   const [userData, setUserData] = useState<DashboardUser[]>([]);
+  // 组长专用：完整用户列表（始终用 month 范围拉取，保证所有组员都显示）
+  const [fullUserData, setFullUserData] = useState<DashboardUser[]>([]);
+  // 稳定引用：防止内联函数导致 TeamLeaderDashboard 重复触发 fetch
+  const handleTlDataLoaded = useCallback(() => setLoading(false), []);
+  // 组长专用：按时间范围的业绩数据
+  const [rangeUserData, setRangeUserData] = useState<DashboardUser[]>([]);
   
   // 使用传入的timeRange或默认值
   const timeRange = useMemo(() => {
@@ -418,23 +425,57 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
   // 注意：commission 参数仅作为“接口未返回 teamCommission 时的兜底估算”使用，实际值优先用接口返回的 teamCommission（这是按GoldLog固化率聚合的真实提成）
   const buildGroupLeaderKpis = useCallback((raw: any, showGrowth: boolean, commission: number): DashKpi[] => {
     const d = raw && typeof raw === 'object' ? raw : {};
-    const n = (k: string, fb = 0) => { const v = Number(d[k]); return Number.isFinite(v) ? v : fb; };
-    const teamRevenue = n('teamRevenue');
-    const teamCommission = n('teamCommission');
-    const directImpressions = n('directImpressions');
-    const directActive = n('directActiveUsers');
-    const directUserCount = n('directUserCount');
-    const com = commission || 0.06;
-    // 若接口真的没返回 teamCommission，则按 commission * teamRevenue 估算（兜底，极少见）
-    const groupEarnings = teamCommission > 0 ? teamCommission : teamRevenue * com;
+    // 取第一个命中的字段（新字段优先，老字段兜底）
+    const first = (keys: string[], fb = 0): number => {
+      for (const k of keys) {
+        if (d[k] !== undefined && d[k] !== null) {
+          const v = Number(d[k]);
+          if (Number.isFinite(v)) return v;
+        }
+      }
+      return fb;
+    };
+    const firstStr = (keys: string[]): any => {
+      for (const k of keys) {
+        if (d[k] !== undefined && d[k] !== null && d[k] !== '') return d[k];
+      }
+      return undefined;
+    };
+
+    // 新版字段优先（totalPerformance/totalCommission/commissionRate/registeredUsers/activeUserCount/activeRate）
+    const teamRevenue = first(['totalPerformance', 'teamRevenue']);
+    const teamCommission = first(['totalCommission', 'teamCommission']);
+    const commissionRate = first(['commissionRate'], 0);
+    const directImpressions = first(['directImpressions', 'impressions']);
+    const registeredUsers = first(['registeredUsers', 'directUserCount']);
+    const activeUserCount = first(['activeUserCount', 'directActiveUsers']);
+    const activeRate = first(['activeRate', 'directActiveRate']);
+
+    // commissionRate 兜底：若后端未返回则按 teamCommission/teamRevenue 估算
+    const rate = commissionRate > 0
+      ? commissionRate
+      : teamRevenue > 0
+      ? teamCommission / teamRevenue
+      : (commission || 0.06);
+    const ratePct = rate >= 1 ? rate.toFixed(2) : (rate * 100).toFixed(2);
+
+    // 环比字段：后端返回 revenueGrowth / commissionGrowth
+    const revGrowth = showGrowth ? firstStr(['totalPerformanceGrowth', 'revenueGrowth', 'teamRevenueGrowth']) : undefined;
+    const comGrowth = showGrowth ? firstStr(['totalCommissionGrowth', 'commissionGrowth', 'teamCommissionGrowth']) : undefined;
+
     const avgGold = directImpressions > 0 ? (teamRevenue * 1000) / directImpressions : 0;
-    const revGrowth = showGrowth ? d.teamRevenueGrowth : undefined;
-    const comGrowth = showGrowth ? d.teamCommissionGrowth : undefined;
-    const activeRate = directUserCount > 0 ? (directActive / directUserCount) * 100 : 0;
+
+    const activeRateFinal =
+      activeRate > 0
+        ? activeRate
+        : registeredUsers > 0
+        ? (activeUserCount / registeredUsers) * 100
+        : 0;
+
     return [
-      { title: '组提成收益', value: _fmtY(groupEarnings), subValue: teamRevenue > 0 ? `${(com*100).toFixed(2)}%` : '0%', growth: showGrowth ? _gTxt(comGrowth) : '', isUp: Number(comGrowth) > 0, icon: Users, color: 'text-purple-600', bg: 'bg-purple-50' },
+      { title: '组提成收益', value: _fmtY(teamCommission), subValue: teamRevenue > 0 ? `${ratePct}%` : '0%', growth: showGrowth ? _gTxt(comGrowth) : '', isUp: Number(comGrowth) > 0, icon: Users, color: 'text-purple-600', bg: 'bg-purple-50' },
       { title: '团队用户收益', value: _fmtY(teamRevenue), growth: showGrowth ? _gTxt(revGrowth) : '', isUp: Number(revGrowth) > 0, icon: Coins, color: 'text-orange-600', bg: 'bg-orange-50' },
-      { title: '今日活跃用户', value: _fmtC(directActive), subValue: directUserCount > 0 ? `${activeRate.toFixed(1)}%` : '0.0%', icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+      { title: '今日活跃用户', value: _fmtC(activeUserCount), subValue: registeredUsers > 0 ? `${activeRateFinal.toFixed(1)}%` : '0.0%', icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50' },
       { title: '广告总曝光', value: _fmtC(directImpressions), icon: Eye, color: 'text-blue-600', bg: 'bg-blue-50' },
       { title: '单条平均金币', value: avgGold.toFixed(2), icon: Zap, color: 'text-yellow-600', bg: 'bg-yellow-50' },
     ];
@@ -472,7 +513,32 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
       if (cachedData && !isRefresh) {
         const { kpiData: cachedKpiData, userData: cachedUserData } = cachedData;
         setKpiData(cachedKpiData);
-        setUserData(Array.isArray(cachedUserData) ? cachedUserData : []);
+        // 组长/团队长：存到 fullUserData（完整用户列表）
+        // 其他角色：存到 userData
+        if (isGroupLeader || isTeamLeader) {
+          let users = Array.isArray(cachedUserData) ? cachedUserData : [];
+          // 从缓存列表反推领导名字
+          const counts: Record<string, number> = {};
+          for (const u of users) {
+            const s = String(u.superior || '').trim();
+            if (s) counts[s] = (counts[s] || 0) + 1;
+          }
+          let leaderName: string | null = null;
+          let maxCount = 0;
+          for (const [name, count] of Object.entries(counts)) {
+            if (count > maxCount) { maxCount = count; leaderName = name; }
+          }
+          users = users.map(u => {
+            if (!u.superior) return u;
+            const sup = String(u.superior).trim();
+            if (!sup) return u;
+            const isDirect = leaderName ? (sup === leaderName) : false;
+            return { ...u, isDirect };
+          });
+          setFullUserData(users);
+        } else {
+          setUserData(Array.isArray(cachedUserData) ? cachedUserData : []);
+        }
         // 无论是否有昨日数据，都使用缓存的今日数据
         setLoading(false);
         setRefreshing(false);
@@ -518,16 +584,21 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
         }
         
         // 用户数据请求
-        let userUrl = `/admin/dashboard/users?range=${rangeParam}`;
-        if (isGroupLeader) {
-          const teamGroupId = currentUser.teamGroupId;
-          userUrl = `/admin/dashboard/users?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}`;
-        } else if (isTeamLeader) {
-          const teamName = getUserTeamName();
-          userUrl = `/admin/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}`;
+        if (isGroupLeader || isTeamLeader) {
+          // 组长和团队长：发送两个请求
+          // 1. range=month：完整用户列表（保证所有组员都显示）
+          // 2. range={rangeParam}：按时间范围的业绩数据
+          const groupId = isGroupLeader ? currentUser.teamGroupId : '';
+          const groupParam = isGroupLeader ? `&group=${encodeURIComponent(groupId || '')}` : '';
+          primaryRequests.push(request<any[]>(`/admin/dashboard/users?range=month${groupParam}`, { method: 'GET' }));
+          primaryRequests.push(request<any[]>(`/admin/dashboard/users?range=${rangeParam}${groupParam}`, { method: 'GET' }));
+        } else {
+          // 其他角色：按当前时间范围拉取
+          // 团队长不传 team 参数，后端根据 token 自动识别团队
+          let userUrl = `/admin/dashboard/users?range=${rangeParam}`;
+          primaryRequests.push(request<any[]>(userUrl, { method: 'GET' }));
         }
-        console.log('[Dashboard] 添加用户请求:', userUrl);
-        primaryRequests.push(request<any[]>(userUrl, { method: 'GET' }));
+        console.log('[Dashboard] 添加用户请求');
         
         console.log(`[Dashboard] 共有 ${primaryRequests.length} 个主要请求需要执行`);
         
@@ -546,38 +617,157 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
           responseIndex += 1;
         }
         
-        userResponse = primaryResponses[responseIndex++];
-        console.log('[Dashboard] 用户数据响应:', userResponse);
-        
-        // 2. 处理KPI数据
-        if (kpiResponse) {
-          const timePrefix = timePrefixMap[timeRange];
-          const showGrowth = timeRange === TimeRange.TODAY || timeRange === TimeRange.THIS_MONTH;
-          if (isGroupLeader) {
-            const commissionRate = currentUser?.commission || 0.06;
-            transformedKpis = buildGroupLeaderKpis(kpiResponse, showGrowth, commissionRate);
-          } else {
-            transformedKpis = buildSuperAdminKpis(kpiResponse, timePrefix, showGrowth);
-          }
-          // 立即更新KPI数据，让用户看到初步结果
-          setKpiData(transformedKpis);
-        }
-        
-        // 3. 处理用户数据
-        if (userResponse) {
-          // Transform user data to match frontend format
-          const userArray = typeof userResponse === 'object' && userResponse !== null && 'data' in userResponse && Array.isArray(userResponse.data) ? userResponse.data : Array.isArray(userResponse) ? userResponse : [];
-          const transformedUsers = transformUsers(userArray, true) as DashboardUser[];
-
-          // ✅ URL 已传 team/group 参数，后端已按范围返回；不再基于 teamName 老字段做前端二次过滤（字段不全会把所有数据全过滤掉）
-          const filteredUsers = transformedUsers;
-
-          // 显示所有用户，不限制数量
-          setUserData(filteredUsers);
+        if (isGroupLeader || isTeamLeader) {
+          // 组长/团队长：两个用户响应，第一个是 month（完整列表），第二个是 range（业绩数据）
+          const monthUserResponse = primaryResponses[responseIndex++];
+          const rangeUserResponse = primaryResponses[responseIndex++];
+          console.log('[Dashboard] 组长用户响应:', { month: monthUserResponse, range: rangeUserResponse });
           
-          // 5. 缓存数据
-          const cacheTime = timeRange === TimeRange.TODAY ? 300000 : 600000; // 今日数据缓存5分钟，其他10分钟
-          setCachedData(cacheKey, { kpiData: showKPIDashboard && kpiResponse ? transformedKpis : kpiData, userData: filteredUsers }, cacheTime);
+          // 处理KPI数据
+          if (kpiResponse) {
+            const showGrowth = timeRange === TimeRange.TODAY || timeRange === TimeRange.THIS_MONTH;
+            const commissionRate = currentUser?.commission || 0.06;
+            const transformedKpis = buildGroupLeaderKpis(kpiResponse, showGrowth, commissionRate);
+            setKpiData(transformedKpis);
+          }
+          
+          // 转换两个响应
+          const monthUsers = transformUsers(
+            typeof monthUserResponse === 'object' && monthUserResponse !== null && 'data' in monthUserResponse && Array.isArray(monthUserResponse.data) ? monthUserResponse.data : Array.isArray(monthUserResponse) ? monthUserResponse : [],
+            true
+          ) as DashboardUser[];
+          const rangeUsers = transformUsers(
+            typeof rangeUserResponse === 'object' && rangeUserResponse !== null && 'data' in rangeUserResponse && Array.isArray(rangeUserResponse.data) ? rangeUserResponse.data : Array.isArray(rangeUserResponse) ? rangeUserResponse : [],
+            true
+          ) as DashboardUser[];
+          
+          // 调试：检查后端原始返回中是否有 isDirect/sourceKind 字段
+          if (isTeamLeader && monthUsers.length > 0) {
+            const rawUsers = Array.isArray(monthUserResponse) ? monthUserResponse : 
+              (typeof monthUserResponse === 'object' && monthUserResponse !== null && 'data' in monthUserResponse && Array.isArray(monthUserResponse.data) ? monthUserResponse.data : []);
+            const sample = rawUsers[0];
+            console.log('[Dashboard] 团队长用户原始数据字段:', sample ? Object.keys(sample) : 'empty');
+            console.log('[Dashboard] 团队长首条用户:', JSON.stringify(sample));
+            console.log('[Dashboard] 转换后 isDirect 情况:', {
+              hasIsDirect: monthUsers.some(u => typeof u.isDirect === 'boolean'),
+              hasSourceKind: monthUsers.some(u => typeof u.sourceKind === 'string' && u.sourceKind.length > 0),
+              sampleUser: monthUsers[0] ? { isDirect: monthUsers[0].isDirect, sourceKind: monthUsers[0].sourceKind } : null
+            });
+          }
+          
+          // 合并：以 month 为基础，用 range 的业绩数据覆盖
+          const rangeUserMap = new Map(rangeUsers.map(u => [u.id, u]));
+          const mergedUsers = monthUsers.map(monthUser => {
+            const rangeUser = rangeUserMap.get(monthUser.id);
+            if (rangeUser) {
+              return {
+                ...monthUser,
+                watched: rangeUser.watched,
+                earnings: rangeUser.earnings,
+                ecpm: rangeUser.ecpm,
+                ipCount: rangeUser.ipCount,
+                deviceCount: rangeUser.deviceCount,
+              };
+            }
+            return {
+              ...monthUser,
+              watched: 0,
+              earnings: 0,
+              ecpm: 0,
+              ipCount: 0,
+              deviceCount: 0,
+            };
+          });
+          
+          // 后处理：从用户列表反推出团队长/组长的名字（出现次数最多的 superior 即为当前领导的名字）
+          const inferLeaderName = (users: DashboardUser[]): string | null => {
+            if (!users || users.length === 0) return null;
+            const counts: Record<string, number> = {};
+            for (const u of users) {
+              const s = String(u.superior || '').trim();
+              if (s) counts[s] = (counts[s] || 0) + 1;
+            }
+            let maxCount = 0;
+            let leaderName: string | null = null;
+            for (const [name, count] of Object.entries(counts)) {
+              if (count > maxCount) { maxCount = count; leaderName = name; }
+            }
+            return leaderName;
+          };
+          
+          const leaderName = inferLeaderName(mergedUsers);
+          
+          const determineIsDirect = (u: DashboardUser): boolean | undefined => {
+            if (!u.superior) {
+              if (typeof u.isDirect === 'boolean') return u.isDirect;
+              return undefined;
+            }
+            const sup = String(u.superior).trim();
+            if (!sup) {
+              if (typeof u.isDirect === 'boolean') return u.isDirect;
+              return undefined;
+            }
+            
+            // 优先用推断出的领导名字匹配
+            if (leaderName && sup === leaderName) return true;
+            // 兜底：用 currentUser 的字段匹配
+            const curName = currentUser?.realName || currentUser?.username || '';
+            const curTeam = currentUser?.teamName || '';
+            const curGroup = currentUser?.groupName || '';
+            const curNames = [curName, curTeam, curGroup].filter(n => n && n.trim()).map(n => String(n).trim());
+            if (curNames.some(n => n === sup)) return true;
+            
+            // 不匹配 → 间推
+            return false;
+          };
+          const finalMergedUsers = mergedUsers.map(u => ({
+            ...u,
+            isDirect: determineIsDirect(u),
+          }));
+          
+          setFullUserData(finalMergedUsers);
+          setRangeUserData(rangeUsers);
+          
+          // 缓存
+          const cacheTime = timeRange === TimeRange.TODAY ? 300000 : 600000;
+          setCachedData(cacheKey, { 
+            kpiData: kpiData, 
+            userData: finalMergedUsers 
+          }, cacheTime);
+        } else {
+          // 其他角色：只有一个用户响应
+          userResponse = primaryResponses[responseIndex++];
+          console.log('[Dashboard] 用户数据响应:', userResponse);
+          
+          // 2. 处理KPI数据
+          if (kpiResponse) {
+            const timePrefix = timePrefixMap[timeRange];
+            const showGrowth = timeRange === TimeRange.TODAY || timeRange === TimeRange.THIS_MONTH;
+            if (isTeamLeader) {
+              const commissionRate = currentUser?.commission || 0.06;
+              transformedKpis = buildGroupLeaderKpis(kpiResponse, showGrowth, commissionRate);
+            } else {
+              transformedKpis = buildSuperAdminKpis(kpiResponse, timePrefix, showGrowth);
+            }
+            // 立即更新KPI数据，让用户看到初步结果
+            setKpiData(transformedKpis);
+          }
+          
+          // 3. 处理用户数据
+          if (userResponse) {
+            // Transform user data to match frontend format
+            const userArray = typeof userResponse === 'object' && userResponse !== null && 'data' in userResponse && Array.isArray(userResponse.data) ? userResponse.data : Array.isArray(userResponse) ? userResponse : [];
+            const transformedUsers = transformUsers(userArray, true) as DashboardUser[];
+    
+            // ✅ URL 已传 team/group 参数，后端已按范围返回；不再基于 teamName 老字段做前端二次过滤
+            const filteredUsers = transformedUsers;
+    
+            setUserData(filteredUsers);
+            
+            // 5. 缓存数据
+            const cacheTime = timeRange === TimeRange.TODAY ? 300000 : 600000;
+            setCachedData(cacheKey, { kpiData: showKPIDashboard && kpiResponse ? transformedKpis : kpiData, userData: filteredUsers }, cacheTime);
+          }
         }
       
       // 后台预加载其他时间范围的数据（不阻塞主流程）
@@ -589,6 +779,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
       // 数据获取失败，保持数据为空，不显示模拟数据
       setKpiData([]);
       setUserData([]);
+      if (isGroupLeader || isTeamLeader) {
+        setFullUserData([]);
+        setRangeUserData([]);
+      }
     } finally {
       // 无论是否为团队长，都需要设置loading为false
       // 因为团队长的loading状态也需要被重置
@@ -646,49 +840,100 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
           // 超管新接口 {success,data,cached} 解包；老接口直返对象 → 原样
           const kpiResponse = unwrapKpiResponse(rawKpiResponse);
           
-          // 预加载用户数据
-          let userUrl = `/admin/dashboard/users?range=${rangeParam}`;
-          if (isGroupLeader) {
-            const teamGroupId = currentUser.teamGroupId;
-            userUrl = `/admin/dashboard/users?range=${rangeParam}&group=${encodeURIComponent(teamGroupId || '')}`;
-          } else if (isTeamLeader) {
-            const teamName = getUserTeamName();
-            userUrl = `/admin/dashboard/users?range=${rangeParam}&team=${encodeURIComponent(teamName)}`;
-          }
-          const userResponse = await request<any[]>(userUrl, { method: 'GET' });
-          
-          // 处理数据并缓存
-          if (kpiResponse && userResponse) {
-            // 转换KPI数据：统一调用 build*Kpis，完全基于新接口字段（不再使用旧 coins/revenue/impressions 等字段）
-            let transformedKpis: any[] = [];
-            if (showKPIDashboard) {
-              const localPrefixMap: Record<string, string> = {
-                [TimeRange.TODAY]: '今日',
-                [TimeRange.YESTERDAY]: '昨日',
-                [TimeRange.THIS_WEEK]: '本周',
-                [TimeRange.THIS_MONTH]: '本月'
-              };
-              const timePrefix = localPrefixMap[range];
-              const showGrowth = range === TimeRange.TODAY || range === TimeRange.THIS_MONTH;
-
-              if (isGroupLeader) {
-                const commissionRate = currentUser?.commission || 0.06;
-                transformedKpis = buildGroupLeaderKpis(kpiResponse, showGrowth, commissionRate);
-              } else {
-                transformedKpis = buildSuperAdminKpis(kpiResponse, timePrefix, showGrowth);
-              }
+          // 处理KPI数据
+          let transformedKpis: any[] = [];
+          if (showKPIDashboard && kpiResponse) {
+            const localPrefixMap: Record<string, string> = {
+              [TimeRange.TODAY]: '今日',
+              [TimeRange.YESTERDAY]: '昨日',
+              [TimeRange.THIS_WEEK]: '本周',
+              [TimeRange.THIS_MONTH]: '本月'
+            };
+            const timePrefix = localPrefixMap[range];
+            const showGrowth = range === TimeRange.TODAY || range === TimeRange.THIS_MONTH;
+            if (isGroupLeader) {
+              const commissionRate = currentUser?.commission || 0.06;
+              transformedKpis = buildGroupLeaderKpis(kpiResponse, showGrowth, commissionRate);
+            } else {
+              transformedKpis = buildSuperAdminKpis(kpiResponse, timePrefix, showGrowth);
             }
+          }
+          
+          // 预加载用户数据
+          if (isGroupLeader || isTeamLeader) {
+            // 组长/团队长：预加载两个请求并合并
+            const groupId = isGroupLeader ? currentUser.teamGroupId : '';
+            const groupParam = isGroupLeader ? `&group=${encodeURIComponent(groupId || '')}` : '';
+            const monthUserUrl = `/admin/dashboard/users?range=month${groupParam}`;
+            const rangeUserUrl = `/admin/dashboard/users?range=${rangeParam}${groupParam}`;
+            const [monthUserResponse, rangeUserResponse] = await Promise.all([
+              request<any[]>(monthUserUrl, { method: 'GET' }),
+              request<any[]>(rangeUserUrl, { method: 'GET' })
+            ]);
             
-            // 转换用户数据（与正常加载逻辑完全一致）
+            const monthUsers = transformUsers(
+              typeof monthUserResponse === 'object' && monthUserResponse !== null && 'data' in monthUserResponse && Array.isArray(monthUserResponse.data) ? monthUserResponse.data : Array.isArray(monthUserResponse) ? monthUserResponse : [],
+              true
+            ) as DashboardUser[];
+            const rangeUsers = transformUsers(
+              typeof rangeUserResponse === 'object' && rangeUserResponse !== null && 'data' in rangeUserResponse && Array.isArray(rangeUserResponse.data) ? rangeUserResponse.data : Array.isArray(rangeUserResponse) ? rangeUserResponse : [],
+              true
+            ) as DashboardUser[];
+            
+            // 合并
+            const rangeUserMap = new Map(rangeUsers.map(u => [u.id, u]));
+            const mergedUsers = monthUsers.map(monthUser => {
+              const rangeUser = rangeUserMap.get(monthUser.id);
+              if (rangeUser) {
+                return {
+                  ...monthUser,
+                  watched: rangeUser.watched,
+                  earnings: rangeUser.earnings,
+                  ecpm: rangeUser.ecpm,
+                  ipCount: rangeUser.ipCount,
+                  deviceCount: rangeUser.deviceCount,
+                };
+              }
+              return { ...monthUser, watched: 0, earnings: 0, ecpm: 0, ipCount: 0, deviceCount: 0 };
+            });
+            
+            // 后处理：基于 superior 判断直推/间推（反推领导名字）
+            const preCounts: Record<string, number> = {};
+            for (const u of mergedUsers) {
+              const s = String(u.superior || '').trim();
+              if (s) preCounts[s] = (preCounts[s] || 0) + 1;
+            }
+            let preLeaderName: string | null = null;
+            let preMax = 0;
+            for (const [n, c] of Object.entries(preCounts)) {
+              if (c > preMax) { preMax = c; preLeaderName = n; }
+            }
+            const finalPreloadUsers = mergedUsers.map(u => {
+              if (!u.superior) return u;
+              const sup = String(u.superior).trim();
+              if (!sup) return u;
+              const isDirect = preLeaderName ? (sup === preLeaderName) : false;
+              return { ...u, isDirect };
+            });
+            
+            // 缓存数据
+            const cacheTime = range === TimeRange.TODAY ? 300000 : 600000;
+            setCachedData(cacheKey, { 
+              kpiData: showKPIDashboard && kpiResponse ? transformedKpis : [], 
+              userData: finalPreloadUsers
+            }, cacheTime);
+          } else {
+            // 其他角色：按时间范围拉取
+            // 团队长不传 team 参数，后端根据 token 自动识别团队
+            let userUrl = `/admin/dashboard/users?range=${rangeParam}`;
+            const userResponse = await request<any[]>(userUrl, { method: 'GET' });
+            
+            // 转换用户数据
             const userArray = typeof userResponse === 'object' && userResponse !== null && 'data' in userResponse && Array.isArray(userResponse.data) ? userResponse.data : Array.isArray(userResponse) ? userResponse : [];
             const transformedUsers: DashboardUser[] = transformUsers(userArray, true) as DashboardUser[];
+            const finalUsers = transformedUsers.slice(0, 30);
             
-            // ✅ URL 已传 team/group 参数，后端已按范围返回；不再做前端二次过滤
-            const filteredUsers = transformedUsers;
-            
-            const finalUsers = filteredUsers.slice(0, 30);
-            
-            // 缓存数据（与正常加载逻辑完全一致）
+            // 缓存数据
             const cacheTime = range === TimeRange.TODAY ? 300000 : 600000;
             setCachedData(cacheKey, { 
               kpiData: showKPIDashboard && kpiResponse ? transformedKpis : [], 
@@ -710,12 +955,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
       if (getCachedData(userListCacheKey)) return;
       
       let userListUrl = `/admin/dashboard/users?range=today&limit=1000`;
-      if (isGroupLeader) {
-        const teamGroupId = currentUser.teamGroupId;
-        userListUrl = `/admin/dashboard/users?range=today&group=${encodeURIComponent(teamGroupId || '')}&limit=1000`;
-      } else if (isTeamLeader) {
-        const teamName = getUserTeamName();
-        userListUrl = `/admin/dashboard/users?range=today&team=${encodeURIComponent(teamName)}&limit=1000`;
+      if (isGroupLeader || isTeamLeader) {
+        const groupId = isGroupLeader ? currentUser.teamGroupId : '';
+        const groupParam = isGroupLeader ? `&group=${encodeURIComponent(groupId || '')}` : '';
+        userListUrl = `/admin/dashboard/users?range=month${groupParam}&limit=1000`;
       }
       
       const userListResponse = await request<any[]>(userListUrl).catch(() => []);
@@ -728,13 +971,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
     };
     
     // 2. "我的"页面预加载（所有角色都需要）
+    // 注：/admin/account/profile 接口后端未提供，且登录后 currentUser 已包含完整 profile，
+    //     无需再额外请求。这里保留 cache 结构兼容已有调用链，但不再发请求。
     const preloadMyData = async () => {
       const myCacheKey = `my_data_${currentUser.id}`;
       if (getCachedData(myCacheKey)) return;
-      
-      const myDataResponse = await request<any>('/admin/account/profile', { method: 'GET' }).catch(() => null);
-      setCachedData(myCacheKey, { profile: myDataResponse || {} });
-      cacheManager.set(myCacheKey, { profile: myDataResponse || {} });
+      setCachedData(myCacheKey, { profile: {} });
+      cacheManager.set(myCacheKey, { profile: {} });
     };
     
     // 3. 新人页面预加载（仅超管有新人菜单）
@@ -892,6 +1135,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
   }, [timeRange, currentUser, fetchData]);
 
   const handleRefresh = useCallback(() => {
+    setRefreshCounter(c => c + 1);
     fetchData(true);
   }, [fetchData]);
 
@@ -910,23 +1154,31 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
 
   // 使用useMemo缓存排序结果，避免每次渲染都重新排序
   const sortedUsers = useMemo(() => {
+    // 组长/团队长使用 fullUserData（完整用户列表），其他角色使用 userData
+    const sourceUsers = (isGroupLeader || isTeamLeader) ? fullUserData : userData;
+    
     // Step 1: searchKeyword 过滤
-    let filteredUsers = userData;
+    let filteredUsers = sourceUsers;
     if (searchKeyword) {
       const keyword = searchKeyword.toLowerCase();
-      filteredUsers = userData.filter(user => {
+      filteredUsers = sourceUsers.filter(user => {
         return user.id.toLowerCase().includes(keyword) || 
                user.name.toLowerCase().includes(keyword);
       });
     }
 
     // Step 2: memberFilter 直推/间推过滤（超管/高管不生效，TL/GL 生效）
-    const hasDirectTag = !isSuperAdmin && filteredUsers.some(u => typeof u.isDirect === 'boolean');
+    // isDirect 已在上游设置好，这里直接使用
+    const resolveIsDirect = (u: DashboardUser): boolean | undefined => {
+      if (typeof u.isDirect === 'boolean') return u.isDirect;
+      return undefined;
+    };
+    const hasDirectTag = !isSuperAdmin && filteredUsers.some(u => resolveIsDirect(u) !== undefined);
     if (hasDirectTag) {
       if (memberFilter === 'direct') {
-        filteredUsers = filteredUsers.filter(u => u.isDirect === true);
+        filteredUsers = filteredUsers.filter(u => resolveIsDirect(u) === true);
       } else if (memberFilter === 'indirect') {
-        filteredUsers = filteredUsers.filter(u => u.isDirect === false);
+        filteredUsers = filteredUsers.filter(u => resolveIsDirect(u) === false);
       }
     }
     
@@ -940,12 +1192,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
       return b[sortBy] - a[sortBy];
     });
     
-    // 超管和团队长只显示TOP30，组长显示所有
+    // 团队长/超管/高管只显示 TOP 30，组长保持原样全部显示
     if (!isGroupLeader) {
       return sorted.slice(0, 30);
     }
     return sorted;
-  }, [userData, sortBy, searchKeyword, memberFilter, isGroupLeader]);
+  }, [userData, fullUserData, sortBy, searchKeyword, memberFilter, isGroupLeader, isTeamLeader]);
 
   if (loading) {
     return (
@@ -1010,9 +1262,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
         {/* 团队长显示专用数据看板，组长显示团队模块的数据看板，超级管理员显示完整数据看板 */}
         {isTeamLeader ? (
           <TeamLeaderDashboard 
+            key={`tl-${currentUser?.id || 'unknown'}-${refreshCounter}`}
             timeRange={timeRange} 
             onRefresh={handleRefresh} 
-            onDataLoaded={() => setLoading(false)}
+            onDataLoaded={handleTlDataLoaded}
           />
         ) : isGroupLeader ? (
           <GroupLeader 
@@ -1096,7 +1349,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
                   // ✅ 超管/高管不显示直推/间推，团队长/组长显示：
                   //   · 超管/高管（isSuperAdmin === true）→ 合并成一行：标题 + 排序
                   //   · TL/GL（isSuperAdmin === false）→ 保持原两行结构：标题居中 + 筛选（全部/直推/间推）+ 排序
-                  const hasDirectTag = !isSuperAdmin && userData.length > 0 && userData.some(u => typeof u.isDirect === 'boolean');
+                  const memberSourceUsers = (isGroupLeader || isTeamLeader) ? fullUserData : userData;
+                  // 团队长/组长始终显示筛选按钮（即使后端暂时没返回 isDirect 字段）
+                  const hasDirectTag = !isSuperAdmin && memberSourceUsers.length > 0 && (
+                    memberSourceUsers.some(u => typeof u.isDirect === 'boolean') ||
+                    memberSourceUsers.some(u => typeof u.sourceKind === 'string' && u.sourceKind.length > 0) ||
+                    isGroupLeader || isTeamLeader
+                  );
                   const titleBlock = (
                     <h3 className="text-sm font-bold text-gray-900 flex items-center shrink-0">
                         <Users size={16} className="mr-2 text-[#1E40AF]" />
@@ -1228,27 +1487,35 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
                                         {user.regDays <= 15 && (
                                             <span className="bg-emerald-100 text-emerald-600 text-[8px] font-black px-2 py-0.5 rounded-full border border-emerald-200 uppercase leading-tight flex-shrink-0 shadow-sm">新人</span>
                                         )}
-                                        {!isSuperAdmin && typeof user.isDirect === 'boolean' && (
-                                          <span
-                                            title={sourceKindTooltip(user)}
-                                            className={`text-[8px] font-black px-2 py-0.5 rounded-full leading-tight flex-shrink-0 shadow-sm border text-white ${
-                                              user.isDirect
-                                                ? 'bg-blue-600 border-blue-700'
-                                                : 'bg-orange-500 border-orange-600'
-                                            }`}
-                                          >
-                                            {user.isDirect ? '直推' : '间推'}
-                                          </span>
-                                        )}
+                                        {!isSuperAdmin && (() => {
+                                          let isDirect: boolean | undefined = user.isDirect;
+                                          if (typeof isDirect !== 'boolean') return null;
+                                          return (
+                                            <span
+                                              title={sourceKindTooltip(user)}
+                                              className={`text-[8px] font-black px-2 py-0.5 rounded-full leading-tight flex-shrink-0 shadow-sm border text-white ${
+                                                isDirect
+                                                  ? 'bg-blue-600 border-blue-700'
+                                                  : 'bg-orange-500 border-orange-600'
+                                              }`}
+                                            >
+                                              {isDirect ? '直推' : '间推'}
+                                            </span>
+                                          );
+                                        })()}
                                     </div>
                                     <div className="text-[10px] text-gray-400 font-medium tracking-tight flex items-center overflow-hidden mt-1 space-x-1.5">
                                         <span className="text-gray-600 font-semibold flex-shrink-0">上级:</span>
                                         <span className="text-[#1E40AF] font-bold min-w-0 whitespace-nowrap">
                                           {(() => {
-                                            // ✅ 严格只认「上级真实姓名」，其他字段（superior / teamName / supervisorUsername / ...）一律忽略
-                                            // —— 这些字段后端可能写成"李想代理群"（组名）或"lixiang"（账号），不符合"显示范洁就可以"的要求
-                                            const realName = (user.supervisorRealName || '').trim();
-                                            return realName || '系统直属';
+                                            // 新后端直接给真实姓名；兼容老接口：依次尝试 superior / supervisorRealName / supervisorName / supervisorUsername / teamName
+                                            const raw =
+                                              (user.supervisorRealName || '').trim() ||
+                                              (user.superior || '').trim() ||
+                                              (user.supervisorName || '').trim() ||
+                                              (user.supervisorUsername || '').trim() ||
+                                              '';
+                                            return raw || '系统直属';
                                           })()}
                                         </span>
                                         <span className="text-gray-300 flex-shrink-0">•</span>

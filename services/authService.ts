@@ -1,6 +1,7 @@
 
 import { AdminUser, UserRole } from '../types';
 import { request } from './api';
+import { cacheManager } from './cacheManager';
 
 export const authService = {
   async login(username: string, password: string, remember: boolean): Promise<AdminUser> {
@@ -15,6 +16,7 @@ export const authService = {
       const user: AdminUser = {
         id: data.admin?.id || '',
         username: data.admin?.username || '',
+        realName: data.admin?.realName || '',
         role: data.admin?.role as UserRole || UserRole.NORMAL_ADMIN,
         token: data.token || '',
         status: 'enabled',
@@ -52,6 +54,8 @@ export const authService = {
     try {
       localStorage.removeItem('admin_token');
       localStorage.removeItem('admin_user');
+      // 清空内存缓存，防止切账号后看到上一个账号的数据
+      cacheManager.clear();
     } catch (error) {
       console.error('Failed to logout:', error);
     }

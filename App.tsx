@@ -17,6 +17,7 @@ import AccountList from './pages/AccountList';
 import BottomNav from './components/BottomNav';
 import Login from './pages/Login';
 import { authService } from './services/authService';
+import { cacheManager } from './services/cacheManager';
 import { addViewGroupLeaderPerfListener, type ViewGroupLeaderTarget } from './utils/viewGroupLeaderPerformance';
 
 const App: React.FC = () => {
@@ -72,6 +73,8 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<any>(null);
 
   const handleLoginSuccess = () => {
+    // 双重保险：即使 logout 没清干净，登录新账号时也强制清一次缓存
+    cacheManager.clear();
     setIsAuthenticated(true);
     setActiveTab(AppTab.DASHBOARD);
     // 登录成功后立即获取用户信息，避免Dashboard组件重复获取
@@ -81,8 +84,19 @@ const App: React.FC = () => {
 
   const handleLogout = () => {
     authService.logout();
+    // 清除全局状态标记，防止新账号登录后被旧标记干扰
+    try {
+      delete (window as any).dashboardDataLoaded;
+      delete (window as any).dashboardAutoRefresh;
+    } catch (e) { /* ignore */ }
     setIsAuthenticated(false);
     setCurrentUser(null);
+    // 重置所有页面状态，防止下一个账号登录后看到上一个账号的残留数据
+    setActiveTab(AppTab.DASHBOARD);
+    setSelectedUser(null);
+    setShowAllUsers(false);
+    setViewingGroupLeader(null);
+    setTimeRange('today');
   };
 
   if (loading) {

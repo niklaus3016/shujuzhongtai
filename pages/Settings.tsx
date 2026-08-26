@@ -194,24 +194,23 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
       alert('提现功能已关闭');
       return;
     }
-    if (earnings.lastMonth <= 0) {
-      alert('提现金额必须大于0');
+    if (earnings.availableBalance <= 0) {
+      alert('可提现余额不足');
       return;
     }
     setIsWithdrawing(true);
     try {
       // 计算提现金额
-      const amount = earnings.lastMonth; // 上月收益（元）
+      const amount = earnings.availableBalance; // 可提现余额（元）
 
-      // 提交提现申请
-      // 团队长和组长使用管理员提现接口
-      if (isTeamLeader || isGroupLeader) {
+      // 团队长、组长、高管（ADMIN_MANAGER）都使用管理员提现接口
+      if (isTeamLeader || isGroupLeader || isAdminManagerV2) {
         const withdrawData = {
           amount: amount,
           alipayAccount: alipayAccount,
           alipayName: alipayName,
           employeeId: employeeId,
-          lastMonthCommission: earnings.lastMonth
+          lastMonthCommission: earnings.availableBalance
         };
         console.log('提交提现请求参数:', withdrawData);
         await request<any>('/withdraw/admin/submit', {
@@ -337,12 +336,12 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
           return undefined;
         };
 
-        const todayEarnings     = readVal('today',     ['todayCommission',     'todayEarnings'],     'today');
-        const monthEarnings     = readVal('month',     ['monthCommission',     'monthEarnings'],     'month');
-        const lastMonthEarnings = readVal('lastMonth', ['lastMonthCommission', 'lastMonthEarnings'], 'lastMonth');
+        const todayEarnings     = readVal('today',     ['todayCommission',     'todayEarnings',     'todayDividend'],     'today');
+        const monthEarnings     = readVal('month',     ['monthCommission',     'monthEarnings',     'monthDividend'],     'month');
+        const lastMonthEarnings = readVal('lastMonth', ['lastMonthCommission', 'lastMonthEarnings', 'lastMonthDividend'], 'lastMonth');
 
         // total：优先读后端返回的开业至今累计 → 没有就 month + lastMonth 兜底
-        const totalFromBackend = readVal('total', ['totalCommission', 'totalEarnings'], '');
+        const totalFromBackend = readVal('total', ['totalCommission', 'totalEarnings', 'totalDividend'], '');
         const totalEarnings = totalFromBackend > 0
           ? totalFromBackend
           : (monthEarnings + lastMonthEarnings);
@@ -895,7 +894,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
                     提现
                   </button>
                 </div>
-                <div className="text-xl font-black text-purple-600">¥{earnings.lastMonth.toFixed(2)}</div>
+                <div className="text-xl font-black text-purple-600">¥{earnings.availableBalance.toFixed(2)}</div>
               </div>
               <div className="bg-orange-50 p-4 rounded-2xl shadow-sm">
                 <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">累计成功提现</div>
@@ -903,7 +902,7 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
               </div>
               <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-4 rounded-2xl shadow-sm col-span-2 flex items-center justify-between">
                 <div className="text-2xl font-black text-white">总{isAdminManagerV2 ? '分红' : '收益'}</div>
-                <div className="text-2xl font-black text-white">¥{(earnings.month + earnings.lastMonth + withdrawRecords.filter(record => record.status === 1).reduce((sum, record) => sum + (record.amount || 0), 0)).toFixed(2)}</div>
+                <div className="text-2xl font-black text-white">¥{(earnings.month + earnings.availableBalance + withdrawRecords.filter(record => record.status === 1).reduce((sum, record) => sum + (record.amount || 0), 0)).toFixed(2)}</div>
               </div>
             </div>
           </div>

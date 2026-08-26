@@ -66,38 +66,51 @@ function transformKpi(
   timeRangeLabel?: string,
 ): KpiSections {
   const d = raw && typeof raw === 'object' ? raw : {};
-  const n = (k: string, fallback = 0) => {
-    const v = Number(d[k]);
-    return Number.isFinite(v) ? v : fallback;
+  const first = (keys: string[], fb = 0): number => {
+    for (const k of keys) {
+      if (d[k] !== undefined && d[k] !== null) {
+        const v = Number(d[k]);
+        if (Number.isFinite(v)) return v;
+      }
+    }
+    return fb;
+  };
+  const firstStr = (keys: string[]): any => {
+    for (const k of keys) {
+      if (d[k] !== undefined && d[k] !== null && d[k] !== '') return d[k];
+    }
+    return undefined;
   };
 
-  // A1 / A2
-  const teamRevenue = n('teamRevenue');
-  const teamCommission = n('teamCommission');
-  const directRevenue = n('directRevenue');
-  const directCommission = n('directCommission');
-  const directImpressions = n('directImpressions');
-  const indirectRevenue = n('indirectRevenue');
-  const indirectCommission = n('indirectCommission');
-  const indirectImpressions = n('indirectImpressions');
+  // A1 / A2 — 团队汇总（总额字段）
+  const teamRevenue = first(['totalPerformance', 'teamRevenue', 'revenue']);
+  const teamCommission = first(['totalCommission', 'teamCommission']);
 
-  // B1~B3 / C2~C4
-  const directUserCount = n('directUserCount');
-  const directActiveUsers = n('directActiveUsers');
-  const directActiveRate = n('directActiveRate');
-  const indirectUserCount = n('indirectUserCount');
-  const indirectActiveUsers = n('indirectActiveUsers');
-  const indirectActiveRate = n('indirectActiveRate');
+  // 业绩拆解：直推/间推拆分字段（后端已返回拆分）
+  const directRevenue = first(['directRevenue']);
+  const directCommission = first(['directCommission']);
+  const directImpressions = first(['directImpressions']);
+  const indirectRevenue = first(['indirectRevenue']);
+  const indirectCommission = first(['indirectCommission']);
+  const indirectImpressions = first(['indirectImpressions']);
 
-  // D1~D3 + 新增的拆解6字段（后端补齐中，缺就当 0）
-  const teamRevenueGrowth = d.teamRevenueGrowth;
-  const teamCommissionGrowth = d.teamCommissionGrowth;
-  const directRevenueGrowth = d.directRevenueGrowth;
-  const directCommissionGrowth = d.directCommissionGrowth;
-  const directImpressionsGrowth = d.directImpressionsGrowth;
-  const indirectRevenueGrowth = d.indirectRevenueGrowth;
-  const indirectCommissionGrowth = d.indirectCommissionGrowth;
-  const indirectImpressionsGrowth = d.indirectImpressionsGrowth;
+  // B1~B3 / C2~C4 — 管理数据（使用后端拆分字段）
+  const directUserCount = first(['directRegisteredUsers', 'registeredUsers']);
+  const directActiveUsers = first(['directActiveUserCount', 'activeUserCount']);
+  const directActiveRate = first(['directActiveRate', 'activeRate']);
+  const indirectUserCount = first(['indirectRegisteredUsers']);
+  const indirectActiveUsers = first(['indirectActiveUserCount']);
+  const indirectActiveRate = first(['indirectActiveRate']);
+
+  // D1~D3 环比
+  const teamRevenueGrowth = firstStr(['totalPerformanceGrowth', 'revenueGrowth']);
+  const teamCommissionGrowth = firstStr(['totalCommissionGrowth', 'commissionGrowth']);
+  const directRevenueGrowth = firstStr(['directRevenueGrowth']);
+  const directCommissionGrowth = firstStr(['directCommissionGrowth']);
+  const directImpressionsGrowth = firstStr(['directImpressionsGrowth']);
+  const indirectRevenueGrowth = firstStr(['indirectRevenueGrowth']);
+  const indirectCommissionGrowth = firstStr(['indirectCommissionGrowth']);
+  const indirectImpressionsGrowth = firstStr(['indirectImpressionsGrowth']);
 
   // scope 判断：当 _scopeHint=GL 或 direct==total 且 indirect 全0
   const scope = _scopeHint || (d._scope as 'TL' | 'GL' | undefined) || 'TL';
@@ -600,7 +613,8 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
   }, [timeRange, currentUser, fetchKpiRaw, getCachedData, setCachedData]);
 
   useEffect(() => {
-    if (currentUser) fetchData();
+    // 初次挂载强制走后端，跳过缓存（修复 React 子组件 effect 早于父组件 cacheManager.clear() 导致读到旧缓存的时序 bug）
+    if (currentUser) fetchData(true);
   }, [fetchData, currentUser]);
 
   useEffect(() => {

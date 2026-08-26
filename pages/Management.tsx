@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, Target, ToggleLeft, ToggleRight, Wallet, ChevronRight,
-  UserPlus, Settings, TrendingUp, TrendingDown, Plus, ChevronLeft, Info, Check, Smartphone, AlertCircle, DollarSign, Award
+  UserPlus, Settings, TrendingUp, TrendingDown, Plus, ChevronLeft, Info, Check, Smartphone, AlertCircle, DollarSign, Award, Gift
 } from 'lucide-react';
 import { request } from '../services/api';
 import { authService } from '../services/authService';
@@ -19,11 +19,12 @@ import WelfareLotteryManagement from './WelfareLotteryManagement';
 import GroupLeaderLevelConfigManagement from './GroupLeaderLevelConfigManagement';
 import ECPMChangeRecord from './ECPMChangeRecord';
 import DownloadConfig from './DownloadConfig';
+import DailyGuarantee from './DailyGuarantee';
 
 interface ManagementProps {}
 
 const Management: React.FC<ManagementProps> = () => {
-  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification' | 'gold-adjustment' | 'gold-adjustment-today' | 'welfare-lottery' | 'welfare-withdraw' | 'level-config' | 'ecpm-record' | 'download-config'>('main');
+  const [activePage, setActivePage] = useState<'main' | 'account' | 'target' | 'withdrawal' | 'deduction-history' | 'commission' | 'red-packet' | 'device-limit' | 'lottery' | 'verification' | 'gold-adjustment' | 'gold-adjustment-today' | 'daily-guarantee' | 'welfare-lottery' | 'welfare-withdraw' | 'level-config' | 'ecpm-record' | 'download-config'>('main');
   const [withdrawEnabled, setWithdrawEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showDeductionModal, setShowDeductionModal] = useState(false);
@@ -572,6 +573,10 @@ const Management: React.FC<ManagementProps> = () => {
     return <VerificationManagement onBack={() => setActivePage('main')} />;
   }
 
+  if (activePage === 'daily-guarantee') {
+    return <DailyGuarantee onBack={() => setActivePage('main')} />;
+  }
+
   if (activePage === 'gold-adjustment') {
     return <GoldAdjustment onBack={() => setActivePage('main')} />;
   }
@@ -630,22 +635,6 @@ const Management: React.FC<ManagementProps> = () => {
       bg: 'bg-purple-50'
     },
     {
-      id: 'gold-adjustment-today',
-      icon: TrendingUp,
-      title: '今日金币调整',
-      description: '手动增加用户今日金币记录',
-      color: 'text-yellow-500',
-      bg: 'bg-yellow-50'
-    },
-    {
-      id: 'gold-adjustment',
-      icon: Wallet,
-      title: '月度金币调整',
-      description: '调整用户月度金币数量',
-      color: 'text-green-500',
-      bg: 'bg-green-50'
-    },
-    {
       id: 'red-packet',
       icon: Wallet,
       title: '红包玩法管理',
@@ -668,6 +657,30 @@ const Management: React.FC<ManagementProps> = () => {
       description: '管理奖品概率和提现申请',
       color: 'text-pink-500',
       bg: 'bg-pink-50'
+    },
+    {
+      id: 'daily-guarantee',
+      icon: Gift,
+      title: '保底福袋管理',
+      description: '设置每日保底配置和发放记录',
+      color: 'text-purple-500',
+      bg: 'bg-purple-50'
+    },
+    {
+      id: 'gold-adjustment-today',
+      icon: TrendingUp,
+      title: '今日金币调整',
+      description: '手动增加用户今日金币记录',
+      color: 'text-yellow-500',
+      bg: 'bg-yellow-50'
+    },
+    {
+      id: 'gold-adjustment',
+      icon: Wallet,
+      title: '月度金币调整',
+      description: '调整用户月度金币数量',
+      color: 'text-green-500',
+      bg: 'bg-green-50'
     },
     {
       id: 'level-config',
@@ -793,6 +806,8 @@ const Management: React.FC<ManagementProps> = () => {
                   setActivePage('level-config');
                 } else if (item.id === 'verification') {
                   setActivePage('verification');
+                } else if (item.id === 'daily-guarantee') {
+                  setActivePage('daily-guarantee');
                 } else if (item.id === 'gold-adjustment') {
                   setActivePage('gold-adjustment');
                 } else if (item.id === 'gold-adjustment-today') {

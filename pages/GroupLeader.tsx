@@ -65,26 +65,55 @@ function transformKpi(raw: any, timeRangeLabel?: string): KpiSections {
     const v = Number(d[k]);
     return Number.isFinite(v) ? v : fallback;
   };
+  // 取第一个命中的字段（新字段优先，老字段兜底）
+  const first = (keys: string[], fallback = 0): number => {
+    for (const k of keys) {
+      if (d[k] !== undefined && d[k] !== null) {
+        const v = Number(d[k]);
+        if (Number.isFinite(v)) return v;
+      }
+    }
+    return fallback;
+  };
+  const firstStr = (keys: string[]): string | undefined => {
+    for (const k of keys) {
+      if (d[k] !== undefined && d[k] !== null && d[k] !== '') return d[k];
+    }
+    return undefined;
+  };
 
-  // 组长视角下: team* = direct* (indirect* 恒为 0)
-  const teamRevenue = n('teamRevenue');
-  const teamCommission = n('teamCommission');
-  const directRevenue = n('directRevenue');
-  const directCommission = n('directCommission');
-  const directImpressions = n('directImpressions');
+  // 新版字段优先（totalPerformance / totalCommission / activeUserCount / registeredUsers / activeRate），老字段兜底
+  const totalPerformance = first(['totalPerformance', 'teamRevenue']);
+  const totalCommission = first(['totalCommission', 'teamCommission']);
+  const commissionRate = first(['commissionRate'], 0);
 
-  const directUserCount = n('directUserCount');
-  const directActiveUsers = n('directActiveUsers');
-  const directActiveRate = n('directActiveRate');
+  // direct* 兜底（部分卡片仍使用 direct 口径）
+  const teamRevenue = totalPerformance;
+  const teamCommission = totalCommission;
+  const directRevenue = first(['directRevenue', 'revenue']);
+  const directCommission = first(['directCommission']);
+  const directImpressions = first(['directImpressions', 'impressions']);
 
-  const teamRevenueGrowth = d.teamRevenueGrowth;
-  const teamCommissionGrowth = d.teamCommissionGrowth;
-  const directRevenueGrowth = d.directRevenueGrowth;
-  const directCommissionGrowth = d.directCommissionGrowth;
-  const directImpressionsGrowth = d.directImpressionsGrowth;
-  const indirectRevenueGrowth = d.indirectRevenueGrowth;
-  const indirectCommissionGrowth = d.indirectCommissionGrowth;
-  const indirectImpressionsGrowth = d.indirectImpressionsGrowth;
+  const registeredUsers = first(['registeredUsers', 'directUserCount']);
+  const activeUserCount = first(['activeUserCount', 'directActiveUsers']);
+  const activeRate = first(['activeRate', 'directActiveRate']);
+  const userCountForRate = registeredUsers > 0 ? registeredUsers : n('directUserCount');
+  const activeRateComputed =
+    activeRate > 0
+      ? activeRate
+      : userCountForRate > 0
+      ? (activeUserCount / userCountForRate) * 100
+      : 0;
+
+  // growth 字段：后端返回 revenueGrowth / commissionGrowth（兼容新老多种命名）
+  const teamRevenueGrowth = firstStr(['totalPerformanceGrowth', 'revenueGrowth', 'teamRevenueGrowth']);
+  const teamCommissionGrowth = firstStr(['totalCommissionGrowth', 'commissionGrowth', 'teamCommissionGrowth']);
+  const directRevenueGrowth = firstStr(['directRevenueGrowth', 'revenueGrowth']);
+  const directCommissionGrowth = firstStr(['directCommissionGrowth', 'commissionGrowth']);
+  const directImpressionsGrowth = firstStr(['directImpressionsGrowth', 'impressionsGrowth']);
+  const registeredUsersGrowth = firstStr(['registeredUsersGrowth', 'directUserCountGrowth']);
+  const activeUserCountGrowth = firstStr(['activeUserCountGrowth', 'activeUsersGrowth', 'directActiveUsersGrowth']);
+  const activeRateGrowth = firstStr(['activeRateGrowth']);
 
   // 计算本组的平均金币 = (本组业绩元 * 1000) / 曝光数
   const avgGoldPerAd =
@@ -92,12 +121,28 @@ function transformKpi(raw: any, timeRangeLabel?: string): KpiSections {
 
   // 环比标签只在「今日」「本月」展示，昨日/本周不显示
   const showGrowth = timeRangeLabel === '今日' || timeRangeLabel === '本月';
-  const grd1 = showGrowth ? growthText(teamRevenueGrowth) : '';
-  const isup1 = showGrowth ? Number(teamRevenueGrowth) > 0 : undefined;
-  const grd2 = showGrowth ? growthText(teamCommissionGrowth) : '';
-  const isup2 = showGrowth ? Number(teamCommissionGrowth) > 0 : undefined;
-  const gD = (raw: any) => showGrowth ? growthText(raw ?? 0) : '';
-  const uD = (raw: any) => showGrowth ? Number(raw ?? 0) > 0 : undefined;
+  const toNum = (v: any): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const grd1 = showGrowth ? growthText(toNum(teamRevenueGrowth)) : '';
+  const isup1 = showGrowth ? toNum(teamRevenueGrowth) > 0 : undefined;
+  const grd2 = showGrowth ? growthText(toNum(teamCommissionGrowth)) : '';
+  const isup2 = showGrowth ? toNum(teamCommissionGrowth) > 0 : undefined;
+  const gD = (raw: any) => showGrowth ? growthText(toNum(raw)) : '';
+  const uD = (raw: any) => showGrowth ? toNum(raw) > 0 : undefined;
+
+  // commissionRate 兜底（若后端未返回则用 teamCommission / teamRevenue 估算）
+  const finalCommissionRate =
+    commissionRate > 0
+      ? commissionRate
+      : teamRevenue > 0
+      ? teamCommission / teamRevenue
+      : 0;
+  const commissionRatePct =
+    finalCommissionRate >= 1
+      ? finalCommissionRate.toFixed(2)
+      : (finalCommissionRate * 100).toFixed(2);
 
   const summary: KpiCard[] = [
     {
@@ -111,6 +156,7 @@ function transformKpi(raw: any, timeRangeLabel?: string): KpiSections {
     {
       title: '本组总提成',
       value: fmtMoney(teamCommission),
+      subValue: teamRevenue > 0 ? `${commissionRatePct}%` : '0%',
       ...(grd2 ? { growth: grd2, isUp: isup2 } : {}),
       icon: Coins,
       color: 'text-purple-600',
@@ -161,18 +207,18 @@ function transformKpi(raw: any, timeRangeLabel?: string): KpiSections {
     },
     {
       title: '本组在册',
-      value: `${fmtCount(directUserCount)} 人`,
-      growth: gD((d as any).directUserCountGrowth),
-      isUp: uD((d as any).directUserCountGrowth),
+      value: `${fmtCount(registeredUsers)} 人`,
+      growth: gD(registeredUsersGrowth),
+      isUp: uD(registeredUsersGrowth),
       icon: Users,
       color: 'text-sky-700',
       bg: 'bg-sky-50',
     },
     {
       title: '本组活跃',
-      value: `${fmtCount(directActiveUsers)} 人`,
-      growth: gD((d as any).directActiveUsersGrowth),
-      isUp: uD((d as any).directActiveUsersGrowth),
+      value: `${fmtCount(activeUserCount)} 人`,
+      growth: gD(activeUserCountGrowth),
+      isUp: uD(activeUserCountGrowth),
       icon: Activity,
       color: 'text-emerald-600',
       bg: 'bg-emerald-50',
@@ -182,24 +228,24 @@ function transformKpi(raw: any, timeRangeLabel?: string): KpiSections {
   const directMgmt: KpiCard[] = [
     {
       title: '在册用户',
-      value: `${fmtCount(directUserCount)} 人`,
+      value: `${fmtCount(registeredUsers)} 人`,
       icon: Users,
       color: 'text-sky-700',
       bg: 'bg-sky-50',
     },
     {
       title: '活跃用户',
-      value: `${fmtCount(directActiveUsers)} 人`,
+      value: `${fmtCount(activeUserCount)} 人`,
       icon: Activity,
       color: 'text-emerald-600',
       bg: 'bg-emerald-50',
     },
     {
       title: '活跃率',
-      value: fmtPct(directActiveRate),
+      value: fmtPct(activeRateComputed),
       icon: Target,
       color:
-        Number(directActiveRate) >= 30 ? 'text-emerald-600' : 'text-red-500',
+        activeRateComputed >= 30 ? 'text-emerald-600' : 'text-red-500',
       bg: 'bg-emerald-50',
     },
   ];
@@ -208,21 +254,21 @@ function transformKpi(raw: any, timeRangeLabel?: string): KpiSections {
   const indirectMgmt: KpiCard[] = [
     {
       title: '人均业绩',
-      value: directUserCount > 0 ? fmtMoney(directRevenue / directUserCount) : '¥0.00',
+      value: userCountForRate > 0 ? fmtMoney(directRevenue / userCountForRate) : '¥0.00',
       icon: Wallet,
       color: 'text-teal-600',
       bg: 'bg-teal-50',
     },
     {
       title: '人均提成',
-      value: directUserCount > 0 ? fmtMoney(directCommission / directUserCount) : '¥0.00',
+      value: userCountForRate > 0 ? fmtMoney(directCommission / userCountForRate) : '¥0.00',
       icon: Coins,
       color: 'text-rose-600',
       bg: 'bg-rose-50',
     },
     {
       title: '人均曝光',
-      value: directUserCount > 0 ? fmtCount(directImpressions / directUserCount) : '0',
+      value: userCountForRate > 0 ? fmtCount(directImpressions / userCountForRate) : '0',
       icon: Eye,
       color: 'text-sky-600',
       bg: 'bg-sky-50',
@@ -459,7 +505,7 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
   ];
 
   const mergedMgmt = [
-    ...dm.map((c) => taggedKpi(c, '本组管理', 'text-sky-600 bg-sky-50 border border-sky-100')),
+    ...dm.map((c) => taggedKpi(c, '本组', 'text-sky-600 bg-sky-50 border border-sky-100')),
     ...rm.map((c) => taggedKpi(c, '本组人均', 'text-teal-600 bg-teal-50 border border-teal-100')),
   ];
 
@@ -530,7 +576,7 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
     <div className="pb-6 mt-4 space-y-4">
       {/* ① 本组汇总 */}
       <section className="bg-white p-4 rounded-2xl border border-gray-100 shadow-md">
-        <SectionTitle icon={Wallet} title={`${prefix}本组汇总`} hint="全组业绩 + 您实际到手提成" />
+        <SectionTitle icon={Wallet} title={`${prefix}本组汇总`} />
         <div className="grid grid-cols-2 gap-3">
           {sections?.summary.map((kpi, i) => {
             const Icon = kpi.icon;
@@ -578,7 +624,7 @@ const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
 
       {/* ② 管理数据：组长界面四个Tab（今日/昨日/本周/本月）全部显示，且只保留上一行 3 张（在册/活跃/活跃率）；业绩拆解整个section组长不显示 */}
       <section className="bg-white p-4 rounded-2xl border border-gray-100 shadow-md">
-        <SectionTitle icon={UsersRound} title={`${prefix}管理数据`} hint="在册 / 活跃 / 人均" />
+        <SectionTitle icon={UsersRound} title={`${prefix}管理数据`} />
         <div className="grid grid-cols-3 gap-2">
           {mergedMgmt.slice(0, 3).map((k, i) => (
             <WideCard key={`mg-${i}`} kpi={k as any} />

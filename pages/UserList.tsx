@@ -82,25 +82,11 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser, timeRange = '
         const groupName = updatedUser?.groupName || '组';
         const groupId = updatedUser?.teamGroupId || '';
         
-        console.log('最新的用户信息:', {
-          teamName,
-          groupName,
-          groupId
-        });
-        console.log('用户角色:', { isTeamLeader, isGroupLeader });
-        console.log('团队和组信息:', { teamName, groupName, groupId });
+        console.log('[UserList] 当前时间范围:', timeRange, '用户角色:', { isTeamLeader, isGroupLeader });
         
-        // 检查是否有缓存数据（加 v3 后缀强制老缓存失效）
+        // 每次切换时间范围都强制清缓存，避免不同范围的数据串台
         const userListCacheKey = `user_list_${timeRange}_${updatedUser?.id}_v3`;
-        const cachedData = cacheManager.get(userListCacheKey, 300000); // 5分钟缓存
-        
-        if (cachedData && Array.isArray(cachedData.users) && cachedData.users.length > 0) {
-          // 使用缓存数据
-          console.log('[UserList] 使用缓存的用户列表数据，条数:', cachedData.users.length);
-          setUsers(cachedData.users);
-          setLoading(false);
-          return;
-        }
+        cacheManager.delete(userListCacheKey);
         
         // 构建API路径（严格对齐 Dashboard.tsx 的 URL，不要加多余参数避免后端过滤）
         let userUrl = `/admin/dashboard/users?range=${timeRange}`;
@@ -110,7 +96,7 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser, timeRange = '
           userUrl = `/admin/dashboard/users?range=${timeRange}&group=${encodeURIComponent(groupId || '')}`;
         }
         
-        console.log('用户数据 API 路径:', userUrl);
+        console.log('[UserList] 请求接口:', userUrl);
         
         // 获取用户数据（与Dashboard.tsx完全一致）
         const userResult = await request<any>(userUrl).catch(error => {
@@ -181,7 +167,7 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser, timeRange = '
     };
 
     fetchUsers();
-  }, []);
+  }, [timeRange]);
 
   const filteredAndSortedUsers = useMemo(() => {
     // Step 1: searchKeyword 过滤（按用户id或姓名，与Dashboard一致）
@@ -377,10 +363,14 @@ const UserList: React.FC<UserListProps> = ({ onBack, onSelectUser, timeRange = '
                                           <span className="text-gray-600 font-semibold flex-shrink-0">上级:</span>
                                           <span className="text-[#1E40AF] font-bold min-w-0 whitespace-nowrap">
                                             {(() => {
-                                              // ✅ 严格只认「上级真实姓名」，其他字段（superior / teamName / supervisorUsername / ...）一律忽略
-                                              // —— 这些字段后端可能写成"李想代理群"（组名）或"lixiang"（账号），不符合"显示范洁就可以"的要求
-                                              const realName = (user.supervisorRealName || '').trim();
-                                              return realName || '系统直属';
+                                              // 新后端直接给真实姓名；兼容老接口：依次尝试 superior / supervisorRealName / supervisorName / supervisorUsername
+                                              const raw =
+                                                (user.supervisorRealName || '').trim() ||
+                                                (user.superior || '').trim() ||
+                                                (user.supervisorName || '').trim() ||
+                                                (user.supervisorUsername || '').trim() ||
+                                                '';
+                                              return raw || '系统直属';
                                             })()}
                                           </span>
                                           <span className="text-gray-300 flex-shrink-0">•</span>
