@@ -45,18 +45,18 @@ export async function request<T>(
       }, timeout);
 
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`API Error [${response.status}]:`, errorText);
         try {
-          const errorText = await response.text();
-          console.error(`API Error [${response.status}]:`, errorText);
-          try {
-            const errorData = JSON.parse(errorText);
-            throw new Error(errorData.message || errorData.msg || `HTTP ${response.status}`);
-          } catch (e) {
-            // 如果不是 JSON 格式，直接使用错误文本
+          const errorData = JSON.parse(errorText);
+          throw new Error(errorData.message || errorData.msg || `HTTP ${response.status}`);
+        } catch (jsonErr: any) {
+          if (jsonErr instanceof SyntaxError) {
+            // 不是 JSON 格式，直接用错误文本
             throw new Error(errorText || `HTTP ${response.status}`);
           }
-        } catch (e) {
-          throw new Error(`HTTP ${response.status}`);
+          // 已经是我们抛出的带 message 的 Error，直接透传
+          throw jsonErr;
         }
       }
 

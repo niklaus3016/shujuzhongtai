@@ -11,6 +11,7 @@ import { cacheManager } from '../services/cacheManager';
 interface GroupLeaderProps {
   timeRange: string;
   onRefresh: () => void;
+  currentUser?: any;
 }
 
 type KpiCard = {
@@ -352,12 +353,11 @@ const CardGrid: React.FC<{ cards: KpiCard[] }> = ({ cards }) => (
   </div>
 );
 
-const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh }) => {
+const GroupLeader: React.FC<GroupLeaderProps> = ({ timeRange, onRefresh, currentUser }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [sections, setSections] = useState<KpiSections | null>(null);
 
-  const currentUser = useMemo(() => authService.getCurrentUser(), []);
   const prefix = TIME_RANGE_TO_PREFIX[timeRange] || '今日';
 
   const getCachedData = useCallback((key: string) => {

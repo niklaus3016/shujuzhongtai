@@ -32,7 +32,7 @@ interface NewUsersProps {
 }
 
 const NewUsers: React.FC<NewUsersProps> = ({ onSelectUser }) => {
-  const currentUser = useMemo(() => authService.getCurrentUser(), []);
+  const currentUser = authService.getCurrentUser();
   console.log('currentUser:', currentUser);
   const isTeamLeader = currentUser?.role === UserRole.NORMAL_ADMIN;
   console.log('isTeamLeader:', isTeamLeader);

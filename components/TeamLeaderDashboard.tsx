@@ -12,6 +12,7 @@ interface TeamLeaderDashboardProps {
   timeRange: string;
   onRefresh: () => void;
   onDataLoaded?: () => void;
+  currentUser?: any;
 }
 
 type KpiCard = {
@@ -527,11 +528,11 @@ const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
   timeRange,
   onRefresh,
   onDataLoaded,
+  currentUser,
 }) => {
   const [loading, setLoading] = useState(true);
   const [sections, setSections] = useState<KpiSections | null>(null);
 
-  const currentUser = useMemo(() => authService.getCurrentUser(), []);
   const prefix = TIME_RANGE_TO_PREFIX[timeRange] || '今日';
 
   const getCachedData = useCallback((key: string) => {

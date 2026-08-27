@@ -293,8 +293,7 @@ const Team: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<string>('today');
   const [allUsers, setAllUsers] = useState<any[]>([]);
-  // 使用 useMemo 缓存 currentUser，避免每次渲染都返回新对象
-  const currentUser = useMemo(() => authService.getCurrentUser(), []);
+  const currentUser = authService.getCurrentUser();
 
   // 提取fetchTeams为useCallback，避免重复定义
   const fetchTeams = useCallback(async (range: 'today' | 'month' = 'today') => {

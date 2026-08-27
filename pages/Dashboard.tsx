@@ -100,9 +100,8 @@ const mockDashboardUsers: DashboardUser[] = [
   { id: '8910', userId: 'user010', name: '郑*爽', avatar: 'https://picsum.photos/seed/u10/100/100', watched: 1180, earnings: 177.0, ipCount: 2, deviceCount: 1, ecpm: 150.0, trend: 'up', superior: '李管理', regDays: 2 },
 ];
 
-const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, timeRange: propTimeRange, onTimeRangeChange, currentUser: propCurrentUser }) => {
-  // 使用传入的currentUser或内部状态
-  const [currentUser, setCurrentUser] = useState<AdminUser | null>(propCurrentUser || null);
+const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, timeRange: propTimeRange, onTimeRangeChange, currentUser }) => {
+  // 使用传入的 currentUser prop，直接用不做镜像 —— 镜像会导致用户切换时旧数据闪帧（useEffect 异步更新导致首帧渲染仍是旧用户）
   
   // 状态变量定义
   const [loading, setLoading] = useState(true);
@@ -137,13 +136,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
   
   // 添加滚动位置保存
   const scrollPositionRef = React.useRef<number>(0);
-  
-  // 当propCurrentUser变化时，更新内部状态
-  useEffect(() => {
-    if (propCurrentUser) {
-      setCurrentUser(propCurrentUser);
-    }
-  }, [propCurrentUser]);
   
   // 恢复滚动位置
   useEffect(() => {
@@ -1135,6 +1127,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
   }, [timeRange, currentUser, fetchData]);
 
   const handleRefresh = useCallback(() => {
+    // 彻底清缓存+清所有state，防止切账号或残留数据
+    cacheManager.clear();
+    setKpiData(null);
+    setFullUserData([]);
+    setUserData([]);
     setRefreshCounter(c => c + 1);
     fetchData(true);
   }, [fetchData]);
@@ -1266,11 +1263,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectUser, onViewAllUsers, tim
             timeRange={timeRange} 
             onRefresh={handleRefresh} 
             onDataLoaded={handleTlDataLoaded}
+            currentUser={currentUser}
           />
         ) : isGroupLeader ? (
           <GroupLeader 
             timeRange={timeRange} 
-            onRefresh={handleRefresh} 
+            onRefresh={handleRefresh}
+            currentUser={currentUser}
           />
         ) : (
           showKPIDashboard && (

@@ -1296,14 +1296,20 @@ const GroupManagement: React.FC<GroupManagementProps> = ({ onViewGroupLeaderPerf
           const v = Number(x);
           return Number.isFinite(v) ? v : fb;
         };
-        const todayRevenue =
-          nk(kpi.todayRevenue, nk(kpi.teamRevenue));
-        const monthRevenue =
-          nk(kpi.monthRevenue, nk(kpi.monthlyRevenue, nk(kpi.teamRevenue)));
+        const first = (keys: string[], fb = 0): number => {
+          for (const k of keys) {
+            const v = Number((kpi as any)[k]);
+            if (Number.isFinite(v)) return v;
+          }
+          return fb;
+        };
+        const todayRevenue = first(['todayRevenue', 'totalPerformance', 'teamRevenue', 'revenue']);
+        const monthRevenue = first(['monthRevenue', 'monthlyRevenue', 'totalPerformance', 'teamRevenue']);
+        const teamCommission = first(['teamCommission', 'totalCommission']);
         setKpiSummary({
-          todayRevenue: todayRevenue ?? undefined,
-          monthRevenue: monthRevenue ?? undefined,
-          teamCommission: nk(kpi.teamCommission) ?? undefined,
+          todayRevenue: todayRevenue || undefined,
+          monthRevenue: monthRevenue || undefined,
+          teamCommission: teamCommission || undefined,
         });
       } else if (groupsResponse.length > 0) {
         // KPI 接口失败的兜底：退回到加总（会和首页口径不一致，所以 Console 报警）

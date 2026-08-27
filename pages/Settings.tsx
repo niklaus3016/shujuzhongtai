@@ -250,9 +250,10 @@ const Settings: React.FC<SettingsProps> = ({ onLogout }) => {
       }, 3000);
       // 触发强制刷新，与点击刷新按钮效果一致
       handleRefresh();
-    } catch (error) {
+    } catch (error: any) {
       setIsWithdrawing(false);
-      alert('网络错误，请稍后重试');
+      const msg = error?.message || '网络错误，请稍后重试';
+      alert(msg);
       console.error('Error submitting withdraw request:', error);
     }
   };
