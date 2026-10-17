@@ -141,8 +141,8 @@ const ECPMChangeRecord: React.FC<ECPMChangeRecordProps> = ({ onBack }) => {
   const [exportEndDate, setExportEndDate] = useState('');
   const [exportLoading, setExportLoading] = useState(false);
 
-  const fetchECPMRecords = async () => {
-    setLoading(true);
+  const fetchECPMRecords = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const response = await request<any>(`/admin/ecpm-records?date=${selectedDate}`, {
         method: 'GET'
@@ -169,6 +169,11 @@ const ECPMChangeRecord: React.FC<ECPMChangeRecordProps> = ({ onBack }) => {
 
   useEffect(() => {
     fetchECPMRecords();
+    // 每60秒静默自动刷新（不显示刷新动画），切换日期时重置定时器
+    const interval = setInterval(() => {
+      fetchECPMRecords(true);
+    }, 60000);
+    return () => clearInterval(interval);
   }, [selectedDate]);
 
   const handleDateChange = (date: string) => {
@@ -395,7 +400,7 @@ const ECPMChangeRecord: React.FC<ECPMChangeRecordProps> = ({ onBack }) => {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold text-gray-900">ECPM趋势图</h2>
             <button
-              onClick={fetchECPMRecords}
+              onClick={() => fetchECPMRecords()}
               disabled={loading}
               className="px-3 py-1.5 bg-gray-50 text-gray-600 text-sm font-bold rounded-xl flex items-center space-x-1"
             >
